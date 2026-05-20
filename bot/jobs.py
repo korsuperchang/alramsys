@@ -1,4 +1,5 @@
 """스케줄 기반 이벤트 체크 Job 모음."""
+import asyncio
 import logging
 from datetime import time as dt_time
 
@@ -9,6 +10,7 @@ from telegram.ext import Application, ContextTypes
 from config import Config
 from db import database as db
 from fetchers import dart, us_stock
+from fetchers.ai_analysis import get_analysis
 from bot import formatter
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,8 @@ async def _process_events(bot: Bot, events: list[dict]) -> list[dict]:
     sent = []
     for event in events:
         msg = formatter.format_event(event)
+        analysis = await asyncio.to_thread(get_analysis, event)
+        msg = formatter.append_ai_analysis(msg, analysis)
         await _send(bot, msg)
         db.mark_alert_sent(event["code"], event["alert_key"])
         sent.append(event)

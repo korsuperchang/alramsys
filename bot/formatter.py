@@ -146,6 +146,12 @@ def format_us_exdiv(event: dict) -> str:
     return "\n".join(lines)
 
 
+def append_ai_analysis(text: str, analysis: str | None) -> str:
+    if not analysis:
+        return text
+    return text + f"\n\n🤖 AI 분석: {analysis}"
+
+
 def format_event(event: dict) -> str:
     market = event.get("market", "")
     event_type = event.get("event_type", "")

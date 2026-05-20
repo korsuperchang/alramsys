@@ -1,0 +1,7 @@
+python-telegram-bot[job-queue]>=20.7
+python-dotenv>=1.0
+requests>=2.31
+pykrx>=1.0.45
+yfinance>=0.2.36
+FinanceDataReader>=0.9.50
+pytz>=2024.1

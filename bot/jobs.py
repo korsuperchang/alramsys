@@ -11,6 +11,7 @@ from config import Config
 from db import database as db
 from fetchers import dart, us_stock
 from fetchers.ai_analysis import get_analysis
+from fetchers.supply_demand import get_supply_demand_events
 from bot import formatter
 
 logger = logging.getLogger(__name__)
@@ -77,9 +78,32 @@ async def check_scheduled_events(context: ContextTypes.DEFAULT_TYPE):
     events = db.get_upcoming_scheduled_events(days=1)
     for event in events:
         msg = formatter.format_ex_rights_alert(event)
+        msg = formatter.append_grade_info(msg, event.get("event_type", ""))
+        analysis = await asyncio.to_thread(get_analysis, {
+            "market":     "KR",
+            "code":       event["code"],
+            "name":       event.get("name", ""),
+            "event_type": event.get("event_type", ""),
+            "date":       event.get("event_date", ""),
+            "detail":     {},
+        })
+        msg = formatter.append_ai_analysis(msg, analysis)
         await _send(context.bot, msg)
         db.mark_scheduled_event_alerted(event["source_key"])
         logger.info("예정 이벤트 알림 발송: %s %s", event["code"], event["event_type"])
+
+
+async def check_supply_demand(context: ContextTypes.DEFAULT_TYPE):
+    """국내 주식 수급 이벤트 체크 (매일 장 마감 후 KST 16:30)."""
+    kr_stocks = db.get_kr_stocks()
+    if not kr_stocks:
+        return
+
+    for stock in kr_stocks:
+        events = await asyncio.to_thread(get_supply_demand_events, stock)
+        if events:
+            await _process_events(context.bot, events)
+            logger.info("수급 알림 발송: %s %d건", stock["code"], len(events))
 
 
 async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
@@ -117,6 +141,10 @@ async def run_all_checks(bot: Bot) -> tuple[list[dict], list[dict]]:
         sent = await _process_events(bot, events)
         kr_sent.extend(sent)
 
+        supply_events = await asyncio.to_thread(get_supply_demand_events, stock)
+        sent = await _process_events(bot, supply_events)
+        kr_sent.extend(sent)
+
     for stock in db.get_us_stocks():
         events = us_stock.get_upcoming_events(stock)
         sent = await _process_events(bot, events)
@@ -129,7 +157,7 @@ def schedule_jobs(app: Application):
     """Application 에 모든 주기적 Job 을 등록."""
     jq = app.job_queue
 
-    # 국내 DART 공시: 매시간 (장 운영 시간 우선, 단순화해서 항상 체크)
+    # 국내 DART 공시: 매시간
     jq.run_repeating(
         check_kr_disclosures,
         interval=Config.KR_CHECK_INTERVAL,
@@ -157,6 +185,13 @@ def schedule_jobs(app: Application):
         check_scheduled_events,
         time=dt_time(8, 30, 0, tzinfo=KST),
         name="scheduled_events",
+    )
+
+    # 매일 오후 4시 30분 (KST) 수급 이벤트 체크 (장 마감 후)
+    jq.run_daily(
+        check_supply_demand,
+        time=dt_time(16, 30, 0, tzinfo=KST),
+        name="supply_demand",
     )
 
     logger.info("스케줄 Job 등록 완료")

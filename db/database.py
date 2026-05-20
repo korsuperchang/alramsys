@@ -41,6 +41,20 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS scheduled_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code        TEXT    NOT NULL,
+            name        TEXT,
+            event_type  TEXT    NOT NULL,
+            event_date  TEXT    NOT NULL,
+            rights_type TEXT,
+            source_key  TEXT    NOT NULL UNIQUE,
+            alerted     INTEGER DEFAULT 0,
+            created_at  TEXT    DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -166,3 +180,57 @@ def dart_cache_count() -> int:
     row = conn.execute("SELECT COUNT(*) as cnt FROM dart_corp_codes").fetchone()
     conn.close()
     return row["cnt"]
+
+
+# ── 예정 이벤트 (권리락 등) ───────────────────────────────────
+
+
+def add_scheduled_event(
+    code: str,
+    name: str,
+    event_type: str,
+    event_date: str,
+    rights_type: str,
+    source_key: str,
+) -> bool:
+    try:
+        conn = get_conn()
+        conn.execute(
+            """
+            INSERT INTO scheduled_events
+                (code, name, event_type, event_date, rights_type, source_key)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (code, name, event_type, event_date, rights_type, source_key),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def get_upcoming_scheduled_events(days: int = 1) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT * FROM scheduled_events
+        WHERE alerted = 0
+          AND event_date BETWEEN date('now', 'localtime')
+              AND date('now', 'localtime', ? || ' days')
+        ORDER BY event_date
+        """,
+        (str(days),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_scheduled_event_alerted(source_key: str):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE scheduled_events SET alerted = 1 WHERE source_key = ?",
+        (source_key,),
+    )
+    conn.commit()
+    conn.close()

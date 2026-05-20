@@ -68,6 +68,16 @@ async def check_us_events(context: ContextTypes.DEFAULT_TYPE):
             logger.info("US 이벤트 알림 발송: %s %d건", stock["code"], len(events))
 
 
+async def check_scheduled_events(context: ContextTypes.DEFAULT_TYPE):
+    """권리락 D-1 등 예정 이벤트 알림 (매일 오전 8시 30분 KST)."""
+    events = db.get_upcoming_scheduled_events(days=1)
+    for event in events:
+        msg = formatter.format_ex_rights_alert(event)
+        await _send(context.bot, msg)
+        db.mark_scheduled_event_alerted(event["source_key"])
+        logger.info("예정 이벤트 알림 발송: %s %s", event["code"], event["event_type"])
+
+
 async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
     """매일 아침 8시 관심종목 이벤트 요약 발송."""
     kr_stocks = db.get_kr_stocks()
@@ -136,6 +146,13 @@ def schedule_jobs(app: Application):
         morning_briefing,
         time=dt_time(8, 0, 0, tzinfo=KST),
         name="morning_briefing",
+    )
+
+    # 매일 오전 8시 30분 (KST) 권리락 D-1 알림
+    jq.run_daily(
+        check_scheduled_events,
+        time=dt_time(8, 30, 0, tzinfo=KST),
+        name="scheduled_events",
     )
 
     logger.info("스케줄 Job 등록 완료")

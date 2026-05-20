@@ -8,6 +8,7 @@ class Config:
     TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
     TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
     DART_API_KEY: str = os.getenv("DART_API_KEY", "")
+    FINNHUB_API_KEY: str = os.getenv("FINNHUB_API_KEY", "")
     DB_PATH: str = os.getenv("DB_PATH", "alramsys.db")
 
     KR_CHECK_INTERVAL: int = int(os.getenv("KR_CHECK_INTERVAL", "3600"))

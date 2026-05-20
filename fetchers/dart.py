@@ -5,10 +5,12 @@ import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
+import pandas as pd
 import requests
 
 from config import Config
 from db import database as db
+from fetchers.dart_detail import get_disclosure_detail, detect_report_type
 
 logger = logging.getLogger(__name__)
 
@@ -126,24 +128,47 @@ def get_new_events(stock: dict) -> list[dict]:
 
     events = []
     for item in fetch_disclosures(corp_code):
-        label = classify(item.get("report_nm", ""))
+        report_nm = item.get("report_nm", "")
+        label = classify(report_nm)
         if not label:
             continue
 
-        rcept_no   = item.get("rcept_no", "")
-        alert_key  = f"DART:{stock['code']}:{rcept_no}"
+        rcept_no  = item.get("rcept_no", "")
+        alert_key = f"DART:{stock['code']}:{rcept_no}"
         if db.is_alert_sent(alert_key):
             continue
+
+        rtype  = detect_report_type(report_nm)
+        detail = get_disclosure_detail(rcept_no, rtype)
+
+        if rtype == "rights" and detail.get("record_date"):
+            rights_type = "무상증자" if "무상증자" in report_nm else "유상증자"
+            try:
+                ex_date = (
+                    pd.Timestamp(detail["record_date"]) - pd.offsets.BDay(1)
+                ).strftime("%Y-%m-%d")
+                source_key = f"EXRIGHTS:{stock['code']}:{ex_date}"
+                db.add_scheduled_event(
+                    code=stock["code"],
+                    name=stock.get("name", stock["code"]),
+                    event_type="권리락",
+                    event_date=ex_date,
+                    rights_type=rights_type,
+                    source_key=source_key,
+                )
+            except Exception as exc:
+                logger.debug("권리락 일정 저장 실패 (%s): %s", stock["code"], exc)
 
         events.append({
             "market":     "KR",
             "code":       stock["code"],
             "name":       stock.get("name", stock["code"]),
             "event_type": label,
-            "title":      item.get("report_nm", ""),
+            "title":      report_nm,
             "date":       item.get("rcept_dt", ""),
             "url":        f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}",
             "alert_key":  alert_key,
+            "detail":     detail,
         })
 
     return events

@@ -60,13 +60,39 @@ def get_upcoming_events(stock: dict) -> list[dict]:
 def _collect_earnings(t, stock, now, horizon, events: list):
     """실적발표 이벤트 수집."""
     try:
+        from fetchers.finnhub_fetcher import get_upcoming_earnings, format_revenue
+        fh = get_upcoming_earnings(stock["code"])
+    except Exception:
+        fh = None
+
+    if fh:
+        date_str = fh["date"]
+        alert_key = f"US_EARNINGS:{stock['code']}:{date_str}"
+        if not db.is_alert_sent(alert_key):
+            events.append({
+                "market":     "US",
+                "code":       stock["code"],
+                "name":       stock.get("name", stock["code"]),
+                "event_type": "📊 실적발표 예정",
+                "title":      f"{stock.get('name', stock['code'])} 실적발표",
+                "date":       date_str,
+                "url":        f"https://finance.yahoo.com/quote/{stock['code']}",
+                "alert_key":  alert_key,
+                "detail": {
+                    "time":         fh.get("time", ""),
+                    "eps_estimate": fh.get("eps_estimate"),
+                    "revenue_str":  fh.get("revenue_str"),
+                },
+            })
+        return
+
+    try:
         df = t.earnings_dates
         if df is None or df.empty:
             return
         for ts, _ in df.iterrows():
             if ts is None:
                 continue
-            # tz-aware 변환
             if hasattr(ts, "tzinfo") and ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             if now <= ts <= horizon:
@@ -83,7 +109,7 @@ def _collect_earnings(t, stock, now, horizon, events: list):
                         "url":        f"https://finance.yahoo.com/quote/{stock['code']}",
                         "alert_key":  alert_key,
                     })
-                break  # 가장 가까운 것 하나만
+                break
     except Exception as exc:
         logger.debug("earnings_dates 조회 실패 (%s): %s", stock["code"], exc)
 

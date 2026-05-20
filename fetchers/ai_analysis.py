@@ -71,6 +71,39 @@ def _build_prompt(event: dict) -> str:
     return "\n".join(parts)
 
 
+_MACRO_SYSTEM = (
+    "당신은 주식시장 전문 애널리스트입니다.\n"
+    "주어진 시장 데이터를 바탕으로 투자자가 주목해야 할 핵심 포인트를 3줄 이내로 작성하세요.\n"
+    "규칙:\n"
+    "- 반드시 한국어로만\n"
+    "- 각 줄은 '• '로 시작\n"
+    "- 앞뒤 설명 없이 핵심 포인트만 출력\n"
+    "- 3줄을 넘지 말 것"
+)
+
+
+def get_macro_summary(context: str) -> str | None:
+    """시장 데이터 컨텍스트 기반 핵심 3줄 생성."""
+    client = _get_client()
+    if not client:
+        return None
+    try:
+        message = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=200,
+            thinking={"type": "adaptive"},
+            system=_MACRO_SYSTEM,
+            messages=[{"role": "user", "content": context}],
+        )
+        for block in message.content:
+            if block.type == "text":
+                return block.text.strip()
+        return None
+    except Exception as exc:
+        logger.debug("매크로 분석 실패: %s", exc)
+        return None
+
+
 def get_analysis(event: dict) -> str | None:
     """이벤트에 대한 AI 분석을 반환. API 키 없거나 오류 시 None 반환."""
     client = _get_client()

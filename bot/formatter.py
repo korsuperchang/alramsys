@@ -1,6 +1,24 @@
 """텔레그램 메시지 포맷터."""
 from datetime import datetime, timedelta
 
+_SEP = "─" * 24
+_WEEKDAY = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _arrow(pct: float) -> str:
+    return "▲" if pct >= 0 else "▼"
+
+
+def _pct(pct: float) -> str:
+    sign = "+" if pct >= 0 else ""
+    return f"{_arrow(pct)} {sign}{pct:.1f}%"
+
+
+def _flow(val: int) -> str:
+    eok = val / 1_0000_0000
+    arrow = "▲ +" if eok >= 0 else "▼ "
+    return f"{arrow}{abs(eok):.0f}억"
+
 
 DISCLOSURE_EN = {
     "계약 체결": "Single Sales/Supply Contract",
@@ -300,6 +318,128 @@ def format_daily_summary(kr_events: list[dict], us_events: list[dict]) -> str:
         )
 
     return "\n".join(lines)
+
+
+# ── 거시경제 포맷 ─────────────────────────────────────────────
+
+
+def format_morning_briefing(snap: dict, events: list) -> str:
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"🌅 모닝 브리핑  ·  {date_str}", _SEP]
+
+    # 간밤 미국 시장
+    us_parts = []
+    for key, label in [("sp500", "S&P"), ("nasdaq", "나스닥"), ("dow", "다우")]:
+        d = snap.get(key)
+        if d:
+            us_parts.append(f"{label} {_pct(d['pct'])}")
+    if us_parts:
+        lines.append("🌏 간밤 미국")
+        lines.append("  " + "  ·  ".join(us_parts))
+
+    # 매크로 지표
+    macro_parts = []
+    for key, label, fmt in [
+        ("tnx",  "10년물", lambda d: f"{d['value']:.2f}% ({'+' if d['pct']>=0 else ''}{(d['value']-d['prev'])*100:.0f}bp)"),
+        ("vix",  "VIX",   lambda d: f"{d['value']:.1f} ({_pct(d['pct'])})"),
+        ("dxy",  "달러",   lambda d: f"{d['value']:.1f} ({_pct(d['pct'])})"),
+        ("krw",  "원달러", lambda d: f"{d['value']:,.0f}원 ({_pct(d['pct'])})"),
+        ("oil",  "유가",   lambda d: f"${d['value']:.1f} ({_pct(d['pct'])})"),
+    ]:
+        d = snap.get(key)
+        if d:
+            macro_parts.append(f"  {label}  {fmt(d)}")
+    if macro_parts:
+        lines.append("")
+        lines.extend(macro_parts)
+
+    # 오늘 경제 일정
+    if events:
+        lines.append("")
+        lines.append("📅 오늘 주요 일정")
+        imp_emoji = {"S": "🔴", "A": "🟡", "B": "🟢"}
+        for e in events[:5]:
+            badge = imp_emoji.get(e.get("importance", "B"), "🟢")
+            time  = f"{e['time_kst']}  " if e.get("time_kst") else ""
+            lines.append(f"  {badge} {time}{e['title']}")
+            if e.get("hint"):
+                lines.append(f"      └ {e['hint']}")
+
+    lines.append(_SEP)
+    return "\n".join(lines)
+
+
+def format_evening_summary(snap: dict, sectors: list, flow: dict) -> str:
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"📊 장 마감 요약  ·  {date_str}", _SEP]
+
+    # 지수
+    idx_lines = []
+    for key, label in [("kospi", "코스피"), ("kosdaq", "코스닥"), ("krw", "원달러")]:
+        d = snap.get(key)
+        if d:
+            val = f"{d['value']:,.0f}원" if key == "krw" else f"{d['value']:,.0f}"
+            idx_lines.append(f"  {label}  {val}  {_pct(d['pct'])}")
+    if idx_lines:
+        lines.append("📈 지수")
+        lines.extend(idx_lines)
+
+    # 수급
+    if flow:
+        lines.append("")
+        lines.append("💹 수급 (코스피)")
+        if "foreign" in flow:
+            lines.append(f"  외국인  {_flow(flow['foreign'])}")
+        if "institution" in flow:
+            lines.append(f"  기관    {_flow(flow['institution'])}")
+
+    # 섹터 성과
+    if sectors:
+        gainers = [s for s in sectors if s["pct"] > 0][:3]
+        losers  = [s for s in reversed(sectors) if s["pct"] < 0][:3]
+        lines.append("")
+        lines.append("🔄 섹터 성과")
+        if gainers:
+            g = "  ".join(f"{s['sector']} +{s['pct']:.1f}%" for s in gainers)
+            lines.append(f"  ▲ {g}")
+        if losers:
+            l = "  ".join(f"{s['sector']} {s['pct']:.1f}%" for s in losers)
+            lines.append(f"  ▼ {l}")
+
+    lines.append(_SEP)
+    return "\n".join(lines)
+
+
+def format_anomaly_alert(anomalies: list, snap: dict) -> str:
+    lines = ["🚨 시장 이상 징후 감지", _SEP]
+
+    for a in anomalies:
+        key = a["indicator"]
+        val = a["value"]
+        if key == "krw":
+            val_str = f"{val:,.0f}원"
+        elif key == "tnx":
+            bp = a.get("bp", 0)
+            val_str = f"{val:.2f}% (+{bp:.0f}bp)"
+        elif key == "vix":
+            val_str = f"{val:.1f}"
+        else:
+            val_str = f"{val:,.0f}"
+        lines.append(f"  {a['label']:<8}  {_pct(a['pct'])}  ({val_str})")
+
+    lines.append(_SEP)
+    lines.append("🔴 S등급  즉시 확인 필요")
+    return "\n".join(lines)
+
+
+def append_macro_summary(text: str, summary: str | None) -> str:
+    if not summary:
+        return text
+    return text + f"\n\n💡 AI 핵심\n{summary}"
 
 
 def format_help() -> str:

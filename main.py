@@ -41,16 +41,11 @@ def main():
     # 커맨드 핸들러 등록 (한국어 / 영어 모두 지원)
     for cmd in ("start",):
         app.add_handler(CommandHandler(cmd, cmd_start))
-    for cmd in ("help", "도움말"):
-        app.add_handler(CommandHandler(cmd, cmd_help))
-    for cmd in ("add", "추가"):
-        app.add_handler(CommandHandler(cmd, cmd_add))
-    for cmd in ("remove", "삭제"):
-        app.add_handler(CommandHandler(cmd, cmd_remove))
-    for cmd in ("list", "목록"):
-        app.add_handler(CommandHandler(cmd, cmd_list))
-    for cmd in ("check", "체크"):
-        app.add_handler(CommandHandler(cmd, cmd_check))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("add", cmd_add))
+    app.add_handler(CommandHandler("remove", cmd_remove))
+    app.add_handler(CommandHandler("list", cmd_list))
+    app.add_handler(CommandHandler("check", cmd_check))
 
     schedule_jobs(app)
 

@@ -15,6 +15,7 @@ from fetchers.supply_demand import get_supply_demand_events
 from fetchers.market_indicators import get_snapshot, check_anomalies
 from fetchers.sector_monitor import get_sector_performance, get_market_flow
 from fetchers.macro_calendar import get_upcoming_events
+from fetchers.watchlist_prices import get_kr_prices, get_us_prices
 from bot import formatter
 
 logger = logging.getLogger(__name__)
@@ -153,12 +154,19 @@ async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def evening_market_summary(context: ContextTypes.DEFAULT_TYPE):
-    """장 마감 요약 (매일 16:45 KST): 지수 + 섹터 + 수급."""
+    """장 마감 요약 (매일 16:45 KST): 지수 + 섹터 + 수급 + 관심종목."""
     snap    = await asyncio.to_thread(get_snapshot)
     sectors = await asyncio.to_thread(get_sector_performance)
     flow    = await asyncio.to_thread(get_market_flow)
 
-    msg     = formatter.format_evening_summary(snap, sectors, flow)
+    kr_stocks = db.get_kr_stocks()
+    us_stocks = db.get_us_stocks()
+    kr_prices, us_prices = await asyncio.gather(
+        asyncio.to_thread(get_kr_prices, kr_stocks),
+        asyncio.to_thread(get_us_prices, us_stocks),
+    )
+
+    msg     = formatter.format_evening_summary(snap, sectors, flow, kr_prices, us_prices)
     summary = await asyncio.to_thread(get_macro_summary, msg)
     msg     = formatter.append_macro_summary(msg, summary)
 

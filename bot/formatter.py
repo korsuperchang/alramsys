@@ -371,7 +371,18 @@ def format_morning_briefing(snap: dict, events: list) -> str:
     return "\n".join(lines)
 
 
-def format_evening_summary(snap: dict, sectors: list, flow: dict) -> str:
+def _stock_row(s: dict, is_kr: bool) -> str:
+    name  = (s.get("name") or s["code"])[:8]
+    pct   = s["pct"]
+    arrow = "▲" if pct >= 0 else "▼"
+    sign  = "+" if pct >= 0 else ""
+    price = f"{s['price']:,.0f}" if is_kr else f"${s['price']:,.2f}"
+    return f"  {arrow} {sign}{pct:.1f}%  {name}  {price}"
+
+
+def format_evening_summary(snap: dict, sectors: list, flow: dict,
+                            kr_prices: list | None = None,
+                            us_prices: list | None = None) -> str:
     now = datetime.now()
     date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
 
@@ -402,13 +413,27 @@ def format_evening_summary(snap: dict, sectors: list, flow: dict) -> str:
         gainers = [s for s in sectors if s["pct"] > 0][:3]
         losers  = [s for s in reversed(sectors) if s["pct"] < 0][:3]
         lines.append("")
-        lines.append("🔄 섹터 성과")
+        lines.append("🔄 섹터")
         if gainers:
             g = "  ".join(f"{s['sector']} +{s['pct']:.1f}%" for s in gainers)
             lines.append(f"  ▲ {g}")
         if losers:
             l = "  ".join(f"{s['sector']} {s['pct']:.1f}%" for s in losers)
             lines.append(f"  ▼ {l}")
+
+    # 관심종목 - 국내
+    if kr_prices:
+        lines.append("")
+        lines.append("🇰🇷 관심종목")
+        for s in kr_prices:
+            lines.append(_stock_row(s, is_kr=True))
+
+    # 관심종목 - 미국
+    if us_prices:
+        lines.append("")
+        lines.append("🇺🇸 관심종목")
+        for s in us_prices:
+            lines.append(_stock_row(s, is_kr=False))
 
     lines.append(_SEP)
     return "\n".join(lines)

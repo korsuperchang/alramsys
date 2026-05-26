@@ -442,6 +442,83 @@ def append_macro_summary(text: str, summary: str | None) -> str:
     return text + f"\n\n💡 AI 핵심\n{summary}"
 
 
+def format_us_close_summary(snap: dict) -> str:
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"🌃 미장 마감 요약  ·  {date_str}", _SEP]
+
+    # 주요 지수
+    idx_lines = []
+    for key, label in [("sp500", "S&P 500"), ("nasdaq", "나스닥"), ("dow", "다우")]:
+        d = snap.get(key)
+        if d:
+            idx_lines.append(f"  {label:<10}  {d['value']:,.0f}  {_pct(d['pct'])}")
+    if idx_lines:
+        lines.append("📈 지수")
+        lines.extend(idx_lines)
+
+    # 매크로 지표
+    macro_parts = []
+    for key, label, fmt in [
+        ("vix",  "VIX",    lambda d: f"{d['value']:.1f} ({_pct(d['pct'])})"),
+        ("tnx",  "10년물",  lambda d: f"{d['value']:.2f}% ({'+' if d['pct']>=0 else ''}{(d['value']-d['prev'])*100:.0f}bp)"),
+        ("dxy",  "달러인덱스", lambda d: f"{d['value']:.1f} ({_pct(d['pct'])})"),
+        ("krw",  "원달러",  lambda d: f"{d['value']:,.0f}원 ({_pct(d['pct'])})"),
+        ("oil",  "WTI 유가", lambda d: f"${d['value']:.1f} ({_pct(d['pct'])})"),
+    ]:
+        d = snap.get(key)
+        if d:
+            macro_parts.append(f"  {label:<10}  {fmt(d)}")
+    if macro_parts:
+        lines.append("")
+        lines.append("🔢 주요 지표")
+        lines.extend(macro_parts)
+
+    lines.append(_SEP)
+    return "\n".join(lines)
+
+
+def format_us_premarket_briefing(snap: dict, events: list) -> str:
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"🌙 미장 개장 전 브리핑  ·  {date_str}", _SEP]
+
+    # 오늘 밤 주요 일정
+    us_events = [e for e in events if e.get("country") == "US"]
+    if us_events:
+        lines.append("📅 오늘 밤 미국 주요 일정")
+        imp_emoji = {"S": "🔴", "A": "🟡", "B": "🟢"}
+        for e in us_events[:5]:
+            badge = imp_emoji.get(e.get("importance", "B"), "🟢")
+            time  = f"{e['time_kst']}  " if e.get("time_kst") else ""
+            lines.append(f"  {badge} {time}{e['title']}")
+            if e.get("hint"):
+                lines.append(f"      └ {e['hint']}")
+    else:
+        lines.append("📅 오늘 밤 주요 경제 일정 없음")
+
+    # 현재 시장 지표
+    macro_parts = []
+    for key, label, fmt in [
+        ("sp500",  "S&P 500",  lambda d: f"{d['value']:,.0f} ({_pct(d['pct'])})"),
+        ("nasdaq", "나스닥",   lambda d: f"{d['value']:,.0f} ({_pct(d['pct'])})"),
+        ("vix",    "VIX",      lambda d: f"{d['value']:.1f} ({_pct(d['pct'])})"),
+        ("krw",    "원달러",   lambda d: f"{d['value']:,.0f}원 ({_pct(d['pct'])})"),
+    ]:
+        d = snap.get(key)
+        if d:
+            macro_parts.append(f"  {label:<10}  {fmt(d)}")
+    if macro_parts:
+        lines.append("")
+        lines.append("📊 현재 지표")
+        lines.extend(macro_parts)
+
+    lines.append(_SEP)
+    return "\n".join(lines)
+
+
 def format_help() -> str:
     return (
         "📌 알람시스 (주식 이벤트 알림봇)\n\n"
@@ -454,11 +531,14 @@ def format_help() -> str:
         "국내주식: 6자리 종목코드 (예: 005930)\n"
         "미국주식: 티커 심볼 (예: AAPL, TSLA)\n\n"
         "자동 체크:\n"
-        "  • 매시간       — 국내 DART 공시\n"
-        "  • 6시간마다    — 미국 이벤트\n"
-        "  • 매일 오전 8시 — 이벤트 일일 요약\n"
-        "  • 매일 오전 8시 30분 — 권리락 D-1 알림\n"
-        "  • 매일 오후 4시 30분 — 수급 이벤트 체크\n\n"
+        "  • 매시간          — 국내 DART 공시\n"
+        "  • 6시간마다       — 미국 이벤트\n"
+        "  • 매일 06:00      — 미장 마감 요약\n"
+        "  • 매일 08:00      — 모닝 브리핑\n"
+        "  • 매일 08:30      — 권리락 D-1 알림\n"
+        "  • 매일 16:30      — 수급 이벤트 체크\n"
+        "  • 매일 16:45      — 장 마감 요약\n"
+        "  • 매일 22:00      — 미장 개장 전 브리핑\n\n"
         "국내 공시 알림은 DART API 키 설정 필요\n"
         "(opendart.fss.or.kr 에서 무료 발급)\n\n"
         "알림 등급:\n"

@@ -166,6 +166,27 @@ async def evening_market_summary(context: ContextTypes.DEFAULT_TYPE):
     logger.info("장 마감 요약 발송")
 
 
+async def us_close_summary(context: ContextTypes.DEFAULT_TYPE):
+    """미장 마감 요약 (매일 06:00 KST): 미국 지수 + 주요 지표."""
+    snap    = await asyncio.to_thread(get_snapshot)
+    msg     = formatter.format_us_close_summary(snap)
+    summary = await asyncio.to_thread(get_macro_summary, msg)
+    msg     = formatter.append_macro_summary(msg, summary)
+    await _send(context.bot, msg)
+    logger.info("미장 마감 요약 발송")
+
+
+async def us_premarket_briefing(context: ContextTypes.DEFAULT_TYPE):
+    """미장 개장 전 브리핑 (매일 22:00 KST): 오늘 밤 경제 일정 + 현재 지표."""
+    snap   = await asyncio.to_thread(get_snapshot)
+    events = get_upcoming_events(days=1)
+    msg     = formatter.format_us_premarket_briefing(snap, events)
+    summary = await asyncio.to_thread(get_macro_summary, msg)
+    msg     = formatter.append_macro_summary(msg, summary)
+    await _send(context.bot, msg)
+    logger.info("미장 개장 전 브리핑 발송")
+
+
 # ── /check 즉시 실행 ─────────────────────────────────────────
 
 
@@ -218,5 +239,11 @@ def schedule_jobs(app: Application):
 
     jq.run_daily(evening_market_summary,
                  time=dt_time(16, 45, tzinfo=KST), name="evening_summary")
+
+    jq.run_daily(us_close_summary,
+                 time=dt_time(6, 0, tzinfo=KST), name="us_close_summary")
+
+    jq.run_daily(us_premarket_briefing,
+                 time=dt_time(22, 0, tzinfo=KST), name="us_premarket_briefing")
 
     logger.info("스케줄 Job 등록 완료")

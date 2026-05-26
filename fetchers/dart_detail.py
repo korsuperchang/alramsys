@@ -40,25 +40,35 @@ def _fetch_html(rcept_no: str) -> str | None:
 
 
 def _extract_table_pairs(html: str) -> dict[str, str]:
+    """테이블에서 키-값 쌍 추출. 같은 행 내 연속 셀 + 인접 행도 처리."""
     pairs: dict[str, str] = {}
     try:
         soup = BeautifulSoup(html, "html.parser")
         for table in soup.find_all("table"):
             rows = table.find_all("tr")
+            row_cells: list[list[str]] = []
             for row in rows:
                 cells = row.find_all(["td", "th"])
-                for i in range(len(cells) - 1):
-                    key = cells[i].get_text(separator=" ", strip=True)
-                    val = cells[i + 1].get_text(separator=" ", strip=True)
-                    if key:
-                        pairs[key] = val
+                texts = [c.get_text(separator=" ", strip=True) for c in cells]
+                row_cells.append(texts)
+                # 같은 행 내 연속 셀 쌍
+                for i in range(len(texts) - 1):
+                    if texts[i]:
+                        pairs[texts[i]] = texts[i + 1]
+
+            # 인접 행 쌍 (단일 셀 행 연속)
+            for i in range(len(row_cells) - 1):
+                if len(row_cells[i]) == 1 and row_cells[i][0]:
+                    if len(row_cells[i + 1]) >= 1 and row_cells[i + 1][0]:
+                        pairs[row_cells[i][0]] = row_cells[i + 1][0]
+
     except Exception as exc:
         logger.debug("테이블 파싱 실패: %s", exc)
     return pairs
 
 
 def _normalize_key(key: str) -> str:
-    return re.sub(r"[\s()\[\]·\-_.※]", "", key)
+    return re.sub(r"[\s()\[\]·\-_.※%원]", "", key)
 
 
 def _find(pairs: dict[str, str], *keywords: str) -> str | None:
@@ -74,8 +84,29 @@ def _find(pairs: dict[str, str], *keywords: str) -> str | None:
 def _parse_amount(s: str) -> int | None:
     if not s:
         return None
+    # 조/억/만 단위 직접 표기 처리
+    s_clean = s.replace(",", "").replace(" ", "")
+    m_jo = re.search(r"([\d.]+)조", s_clean)
+    if m_jo:
+        try:
+            return int(float(m_jo.group(1)) * 1_0000_0000_0000)
+        except ValueError:
+            pass
+    m_eok = re.search(r"([\d.]+)억", s_clean)
+    if m_eok:
+        try:
+            return int(float(m_eok.group(1)) * 1_0000_0000)
+        except ValueError:
+            pass
+    m_man = re.search(r"([\d.]+)만", s_clean)
+    if m_man:
+        try:
+            return int(float(m_man.group(1)) * 1_0000)
+        except ValueError:
+            pass
+    # 순수 숫자
+    digits = re.sub(r"[^\d]", "", s)
     try:
-        digits = re.sub(r"[^\d]", "", s)
         return int(digits) if digits else None
     except Exception:
         return None
@@ -84,43 +115,92 @@ def _parse_amount(s: str) -> int | None:
 def format_krw(amount: int) -> tuple[str, str]:
     if amount >= 1_0000_0000_0000:
         jo = amount / 1_0000_0000_0000
-        kr = f"{jo:.1f}조원".rstrip("0").rstrip(".")
-        if jo == int(jo):
-            kr = f"{int(jo)}조원"
+        kr = f"{int(jo)}조원" if jo == int(jo) else f"{jo:.1f}조원"
         en = f"KRW {jo:.1f}T"
         return kr, en
     if amount >= 1_0000_0000:
         eok = amount / 1_0000_0000
-        if eok == int(eok):
-            kr = f"{int(eok)}억원"
-            en = f"KRW {int(eok)}B"
-        else:
-            kr = f"{eok:.1f}억원"
-            en = f"KRW {eok:.1f}B"
+        kr = f"{int(eok)}억원" if eok == int(eok) else f"{eok:.1f}억원"
+        en = f"KRW {int(eok)}B" if eok == int(eok) else f"KRW {eok:.1f}B"
         return kr, en
     if amount >= 1_0000:
         man = amount / 1_0000
-        if man == int(man):
-            kr = f"{int(man)}만원"
-            en = f"KRW {int(man)}M"
-        else:
-            kr = f"{man:.1f}만원"
-            en = f"KRW {man:.1f}M"
+        kr = f"{int(man)}만원" if man == int(man) else f"{man:.1f}만원"
+        en = f"KRW {int(man)}M" if man == int(man) else f"KRW {man:.1f}M"
         return kr, en
     return f"{amount}원", f"KRW {amount}"
 
 
-def parse_contract(pairs: dict[str, str]) -> dict:
-    partner = _find(pairs, "계약상대방", "거래상대방", "계약상대")
-    amount_raw = _find(pairs, "계약금액", "공급금액")
-    revenue_ratio_raw = _find(pairs, "계약금액매출액", "매출액대비", "매출액비율")
+def _extract_amount_from_text(html: str) -> int | None:
+    """HTML 전체에서 계약금액 패턴을 직접 추출 (테이블 파싱 실패 시 폴백)."""
+    patterns = [
+        r"계약금액[^0-9조억만원]{0,20}([\d,]+)원",
+        r"계약금액[^0-9조억만원]{0,20}([\d.]+)억\s*원",
+        r"계약금액[^0-9조억만원]{0,20}([\d.]+)조\s*원",
+        r"공급금액[^0-9조억만원]{0,20}([\d,]+)원",
+    ]
+    text = BeautifulSoup(html, "html.parser").get_text(" ")
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            return _parse_amount(m.group(0))
+    return None
+
+
+def _extract_ratio_from_text(html: str) -> str | None:
+    """HTML 전체에서 매출액 대비 비율을 직접 추출."""
+    text = BeautifulSoup(html, "html.parser").get_text(" ")
+    patterns = [
+        r"매출액\s*대비[^0-9]{0,10}([\d.]+)\s*%",
+        r"최근\s*매출액\s*대비[^0-9]{0,10}([\d.]+)",
+        r"매출액\s*비율[^0-9]{0,10}([\d.]+)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_partner_from_text(html: str) -> str | None:
+    """HTML 전체에서 계약상대방을 직접 추출."""
+    text = BeautifulSoup(html, "html.parser").get_text(" ")
+    m = re.search(r"계약상대방[^가-힣]{0,5}([가-힣(주)()A-Za-z\s,]+?)(?:\n|계약금액|공급금액|거래)", text)
+    if m:
+        val = m.group(1).strip().rstrip(",")
+        if len(val) > 1:
+            return val
+    return None
+
+
+def parse_contract(pairs: dict[str, str], html: str = "") -> dict:
+    partner = _find(pairs,
+                    "계약상대방", "거래상대방", "계약상대",
+                    "상대방회사명", "상대방")
+    amount_raw = _find(pairs,
+                       "계약금액", "공급금액", "거래금액",
+                       "계약총금액", "공급총금액")
+    revenue_ratio_raw = _find(pairs,
+                               "매출액대비", "최근매출액대비", "매출액비율",
+                               "매출액에서차지하는비율", "비율")
 
     result: dict = {}
+
     if partner:
         result["partner"] = partner.strip()
+    elif html:
+        p = _extract_partner_from_text(html)
+        if p:
+            result["partner"] = p
 
     if amount_raw:
         amount_int = _parse_amount(amount_raw)
+        if amount_int:
+            kr, en = format_krw(amount_int)
+            result["amount_kr"] = kr
+            result["amount_en"] = en
+    elif html:
+        amount_int = _extract_amount_from_text(html)
         if amount_int:
             kr, en = format_krw(amount_int)
             result["amount_kr"] = kr
@@ -130,6 +210,10 @@ def parse_contract(pairs: dict[str, str]) -> dict:
         m = re.search(r"[\d.]+", revenue_ratio_raw)
         if m:
             result["revenue_ratio"] = m.group(0)
+    elif html:
+        ratio = _extract_ratio_from_text(html)
+        if ratio:
+            result["revenue_ratio"] = ratio
 
     return result
 
@@ -137,7 +221,7 @@ def parse_contract(pairs: dict[str, str]) -> dict:
 def parse_rights_offering(pairs: dict[str, str]) -> dict:
     record_date_raw = _find(pairs, "신주배정기준일", "기준일")
     allot_ratio_raw = _find(pairs, "배정비율", "1주당배정", "주당배정")
-    method_raw = _find(pairs, "증자방식", "발행방법")
+    method_raw      = _find(pairs, "증자방식", "발행방법")
     issue_price_raw = _find(pairs, "발행가액", "신주발행가액", "주당발행가액")
 
     result: dict = {}
@@ -149,10 +233,8 @@ def parse_rights_offering(pairs: dict[str, str]) -> dict:
 
     if allot_ratio_raw:
         result["allot_ratio"] = allot_ratio_raw.strip()
-
     if method_raw:
         result["method"] = method_raw.strip()
-
     if issue_price_raw:
         result["issue_price_raw"] = issue_price_raw.strip()
 
@@ -176,10 +258,8 @@ def get_disclosure_detail(rcept_no: str, report_type: str) -> dict:
         if not html:
             return {}
         pairs = _extract_table_pairs(html)
-        if not pairs:
-            return {}
         if report_type == "contract":
-            return parse_contract(pairs)
+            return parse_contract(pairs, html)
         if report_type == "rights":
             return parse_rights_offering(pairs)
         return {}

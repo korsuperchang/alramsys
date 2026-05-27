@@ -25,11 +25,31 @@ KST = pytz.timezone("Asia/Seoul")
 
 async def _send(bot: Bot, text: str):
     try:
-        await bot.send_message(
-            chat_id=Config.TELEGRAM_CHAT_ID,
-            text=text,
-            disable_web_page_preview=True,
-        )
+        # 텔레그램 메시지 최대 4096자 제한 - 초과 시 분할 발송
+        max_len = 4000
+        if len(text) <= max_len:
+            await bot.send_message(
+                chat_id=Config.TELEGRAM_CHAT_ID,
+                text=text,
+                disable_web_page_preview=True,
+            )
+        else:
+            chunks = []
+            while text:
+                if len(text) <= max_len:
+                    chunks.append(text)
+                    break
+                split_at = text.rfind("\n", 0, max_len)
+                if split_at == -1:
+                    split_at = max_len
+                chunks.append(text[:split_at])
+                text = text[split_at:].lstrip("\n")
+            for chunk in chunks:
+                await bot.send_message(
+                    chat_id=Config.TELEGRAM_CHAT_ID,
+                    text=chunk,
+                    disable_web_page_preview=True,
+                )
     except Exception as exc:
         logger.error("텔레그램 발송 실패: %s", exc)
 

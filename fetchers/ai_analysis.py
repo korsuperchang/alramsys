@@ -73,13 +73,13 @@ def _build_prompt(event: dict) -> str:
 
 _MACRO_SYSTEM = (
     "당신은 주식시장 전문 애널리스트입니다.\n"
-    "주어진 시장 데이터를 바탕으로 투자자가 주목해야 할 핵심 포인트를 3줄로 작성하세요.\n"
+    "주어진 시장 데이터를 바탕으로 투자자가 주목해야 할 핵심 내용을 자세히 분석해주세요.\n"
     "규칙:\n"
     "- 반드시 한국어로만\n"
-    "- 각 줄은 '• '로 시작\n"
-    "- 앞뒤 설명 없이 핵심 포인트만 출력\n"
-    "- 반드시 3줄로 끝낼 것 (문장 중간에 끊기지 않도록)\n"
-    "- 각 줄은 반드시 완전한 문장으로 마무리할 것"
+    "- 각 항목은 '• '로 시작\n"
+    "- 앞뒤 설명 없이 분석 내용만 출력\n"
+    "- 모든 문장은 반드시 완전하게 마무리할 것\n"
+    "- 중요한 내용은 빠짐없이 포함하되 중복은 피할 것"
 )
 
 
@@ -91,7 +91,7 @@ def get_macro_summary(context: str) -> str | None:
     try:
         message = client.messages.create(
             model="claude-opus-4-7",
-            max_tokens=300,
+            max_tokens=800,
             thinking={"type": "adaptive"},
             system=_MACRO_SYSTEM,
             messages=[{"role": "user", "content": context}],

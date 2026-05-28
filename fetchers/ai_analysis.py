@@ -83,22 +83,35 @@ _MACRO_SYSTEM = (
 )
 
 
+def _trim_to_last_sentence(text: str) -> str:
+    """마지막 완성된 문장까지만 잘라서 반환."""
+    endings = ["다.", "요.", "다!", "요!", "다?", "요?", "습니다.", "겠습니다.", "됩니다.", "입니다."]
+    last_pos = -1
+    for ending in endings:
+        pos = text.rfind(ending)
+        if pos > last_pos:
+            last_pos = pos + len(ending)
+    if last_pos > 0:
+        return text[:last_pos]
+    return text
+
+
 def get_macro_summary(context: str) -> str | None:
-    """시장 데이터 컨텍스트 기반 핵심 3줄 생성."""
+    """시장 데이터 컨텍스트 기반 핵심 분석 생성."""
     client = _get_client()
     if not client:
         return None
     try:
         message = client.messages.create(
             model="claude-opus-4-7",
-            max_tokens=800,
+            max_tokens=1000,
             thinking={"type": "adaptive"},
             system=_MACRO_SYSTEM,
             messages=[{"role": "user", "content": context}],
         )
         for block in message.content:
             if block.type == "text":
-                return block.text.strip()
+                return _trim_to_last_sentence(block.text.strip())
         return None
     except Exception as exc:
         logger.debug("매크로 분석 실패: %s", exc)

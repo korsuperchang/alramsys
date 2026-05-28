@@ -26,7 +26,7 @@ KST = pytz.timezone("Asia/Seoul")
 async def _send(bot: Bot, text: str):
     try:
         # 텔레그램 메시지 최대 4096자 제한 - 초과 시 분할 발송
-        max_len = 4000
+        max_len = 2000
         if len(text) <= max_len:
             await bot.send_message(
                 chat_id=Config.TELEGRAM_CHAT_ID,

@@ -39,7 +39,8 @@ def _build_prompt(event: dict) -> str:
     detail = event.get("detail", {})
     date = event.get("date", "")
 
-    parts = [f"종목: {name} ({code})", f"시장: {'국내' if market == 'KR' else '미국'}"]
+    market_label = {"KR": "국내", "US": "미국", "MACRO": "국내외 시장"}.get(market, market)
+    parts = [f"종목: {name} ({code})", f"시장: {market_label}"]
 
     if event_type:
         parts.append(f"이벤트: {event_type}")

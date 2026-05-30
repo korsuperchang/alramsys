@@ -17,6 +17,20 @@ class Config:
     ALERT_DAYS_AHEAD: int = int(os.getenv("ALERT_DAYS_AHEAD", "7"))
     ANOMALY_CHECK_INTERVAL: int = int(os.getenv("ANOMALY_CHECK_INTERVAL", "3600"))
 
+    # 장중 급등락 알림
+    INTRADAY_CHECK_INTERVAL: int = int(os.getenv("INTRADAY_CHECK_INTERVAL", "900"))  # 15분
+    INTRADAY_SPIKE_PCT: float = float(os.getenv("INTRADAY_SPIKE_PCT", "5.0"))
+
+    # 기술적 매매신호
+    RSI_OVERSOLD:   float = float(os.getenv("RSI_OVERSOLD",   "30.0"))
+    RSI_OVERBOUGHT: float = float(os.getenv("RSI_OVERBOUGHT", "70.0"))
+
+    # 신규 종목 발굴 (스크리너)
+    SCREENER_MIN_VALUE_EOK: float = float(os.getenv("SCREENER_MIN_VALUE_EOK", "100"))  # 거래대금 최소 100억
+    SCREENER_MIN_PCT:       float = float(os.getenv("SCREENER_MIN_PCT",       "3.0"))   # 최소 등락률
+    SCREENER_MAX_PCT:       float = float(os.getenv("SCREENER_MAX_PCT",       "25.0"))  # 상한가 부근 제외
+    SCREENER_TOP_N:         int   = int(os.getenv("SCREENER_TOP_N",           "7"))
+
     # 이상 징후 임계값
     ANOMALY_KOSPI_DROP:  float = float(os.getenv("ANOMALY_KOSPI_DROP",  "-3.0"))
     ANOMALY_KOSDAQ_DROP: float = float(os.getenv("ANOMALY_KOSDAQ_DROP", "-3.0"))

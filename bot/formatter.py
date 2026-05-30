@@ -544,6 +544,57 @@ def format_us_premarket_briefing(snap: dict, events: list) -> str:
     return "\n".join(lines)
 
 
+def format_spike_alert(event: dict) -> str:
+    flag = "🇰🇷" if event.get("market") == "KR" else "🇺🇸"
+    pct = event["pct"]
+    emoji = "🚀" if pct > 0 else "💥"
+    price = (f"{event['price']:,.0f}원" if event.get("market") == "KR"
+             else f"${event['price']:,.2f}")
+    lines = [
+        f"{emoji} [장중 {event['direction']}] {event['name']} ({event['code']})",
+        f"{flag} {_pct(pct)}",
+        f"💵 현재가 {price}",
+    ]
+    return "\n".join(lines)
+
+
+def format_technical_signal(event: dict) -> str:
+    flag = "🇰🇷" if event.get("market") == "KR" else "🇺🇸"
+    lines = [
+        f"📐 [기술신호] {event['name']} ({event['code']})",
+        f"{flag} {event['signal_type']}",
+    ]
+    if event.get("guide"):
+        lines.append(event["guide"])
+    return "\n".join(lines)
+
+
+def format_screener(candidates: list[dict]) -> str:
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"🔎 신규 종목 발굴  ·  {date_str}", _SEP]
+    if not candidates:
+        lines.append("오늘은 조건에 맞는 신규 후보가 없습니다.")
+        lines.append(_SEP)
+        return "\n".join(lines)
+
+    lines.append("📊 거래대금·상승률·외국인 수급 종합 상위")
+    lines.append("")
+    for i, c in enumerate(candidates, 1):
+        val_eok = c["value"] / 1_0000_0000
+        flag = "🟢외인순매수" if c.get("foreign_net", 0) > 0 else ""
+        lines.append(
+            f"{i}. {c['name']} ({c['code']})  {c['market_kr']}"
+        )
+        lines.append(
+            f"   ▲ +{c['pct']:.1f}%  ·  {c['close']:,.0f}원  ·  거래대금 {val_eok:,.0f}억  {flag}"
+        )
+    lines.append(_SEP)
+    lines.append("⚠️ 자동 발굴 결과입니다. 투자 판단은 직접 확인 후 결정하세요.")
+    return "\n".join(lines)
+
+
 def format_help() -> str:
     return (
         "📌 알람시스 (주식 이벤트 알림봇)\n\n"
@@ -558,11 +609,15 @@ def format_help() -> str:
         "자동 체크:\n"
         "  • 매시간          — 국내 DART 공시\n"
         "  • 6시간마다       — 미국 이벤트\n"
+        "  • 장중 15분마다   — 급등락 알림 (±5%)\n"
         "  • 매일 06:00      — 미장 마감 요약\n"
+        "  • 매일 06:10      — 미국 기술신호\n"
         "  • 매일 08:00      — 모닝 브리핑\n"
         "  • 매일 08:30      — 권리락 D-1 알림\n"
+        "  • 매일 16:05      — 국내 기술신호\n"
         "  • 매일 16:30      — 수급 이벤트 체크\n"
         "  • 매일 16:45      — 장 마감 요약\n"
+        "  • 매일 17:00      — 신규 종목 발굴\n"
         "  • 매일 22:00      — 미장 개장 전 브리핑\n\n"
         "국내 공시 알림은 DART API 키 설정 필요\n"
         "(opendart.fss.or.kr 에서 무료 발급)\n\n"

@@ -16,6 +16,9 @@ from fetchers.market_indicators import get_snapshot, check_anomalies
 from fetchers.sector_monitor import get_sector_performance, get_market_flow
 from fetchers.macro_calendar import get_upcoming_events
 from fetchers.watchlist_prices import get_kr_prices, get_us_prices
+from fetchers.intraday import get_spike_events
+from fetchers.technical import get_technical_signals
+from fetchers.screener import find_new_candidates
 from bot import formatter
 
 logger = logging.getLogger(__name__)
@@ -26,6 +29,28 @@ KST = pytz.timezone("Asia/Seoul")
 def _is_weekday() -> bool:
     """월~금 여부 확인 (KST 기준)."""
     return datetime.now(KST).weekday() < 5
+
+
+def _kr_market_open() -> bool:
+    """국내 장중 여부 (평일 09:00~15:30 KST)."""
+    now = datetime.now(KST)
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return dt_time(9, 0) <= t <= dt_time(15, 30)
+
+
+def _us_market_open() -> bool:
+    """미국 장중 여부 (KST 기준, 서머타임 포함 넉넉히 22:00~06:00)."""
+    now = datetime.now(KST)
+    wd = now.weekday()
+    t = now.time()
+    # 밤 22:00 이후(월~금) 또는 새벽 06:00 이전(화~토)
+    if t >= dt_time(22, 0):
+        return wd < 5
+    if t <= dt_time(6, 0):
+        return 1 <= wd <= 5
+    return False
 
 
 async def _send(bot: Bot, text: str):
@@ -238,6 +263,74 @@ async def us_premarket_briefing(context: ContextTypes.DEFAULT_TYPE):
     logger.info("미장 개장 전 브리핑 발송")
 
 
+# ── 매매 보조 Jobs ───────────────────────────────────────────
+
+
+async def check_intraday_spikes(context: ContextTypes.DEFAULT_TYPE):
+    """장중 급등락 알림 (장중에만, 관심종목 ±N% 돌파 시)."""
+    kr_open = _kr_market_open()
+    us_open = _us_market_open()
+    if not (kr_open or us_open):
+        return
+
+    stocks = []
+    if kr_open:
+        stocks += [{**s, "market": "KR"} for s in db.get_kr_stocks()]
+    if us_open:
+        stocks += [{**s, "market": "US"} for s in db.get_us_stocks()]
+    if not stocks:
+        return
+
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    events = await asyncio.to_thread(get_spike_events, stocks, today)
+    for ev in events:
+        msg = formatter.format_spike_alert(ev)
+        await _send(context.bot, msg)
+        db.mark_alert_sent(ev["code"], ev["alert_key"])
+    if events:
+        logger.info("장중 급등락 알림: %d건", len(events))
+
+
+async def _run_technical(context, stocks: list[dict], tag: str):
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    count = 0
+    for stock in stocks:
+        events = await asyncio.to_thread(get_technical_signals, stock, today)
+        for ev in events:
+            msg = formatter.format_technical_signal(ev)
+            await _send(context.bot, msg)
+            db.mark_alert_sent(ev["code"], ev["alert_key"])
+            count += 1
+    if count:
+        logger.info("기술적 신호 알림 (%s): %d건", tag, count)
+
+
+async def check_technical_kr(context: ContextTypes.DEFAULT_TYPE):
+    """국내 기술적 신호 (매일 16:05 KST, 장 마감 후)."""
+    if not _is_weekday():
+        return
+    stocks = [{**s, "market": "KR"} for s in db.get_kr_stocks()]
+    await _run_technical(context, stocks, "KR")
+
+
+async def check_technical_us(context: ContextTypes.DEFAULT_TYPE):
+    """미국 기술적 신호 (매일 06:10 KST, 미장 마감 후)."""
+    if not _is_weekday():
+        return
+    stocks = [{**s, "market": "US"} for s in db.get_us_stocks()]
+    await _run_technical(context, stocks, "US")
+
+
+async def run_screener_job(context: ContextTypes.DEFAULT_TYPE):
+    """신규 종목 발굴 (매일 17:00 KST)."""
+    if not _is_weekday():
+        return
+    candidates = await asyncio.to_thread(find_new_candidates)
+    msg = formatter.format_screener(candidates)
+    await _send(context.bot, msg)
+    logger.info("신규 종목 발굴 발송: %d건", len(candidates))
+
+
 # ── /check 즉시 실행 ─────────────────────────────────────────
 
 
@@ -296,5 +389,19 @@ def schedule_jobs(app: Application):
 
     jq.run_daily(us_premarket_briefing,
                  time=dt_time(22, 0, tzinfo=KST), name="us_premarket_briefing")
+
+    # 매매 보조
+    jq.run_repeating(check_intraday_spikes,
+                     interval=Config.INTRADAY_CHECK_INTERVAL, first=180,
+                     name="intraday_spikes")
+
+    jq.run_daily(check_technical_kr,
+                 time=dt_time(16, 5, tzinfo=KST), name="technical_kr")
+
+    jq.run_daily(check_technical_us,
+                 time=dt_time(6, 10, tzinfo=KST), name="technical_us")
+
+    jq.run_daily(run_screener_job,
+                 time=dt_time(17, 0, tzinfo=KST), name="screener")
 
     logger.info("스케줄 Job 등록 완료")

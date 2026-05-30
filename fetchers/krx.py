@@ -46,3 +46,36 @@ def validate_kr_code(code: str) -> bool:
 def is_kr_code(code: str) -> bool:
     """6자리 숫자면 국내 주식 코드로 판단."""
     return code.isdigit() and len(code) == 6
+
+
+_market_cache: dict[str, str] = {}  # code -> "KS" / "KQ"
+
+
+def _load_market_map():
+    """KOSPI/KOSDAQ 티커 목록을 한 번 로드해 캐시."""
+    if _market_cache:
+        return
+    try:
+        from pykrx import stock as pykrx_stock
+        from datetime import datetime
+        today = datetime.now().strftime("%Y%m%d")
+        for mkt, suffix in [("KOSPI", "KS"), ("KOSDAQ", "KQ")]:
+            try:
+                for t in pykrx_stock.get_market_ticker_list(today, market=mkt):
+                    _market_cache[t] = suffix
+            except Exception as exc:
+                logger.debug("티커 목록 로드 실패 (%s): %s", mkt, exc)
+    except Exception as exc:
+        logger.debug("시장 맵 로드 실패: %s", exc)
+
+
+def get_yf_ticker(code: str) -> str:
+    """국내 6자리 코드를 yfinance 형식(005930.KS / 263750.KQ)으로 변환.
+
+    미국 티커는 그대로 반환.
+    """
+    if not is_kr_code(code):
+        return code
+    _load_market_map()
+    suffix = _market_cache.get(code, "KS")  # 기본 KOSPI
+    return f"{code}.{suffix}"

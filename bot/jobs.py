@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 KST = pytz.timezone("Asia/Seoul")
 
 
+def _is_weekday() -> bool:
+    """월~금 여부 확인 (KST 기준)."""
+    return datetime.now(KST).weekday() < 5
+
+
 async def _send(bot: Bot, text: str):
     try:
         # 텔레그램 메시지 최대 4096자 제한 - 초과 시 분할 발송
@@ -71,6 +76,8 @@ async def _process_events(bot: Bot, events: list[dict]) -> list[dict]:
 
 async def check_kr_disclosures(context: ContextTypes.DEFAULT_TYPE):
     """국내 DART 공시 체크 (매시간)."""
+    if not _is_weekday():
+        return
     if not Config.DART_API_KEY:
         return
     for stock in db.get_kr_stocks():
@@ -82,6 +89,8 @@ async def check_kr_disclosures(context: ContextTypes.DEFAULT_TYPE):
 
 async def check_us_events(context: ContextTypes.DEFAULT_TYPE):
     """미국 주식 이벤트 체크 (6시간마다)."""
+    if not _is_weekday():
+        return
     for stock in db.get_us_stocks():
         events = us_stock.get_upcoming_events(stock)
         if events:
@@ -91,6 +100,8 @@ async def check_us_events(context: ContextTypes.DEFAULT_TYPE):
 
 async def check_scheduled_events(context: ContextTypes.DEFAULT_TYPE):
     """권리락 D-1 알림 (매일 08:30 KST)."""
+    if not _is_weekday():
+        return
     for event in db.get_upcoming_scheduled_events(days=1):
         msg = formatter.format_ex_rights_alert(event)
         msg = formatter.append_grade_info(msg, event.get("event_type", ""))
@@ -107,6 +118,8 @@ async def check_scheduled_events(context: ContextTypes.DEFAULT_TYPE):
 
 async def check_supply_demand(context: ContextTypes.DEFAULT_TYPE):
     """수급 이벤트 체크 (매일 16:30 KST, 장 마감 후)."""
+    if not _is_weekday():
+        return
     for stock in db.get_kr_stocks():
         events = await asyncio.to_thread(get_supply_demand_events, stock)
         if events:
@@ -119,6 +132,8 @@ async def check_supply_demand(context: ContextTypes.DEFAULT_TYPE):
 
 async def check_market_anomalies(context: ContextTypes.DEFAULT_TYPE):
     """시장 이상 징후 감지 (매시간). 임계값 초과 시 즉시 알림."""
+    if not _is_weekday():
+        return
     snap = await asyncio.to_thread(get_snapshot)
     cfg = {
         "kospi_drop":   Config.ANOMALY_KOSPI_DROP,
@@ -162,6 +177,8 @@ async def check_market_anomalies(context: ContextTypes.DEFAULT_TYPE):
 
 async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
     """모닝 브리핑 (매일 08:00 KST): 간밤 미국 시장 + 오늘 거시 일정."""
+    if not _is_weekday():
+        return
     snap   = await asyncio.to_thread(get_snapshot)
     events = get_upcoming_events(days=1)
 
@@ -175,6 +192,8 @@ async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
 
 async def evening_market_summary(context: ContextTypes.DEFAULT_TYPE):
     """장 마감 요약 (매일 16:45 KST): 지수 + 섹터 + 수급 + 관심종목."""
+    if not _is_weekday():
+        return
     snap    = await asyncio.to_thread(get_snapshot)
     sectors = await asyncio.to_thread(get_sector_performance)
     flow    = await asyncio.to_thread(get_market_flow)
@@ -196,6 +215,8 @@ async def evening_market_summary(context: ContextTypes.DEFAULT_TYPE):
 
 async def us_close_summary(context: ContextTypes.DEFAULT_TYPE):
     """미장 마감 요약 (매일 06:00 KST): 미국 지수 + 주요 지표."""
+    if not _is_weekday():
+        return
     snap    = await asyncio.to_thread(get_snapshot)
     msg     = formatter.format_us_close_summary(snap)
     summary = await asyncio.to_thread(get_macro_summary, msg)
@@ -206,6 +227,8 @@ async def us_close_summary(context: ContextTypes.DEFAULT_TYPE):
 
 async def us_premarket_briefing(context: ContextTypes.DEFAULT_TYPE):
     """미장 개장 전 브리핑 (매일 22:00 KST): 오늘 밤 경제 일정 + 현재 지표."""
+    if not _is_weekday():
+        return
     snap   = await asyncio.to_thread(get_snapshot)
     events = get_upcoming_events(days=1)
     msg     = formatter.format_us_premarket_briefing(snap, events)

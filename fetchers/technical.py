@@ -104,6 +104,62 @@ def _volume_breakout(ohlcv: pd.DataFrame) -> bool:
         return False
 
 
+def _volume_2x(ohlcv: pd.DataFrame) -> bool:
+    """거래량이 20일 평균의 2배 이상 (가격 조건 없음)."""
+    if ohlcv is None or len(ohlcv) < 22:
+        return False
+    try:
+        vol_col = next((c for c in ohlcv.columns if "거래량" in str(c)), None)
+        if not vol_col:
+            return False
+        volumes = ohlcv[vol_col].astype(float)
+        avg_vol = volumes.iloc[-21:-1].mean()
+        return avg_vol > 0 and volumes.iloc[-1] >= avg_vol * 2
+    except Exception:
+        return False
+
+
+def _ma20_breakdown(closes: pd.Series) -> bool:
+    """전일 종가가 20일선 위에 있다가 오늘 아래로 이탈."""
+    if len(closes) < 21:
+        return False
+    ma20 = closes.rolling(20).mean()
+    if pd.isna(ma20.iloc[-2]) or pd.isna(ma20.iloc[-1]):
+        return False
+    return closes.iloc[-2] >= ma20.iloc[-2] and closes.iloc[-1] < ma20.iloc[-1]
+
+
+def _bearish_volume_candle(ohlcv: pd.DataFrame) -> bool:
+    """거래량 2배 이상 + 음봉 (종가 < 시가, 시가 대비 -1% 이상 하락)."""
+    if ohlcv is None or len(ohlcv) < 22:
+        return False
+    try:
+        close_col = next((c for c in ohlcv.columns if "종가" in str(c)), None)
+        open_col  = next((c for c in ohlcv.columns if "시가" in str(c)), None)
+        vol_col   = next((c for c in ohlcv.columns if "거래량" in str(c)), None)
+        if not close_col or not vol_col:
+            return False
+        closes  = ohlcv[close_col].astype(float)
+        volumes = ohlcv[vol_col].astype(float)
+        avg_vol = volumes.iloc[-21:-1].mean()
+        if avg_vol <= 0 or volumes.iloc[-1] < avg_vol * 2:
+            return False
+        if open_col:
+            opens = ohlcv[open_col].astype(float)
+            open_price  = opens.iloc[-1]
+            close_price = closes.iloc[-1]
+        else:
+            # 시가 컬럼 없으면 전일 종가를 시가로 간주
+            open_price  = closes.iloc[-2]
+            close_price = closes.iloc[-1]
+        if open_price <= 0:
+            return False
+        drop_pct = (close_price - open_price) / open_price * 100
+        return drop_pct <= -1.0   # 1% 이상 음봉
+    except Exception:
+        return False
+
+
 # ── 데이터 로드 ───────────────────────────────────────────────
 
 def _get_ohlcv(stock: dict) -> tuple[pd.Series | None, pd.DataFrame | None]:
@@ -206,5 +262,38 @@ def get_technical_signals(stock: dict, today_str: str) -> list[dict]:
     if ohlcv is not None and _volume_breakout(ohlcv):
         _add("VOL:BREAKOUT", "💥 거래량 동반 급등 (+3%·거래량 2배)",
              "🟢 강한 매수세 유입 신호 — 추가 상승 가능성 점검")
+
+    # ── 복합 매수 신호 (4가지 모두 충족) ─────────────────────
+    # 52주 신고가 + 거래량 2배 + MACD 골든크로스 + RSI ≤ 80
+    if (rsi is not None and rsi <= 80
+            and macd == "bullish"
+            and _week52_high(closes)
+            and ohlcv is not None and _volume_2x(ohlcv)):
+        price = closes.iloc[-1]
+        price_str = (f"{price:,.0f}원" if market == "KR" else f"${price:,.2f}")
+        _add("BUY:COMPOSITE",
+             "🚀 복합 매수 신호",
+             f"✅ 52주 신고가 + 거래량 2배 + MACD 골든크로스 + RSI {rsi} (≤80)\n"
+             f"💵 현재가 {price_str}\n"
+             "🟢 강한 상승 모멘텀 — 추세 추종 매수 적극 검토, 분할 진입 권장")
+
+    # ── 매도 경고 신호 (각각 독립) ───────────────────────────
+    # MACD 데드크로스 매도 경고
+    if macd == "bearish":
+        _add("SELL:MACD_DEAD",
+             "🔻 매도 경고 — MACD 데드크로스",
+             "🔴 하락 모멘텀 전환 — 비중 축소 또는 손절 검토")
+
+    # 20일선 이탈 매도 경고
+    if _ma20_breakdown(closes):
+        _add("SELL:MA20_BREAK",
+             "🔻 매도 경고 — 20일선 하향 이탈",
+             "🔴 단기 지지선 붕괴 — 추가 하락 주의, 손절선 재점검")
+
+    # 거래량 급증 + 음봉 매도 경고
+    if ohlcv is not None and _bearish_volume_candle(ohlcv):
+        _add("SELL:BEAR_VOL",
+             "🔻 매도 경고 — 거래량 급증 + 음봉",
+             "🔴 대량 매도세 유입 신호 — 추가 하락 가능성, 비중 점검")
 
     return events

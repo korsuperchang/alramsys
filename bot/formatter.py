@@ -560,8 +560,35 @@ def format_spike_alert(event: dict) -> str:
 
 def format_technical_signal(event: dict) -> str:
     flag = "🇰🇷" if event.get("market") == "KR" else "🇺🇸"
+    alert_key = event.get("alert_key", "")
+    if alert_key.startswith("BUY:"):
+        return format_buy_signal(event)
+    if alert_key.startswith("SELL:"):
+        return format_sell_signal(event)
     lines = [
         f"📐 [기술신호] {event['name']} ({event['code']})",
+        f"{flag} {event['signal_type']}",
+    ]
+    if event.get("guide"):
+        lines.append(event["guide"])
+    return "\n".join(lines)
+
+
+def format_buy_signal(event: dict) -> str:
+    flag = "🇰🇷" if event.get("market") == "KR" else "🇺🇸"
+    lines = [
+        f"🚀 [매수 신호] {event['name']} ({event['code']})",
+        f"{flag} {event['signal_type']}",
+    ]
+    if event.get("guide"):
+        lines.append(event["guide"])
+    return "\n".join(lines)
+
+
+def format_sell_signal(event: dict) -> str:
+    flag = "🇰🇷" if event.get("market") == "KR" else "🇺🇸"
+    lines = [
+        f"⚠️ [매도 경고] {event['name']} ({event['code']})",
         f"{flag} {event['signal_type']}",
     ]
     if event.get("guide"):

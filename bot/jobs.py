@@ -11,7 +11,9 @@ from telegram.ext import Application, ContextTypes
 from config import Config
 from db import database as db
 from fetchers import dart, us_stock
-from fetchers.ai_analysis import get_analysis, get_macro_summary
+from fetchers.ai_analysis import get_analysis, get_macro_summary, get_eod_recommendation
+from fetchers.stock_scorer import score_stock
+from fetchers.news_fetcher import get_stock_news
 from fetchers.supply_demand import get_supply_demand_events
 from fetchers.market_indicators import get_snapshot, check_anomalies
 from fetchers.sector_monitor import get_sector_performance, get_market_flow
@@ -334,6 +336,60 @@ async def run_screener_job(context: ContextTypes.DEFAULT_TYPE):
     logger.info("신규 종목 발굴 발송: %d건", len(candidates))
 
 
+async def eod_recommendations(context: ContextTypes.DEFAULT_TYPE):
+    """종가 기준 관심종목 추천 분석 (매일 17:30 KST)."""
+    if not _is_weekday():
+        return
+
+    # 섹터 컨텍스트
+    sectors = await asyncio.to_thread(get_sector_performance)
+    sector_ctx = ""
+    if sectors:
+        gainers = [s for s in sectors if s["pct"] > 0][:2]
+        losers  = [s for s in reversed(sectors) if s["pct"] < 0][:2]
+        parts = []
+        if gainers:
+            parts.append("강세: " + ", ".join(
+                f"{s['sector']}(+{s['pct']:.1f}%)" for s in gainers))
+        if losers:
+            parts.append("약세: " + ", ".join(
+                f"{s['sector']}({s['pct']:.1f}%)" for s in losers))
+        sector_ctx = " / ".join(parts)
+
+    all_stocks = (
+        [{**s, "market": "KR"} for s in db.get_kr_stocks()]
+        + [{**s, "market": "US"} for s in db.get_us_stocks()]
+    )
+
+    results = []
+    for stock in all_stocks:
+        scored = await asyncio.to_thread(score_stock, stock)
+        if scored is None:
+            continue
+        news = await asyncio.to_thread(get_stock_news, stock)
+        rec  = await asyncio.to_thread(get_eod_recommendation, scored, news, sector_ctx)
+
+        rating = "관망"
+        reason = ""
+        if rec:
+            import re as _re
+            m = _re.match(r"\[(매수유망|관망|주의)\]\s*(.*)", rec, _re.DOTALL)
+            if m:
+                rating = m.group(1)
+                reason = m.group(2).strip()
+            else:
+                reason = rec
+
+        results.append({**scored, "rating": rating, "reason": reason})
+
+    if not results:
+        return
+
+    msg = formatter.format_eod_recommendations(results)
+    await _send(context.bot, msg)
+    logger.info("종목 추천 분석 발송: %d건", len(results))
+
+
 # ── /check 즉시 실행 ─────────────────────────────────────────
 
 
@@ -406,5 +462,8 @@ def schedule_jobs(app: Application):
 
     jq.run_daily(run_screener_job,
                  time=dt_time(17, 0, tzinfo=KST), name="screener")
+
+    jq.run_daily(eod_recommendations,
+                 time=dt_time(17, 30, tzinfo=KST), name="eod_recommendations")
 
     logger.info("스케줄 Job 등록 완료")

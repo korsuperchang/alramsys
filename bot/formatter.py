@@ -622,6 +622,56 @@ def format_screener(candidates: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def format_eod_recommendations(results: list[dict]) -> str:
+    """종가 기준 종목별 추천 분석 보고서."""
+    now = datetime.now()
+    date_str = f"{now.month}월 {now.day}일 {_WEEKDAY[now.weekday()]}요일"
+
+    lines = [f"🎯 종목 추천 분석  ·  {date_str}", _SEP]
+
+    if not results:
+        lines.append("분석 가능한 종목이 없습니다.")
+        lines.append(_SEP)
+        return "\n".join(lines)
+
+    _order = {"매수유망": 0, "관망": 1, "주의": 2}
+    _emoji = {"매수유망": "🟢", "관망": "🟡", "주의": "🔴"}
+    _flag  = {"KR": "🇰🇷", "US": "🇺🇸"}
+
+    sorted_results = sorted(
+        results,
+        key=lambda x: (_order.get(x.get("rating", "관망"), 1), -x["score"]),
+    )
+
+    for r in sorted_results:
+        rating  = r.get("rating", "관망")
+        emoji   = _emoji.get(rating, "🟡")
+        flag    = _flag.get(r["market"], "")
+        pct     = r["pct_1d"]
+        arrow   = "▲" if pct >= 0 else "▼"
+        price   = (f"{r['price']:,.0f}원" if r["market"] == "KR"
+                   else f"${r['price']:,.2f}")
+
+        lines.append(
+            f"{emoji} {flag} {r['name']}  {arrow}{abs(pct):.1f}%  {price}"
+        )
+        if r.get("reason"):
+            lines.append(f"   └ {r['reason']}")
+
+        signal_parts = []
+        if r.get("bull_signals"):
+            signal_parts.append("↑ " + " · ".join(r["bull_signals"][:3]))
+        if r.get("bear_signals"):
+            signal_parts.append("↓ " + " · ".join(r["bear_signals"][:3]))
+        if signal_parts:
+            lines.append("   " + "  ".join(signal_parts))
+        lines.append("")
+
+    lines.append(_SEP)
+    lines.append("⚠️ 기술적 지표 + AI 분석 기반 참고 정보입니다. 투자 판단은 직접 하세요.")
+    return "\n".join(lines)
+
+
 def format_help() -> str:
     return (
         "📌 알람시스 (주식 이벤트 알림봇)\n\n"
@@ -645,6 +695,7 @@ def format_help() -> str:
         "  • 매일 16:30      — 수급 이벤트 체크\n"
         "  • 매일 16:45      — 장 마감 요약\n"
         "  • 매일 17:00      — 신규 종목 발굴\n"
+        "  • 매일 17:30      — 종목 추천 분석 (기술+뉴스+AI)\n"
         "  • 매일 22:00      — 미장 개장 전 브리핑\n\n"
         "국내 공시 알림은 DART API 키 설정 필요\n"
         "(opendart.fss.or.kr 에서 무료 발급)\n\n"

@@ -128,3 +128,66 @@ def get_analysis(event: dict) -> str | None:
     except Exception as exc:
         logger.debug("AI 분석 실패 (%s): %s", event.get("code"), exc)
         return None
+
+
+_EOD_SYSTEM = (
+    "당신은 주식 투자 전문가입니다.\n"
+    "주어진 종목 데이터(기술적 지표, 섹터 흐름, 최근 뉴스)를 종합해 매매 관점을 판단하세요.\n"
+    "반드시 아래 형식으로만 답변하세요:\n\n"
+    "[매수유망/관망/주의] 핵심 이유 1문장 (40자 이내)\n\n"
+    "판단 기준:\n"
+    "- [매수유망]: 복수의 강세 신호 + 뉴스·섹터 악재 없음\n"
+    "- [관망]: 신호 혼재 또는 방향성 불분명\n"
+    "- [주의]: 복수의 약세 신호 또는 뉴스·섹터 부정적\n"
+    "규칙:\n"
+    "- 반드시 한국어로만\n"
+    "- 앞뒤 설명 없이 형식만 출력"
+)
+
+
+def get_eod_recommendation(score_data: dict, news: list[str],
+                            sector_context: str = "") -> str | None:
+    """종목 종합 분석 및 매매 추천 반환."""
+    client = _get_client()
+    if not client:
+        return None
+
+    market = score_data["market"]
+    price_str = (f"{score_data['price']:,.0f}원" if market == "KR"
+                 else f"${score_data['price']:,.2f}")
+    flag = "국내" if market == "KR" else "미국"
+
+    lines = [
+        f"종목: {score_data['name']} ({score_data['code']}) [{flag}]",
+        f"현재가: {price_str}",
+        f"수익률  1일: {score_data['pct_1d']:+.1f}%  "
+        f"5일: {score_data['pct_5d']:+.1f}%  "
+        f"20일: {score_data['pct_20d']:+.1f}%",
+        f"기술점수: {score_data['score']}점",
+    ]
+    if score_data.get("bull_signals"):
+        lines.append(f"강세신호: {', '.join(score_data['bull_signals'])}")
+    if score_data.get("bear_signals"):
+        lines.append(f"약세신호: {', '.join(score_data['bear_signals'])}")
+    if sector_context:
+        lines.append(f"섹터현황: {sector_context}")
+    if news:
+        lines.append("최근뉴스:")
+        for h in news[:4]:
+            lines.append(f"  - {h}")
+
+    try:
+        message = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=120,
+            thinking={"type": "adaptive"},
+            system=_EOD_SYSTEM,
+            messages=[{"role": "user", "content": "\n".join(lines)}],
+        )
+        for block in message.content:
+            if block.type == "text":
+                return block.text.strip()
+        return None
+    except Exception as exc:
+        logger.debug("종목 추천 실패 (%s): %s", score_data.get("code"), exc)
+        return None

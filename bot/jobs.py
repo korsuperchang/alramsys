@@ -3,6 +3,7 @@ import asyncio
 import logging
 from datetime import datetime, time as dt_time
 
+import holidays as _holidays
 import pytz
 from telegram import Bot
 from telegram.ext import Application, ContextTypes
@@ -24,11 +25,13 @@ from bot import formatter
 logger = logging.getLogger(__name__)
 
 KST = pytz.timezone("Asia/Seoul")
+_KR_HOLIDAYS = _holidays.country_holidays("KR")
 
 
 def _is_weekday() -> bool:
-    """월~금 여부 확인 (KST 기준)."""
-    return datetime.now(KST).weekday() < 5
+    """평일 + 한국 공휴일 제외 (KST 기준)."""
+    now = datetime.now(KST)
+    return now.weekday() < 5 and now.date() not in _KR_HOLIDAYS
 
 
 def _kr_market_open() -> bool:

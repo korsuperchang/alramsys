@@ -19,7 +19,7 @@ class Config:
 
     # 장중 급등락 알림
     INTRADAY_CHECK_INTERVAL: int = int(os.getenv("INTRADAY_CHECK_INTERVAL", "900"))  # 15분
-    INTRADAY_SPIKE_PCT: float = float(os.getenv("INTRADAY_SPIKE_PCT", "5.0"))
+    INTRADAY_SPIKE_PCT: float = float(os.getenv("INTRADAY_SPIKE_PCT", "10.0"))
 
     # 기술적 매매신호
     RSI_OVERSOLD:   float = float(os.getenv("RSI_OVERSOLD",   "30.0"))

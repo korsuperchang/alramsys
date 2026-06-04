@@ -8,3 +8,4 @@ beautifulsoup4>=4.12
 finnhub-python>=2.4
 pandas>=2.0
 anthropic>=0.40
+holidays>=0.46

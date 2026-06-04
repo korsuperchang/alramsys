@@ -35,12 +35,18 @@ def _fetch_html(rcept_no: str) -> str | None:
             except UnicodeDecodeError:
                 return raw.decode("euc-kr", errors="replace")
     except Exception as exc:
-        logger.debug("DART 문서 fetch 실패 (%s): %s", rcept_no, exc)
+        logger.warning("DART 문서 fetch 실패 (%s): %s", rcept_no, exc)
         return None
 
 
 def _extract_table_pairs(html: str) -> dict[str, str]:
-    """테이블에서 키-값 쌍 추출. 같은 행 내 연속 셀 + 인접 행도 처리."""
+    """테이블에서 키-값 쌍 추출.
+
+    처리 순서:
+    1. 짝수 개수 셀 행 → [key, val, key, val] 패턴 (DART 표준 4열 레이아웃)
+    2. 2셀 행 → [key, val]
+    3. 인접 단일셀 행 쌍
+    """
     pairs: dict[str, str] = {}
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -51,19 +57,32 @@ def _extract_table_pairs(html: str) -> dict[str, str]:
                 cells = row.find_all(["td", "th"])
                 texts = [c.get_text(separator=" ", strip=True) for c in cells]
                 row_cells.append(texts)
-                # 같은 행 내 연속 셀 쌍
-                for i in range(len(texts) - 1):
-                    if texts[i]:
-                        pairs[texts[i]] = texts[i + 1]
+                n = len(texts)
+                if n == 0:
+                    continue
+                if n == 2:
+                    # 2열: key → val
+                    if texts[0]:
+                        pairs[texts[0]] = texts[1]
+                elif n >= 4 and n % 2 == 0:
+                    # 4열 이상 짝수: [k1,v1,k2,v2,...] 패턴
+                    for j in range(0, n - 1, 2):
+                        if texts[j]:
+                            pairs[texts[j]] = texts[j + 1]
+                else:
+                    # 홀수 혹은 3열: 연속 쌍으로 모두 시도
+                    for i in range(n - 1):
+                        if texts[i]:
+                            pairs[texts[i]] = texts[i + 1]
 
-            # 인접 행 쌍 (단일 셀 행 연속)
+            # 인접 단일셀 행 쌍
             for i in range(len(row_cells) - 1):
                 if len(row_cells[i]) == 1 and row_cells[i][0]:
-                    if len(row_cells[i + 1]) >= 1 and row_cells[i + 1][0]:
+                    if row_cells[i + 1]:
                         pairs[row_cells[i][0]] = row_cells[i + 1][0]
 
     except Exception as exc:
-        logger.debug("테이블 파싱 실패: %s", exc)
+        logger.warning("테이블 파싱 실패: %s", exc)
     return pairs
 
 
@@ -165,11 +184,17 @@ def _extract_ratio_from_text(html: str) -> str | None:
 def _extract_partner_from_text(html: str) -> str | None:
     """HTML 전체에서 계약상대방을 직접 추출."""
     text = BeautifulSoup(html, "html.parser").get_text(" ")
-    m = re.search(r"계약상대방[^가-힣]{0,5}([가-힣(주)()A-Za-z\s,]+?)(?:\n|계약금액|공급금액|거래)", text)
-    if m:
-        val = m.group(1).strip().rstrip(",")
-        if len(val) > 1:
-            return val
+    patterns = [
+        r"계약상대방\s*[:\s]\s*([^\n]{2,60}?)(?:\s{2,}|계약금액|공급금액|거래금액|매출액|$)",
+        r"거래상대방\s*[:\s]\s*([^\n]{2,60}?)(?:\s{2,}|계약금액|공급금액|$)",
+        r"계약상대방[^가-힣\w]{0,10}([가-힣\w()（）\s,\.\-&]+?)(?:\n|계약금액|공급금액|거래)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            val = m.group(1).strip().rstrip(",:").strip()
+            if 2 <= len(val) <= 60:
+                return val
     return None
 
 
@@ -264,5 +289,5 @@ def get_disclosure_detail(rcept_no: str, report_type: str) -> dict:
             return parse_rights_offering(pairs)
         return {}
     except Exception as exc:
-        logger.debug("공시 상세 파싱 실패 (%s): %s", rcept_no, exc)
+        logger.warning("공시 상세 파싱 실패 (%s): %s", rcept_no, exc)
         return {}

@@ -3,7 +3,11 @@ import asyncio
 import logging
 from datetime import datetime, time as dt_time
 
-import holidays as _holidays
+try:
+    import holidays as _holidays
+    _KR_HOLIDAYS = _holidays.country_holidays("KR")
+except ImportError:
+    _KR_HOLIDAYS = set()
 import pytz
 from telegram import Bot
 from telegram.ext import Application, ContextTypes
@@ -27,7 +31,6 @@ from bot import formatter
 logger = logging.getLogger(__name__)
 
 KST = pytz.timezone("Asia/Seoul")
-_KR_HOLIDAYS = _holidays.country_holidays("KR")
 
 
 def _is_weekday() -> bool:

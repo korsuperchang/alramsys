@@ -42,12 +42,21 @@ def _fetch_html(rcept_no: str) -> str | None:
 def _extract_table_pairs(html: str) -> dict[str, str]:
     """테이블에서 키-값 쌍 추출.
 
-    처리 순서:
-    1. 짝수 개수 셀 행 → [key, val, key, val] 패턴 (DART 표준 4열 레이아웃)
-    2. 2셀 행 → [key, val]
-    3. 인접 단일셀 행 쌍
+    DART 공시는 여러 레이아웃이 섞여 있으므로 우선순위대로 수집한다
+    (먼저 넣은 쌍이 _find 에서 우선 매칭됨):
+    1. 2셀 행 → key:val (가장 신뢰도 높음)
+    2. 컬럼 정렬: 같은 셀 수의 연속 두 행 → 헤더[j]:값[j]
+       (계약금액·매출액대비 등 '헤더 위 / 값 아래' 표 처리)
+    3. 4열 이상 짝수 행 → [k,v,k,v] 가로 패턴
+    4. 인접 단일셀 행 쌍
     """
     pairs: dict[str, str] = {}
+
+    def _put(key: str, val: str):
+        # 먼저 넣은 신뢰도 높은 쌍을 덮어쓰지 않음
+        if key and key not in pairs:
+            pairs[key] = val
+
     try:
         soup = BeautifulSoup(html, "html.parser")
         for table in soup.find_all("table"):
@@ -57,29 +66,33 @@ def _extract_table_pairs(html: str) -> dict[str, str]:
                 cells = row.find_all(["td", "th"])
                 texts = [c.get_text(separator=" ", strip=True) for c in cells]
                 row_cells.append(texts)
+
+            # 1. 2셀 행 → key:val
+            for texts in row_cells:
+                if len(texts) == 2 and texts[0]:
+                    _put(texts[0], texts[1])
+
+            # 2. 컬럼 정렬 (연속 두 행이 같은 셀 수, 2~6칸)
+            for i in range(len(row_cells) - 1):
+                top, bot = row_cells[i], row_cells[i + 1]
+                if 2 <= len(top) <= 6 and len(top) == len(bot):
+                    for j in range(len(top)):
+                        if top[j] and bot[j] and top[j] != bot[j]:
+                            _put(top[j], bot[j])
+
+            # 3. 4열 이상 짝수 행 → [k,v,k,v]
+            for texts in row_cells:
                 n = len(texts)
-                if n == 0:
-                    continue
-                if n == 2:
-                    # 2열: key → val
-                    if texts[0]:
-                        pairs[texts[0]] = texts[1]
-                elif n >= 4 and n % 2 == 0:
-                    # 4열 이상 짝수: [k1,v1,k2,v2,...] 패턴
+                if n >= 4 and n % 2 == 0:
                     for j in range(0, n - 1, 2):
                         if texts[j]:
-                            pairs[texts[j]] = texts[j + 1]
-                else:
-                    # 홀수 혹은 3열: 연속 쌍으로 모두 시도
-                    for i in range(n - 1):
-                        if texts[i]:
-                            pairs[texts[i]] = texts[i + 1]
+                            _put(texts[j], texts[j + 1])
 
-            # 인접 단일셀 행 쌍
+            # 4. 인접 단일셀 행 쌍
             for i in range(len(row_cells) - 1):
                 if len(row_cells[i]) == 1 and row_cells[i][0]:
                     if row_cells[i + 1]:
-                        pairs[row_cells[i][0]] = row_cells[i + 1][0]
+                        _put(row_cells[i][0], row_cells[i + 1][0])
 
     except Exception as exc:
         logger.warning("테이블 파싱 실패: %s", exc)

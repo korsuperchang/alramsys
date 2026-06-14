@@ -1,6 +1,5 @@
 """관심종목 최근 뉴스 헤드라인 수집 (네이버 금융 / yfinance)."""
 import logging
-from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -39,18 +38,23 @@ def get_kr_news(code: str, max_items: int = 5) -> list[str]:
 
 
 def get_us_news(code: str, max_items: int = 5) -> list[str]:
-    """yfinance 뉴스 헤드라인 반환 (3일 이내)."""
+    """yfinance 뉴스 헤드라인 반환.
+
+    yfinance 버전에 따라 두 가지 포맷 모두 처리:
+    - 구버전: {"title": ..., "providerPublishTime": ...}
+    - 신버전: {"content": {"title": ..., "pubDate": ...}}
+    """
     try:
         import yfinance as yf
-        cutoff = datetime.now().timestamp() - 3 * 86400
         headlines = []
         for n in yf.Ticker(code).news or []:
-            if n.get("providerPublishTime", 0) >= cutoff:
-                title = n.get("title", "")
-                if title:
-                    headlines.append(title)
-                    if len(headlines) >= max_items:
-                        break
+            title = n.get("title")
+            if not title and isinstance(n.get("content"), dict):
+                title = n["content"].get("title")
+            if title:
+                headlines.append(title)
+                if len(headlines) >= max_items:
+                    break
         return headlines
     except Exception as exc:
         logger.debug("US 뉴스 조회 실패 (%s): %s", code, exc)

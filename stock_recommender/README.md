@@ -2,23 +2,29 @@
 
 KOSPI / KOSDAQ / NASDAQ 중 시장을 선택하면 단기·중기·장기·종합 각 상위 5개 종목을 추천하는 정량 모델입니다.
 
-## 실행 방법
+## 실행 방법 (웹 대시보드)
 
 ```bash
 # 의존성 설치
 pip install -r requirements.txt
 
-# 파이프라인 테스트 (합성 데이터, API 불필요)
-python recommend.py --market KOSPI --demo
+# 웹 대시보드 (추천 + 포트폴리오 통합)
+python app.py                     # http://서버IP:8899
+python app.py --demo              # 합성 데이터로 화면 확인 (API 불필요)
+python app.py --port 9000         # 포트 지정
+```
 
-# 실제 데이터로 실행
-export DART_API_KEY=발급받은키   # https://opendart.fss.or.kr 무료 발급 (한국 재무비율용)
-python recommend.py --market KOSPI
-python recommend.py --market KOSDAQ
-python recommend.py --market NASDAQ
+브라우저에서 접속하면 **종목 추천** 탭과 **내 포트폴리오** 탭으로 구성된 대시보드가 나옵니다.
+- 종목 추천: 시장 선택 → [추천 실행] 버튼 → 단기/중기/장기/종합 상위 5개 표시
+- 포트폴리오: 매수/매도 기록 → [조회] 버튼 → 현재가·평가손익·수익률 표시
 
-# 특정 기준일로 실행
-python recommend.py --market KOSPI --as-of 2026-07-01
+오라클 서버에서 실행할 경우 방화벽(인그레스 규칙)에서 8899 포트를 열어야 외부 접속 가능합니다.
+
+### CLI로도 실행 가능
+
+```bash
+python recommend.py --market KOSPI              # 터미널에 추천 결과 출력
+python dashboard.py                             # 터미널에 손익 1회 출력
 ```
 
 ## 투자 손익 대시보드 (조회형)
@@ -65,7 +71,8 @@ stock_recommender/
 ├── backtest.py        # Walk-forward 백테스트 골격
 ├── portfolio.py       # 보유 종목 장부 (매수/매도 기록, 평균단가)
 ├── quotes.py          # 조회 시점 현재가 조회 (네이버/Yahoo)
-├── dashboard.py       # 투자 손익 대시보드 (터미널 + 로컬 웹)
+├── app.py             # 통합 웹 대시보드 (추천 + 포트폴리오, 메인 진입점)
+├── dashboard.py       # 투자 손익 대시보드 (터미널 + 단독 웹)
 ├── cache.py           # 수집 데이터 로컬 캐시 (.cache/)
 ├── dart.py            # DART Open API 연동 (재무비율, 공시기한 기준)
 ├── demo_data.py       # 합성 데이터 어댑터 (테스트용)

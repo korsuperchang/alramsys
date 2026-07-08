@@ -1,0 +1,635 @@
+"""
+종목추천 + 포트폴리오 통합 웹 대시보드
+
+오라클 서버에서 실행 → 브라우저로 접속
+
+    python app.py                        # http://0.0.0.0:8899
+    python app.py --port 9000            # 포트 지정
+    python app.py --demo                 # 합성 데이터로 화면 확인 (API 불필요)
+
+오라클 클라우드 방화벽(인그레스 규칙)에서 해당 포트를 열어야 외부 접속 가능.
+"""
+
+import argparse
+import json
+import sys
+import traceback
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+import pandas as pd
+
+import portfolio
+import quotes
+from config import HORIZONS
+
+# ─────────────────────────────────────────────
+# 추천 엔진 (recommend.py 로직 재사용)
+# ─────────────────────────────────────────────
+def run_recommend(market: str, demo: bool, as_of: str | None = None):
+    from factors import build_factor_table
+    from scoring import run_scoring, top_recommendations
+
+    as_of = as_of or pd.Timestamp.today().strftime("%Y-%m-%d")
+
+    if demo:
+        from demo_data import DemoAdapter
+        adapter = DemoAdapter(market)
+    elif market in ("KOSPI", "KOSDAQ"):
+        from adapters.korea import KoreaAdapter
+        adapter = KoreaAdapter(market)
+    else:
+        from adapters.nasdaq import NasdaqAdapter
+        adapter = NasdaqAdapter()
+
+    price_df = adapter.get_price_data(as_of)
+    snapshot_df = adapter.get_snapshot(as_of)
+    table = build_factor_table(price_df, snapshot_df)
+    scored = run_scoring(table, market)
+    recs = top_recommendations(scored)
+
+    horizon_labels = {
+        "short": f"단기 ({HORIZONS['short']}일)",
+        "mid": f"중기 ({HORIZONS['mid']}일)",
+        "long": f"장기 ({HORIZONS['long']}일)",
+        "composite": "종합",
+    }
+
+    result = {}
+    for key, df in recs.items():
+        rows = []
+        for _, r in df.iterrows():
+            rows.append({
+                "ticker": r.get("ticker", ""),
+                "name": r.get("name", ""),
+                "momentum": _safe(r, "cat_momentum"),
+                "value": _safe(r, "cat_value"),
+                "quality": _safe(r, "cat_quality"),
+                "flow": _safe(r, "cat_flow"),
+                "sentiment": _safe(r, "cat_sentiment"),
+                "score": _safe(r, f"score_{key}"),
+            })
+        result[key] = {"label": horizon_labels[key], "rows": rows}
+
+    return {"market": market, "as_of": as_of,
+            "universe_count": len(scored), "recommendations": result}
+
+
+def _safe(row, col):
+    v = row.get(col)
+    if v is None or pd.isna(v):
+        return None
+    return round(float(v), 1)
+
+
+# ─────────────────────────────────────────────
+# 포트폴리오 손익 (dashboard.py 로직 재사용)
+# ─────────────────────────────────────────────
+def portfolio_snapshot(demo: bool):
+    import dashboard
+    ledger = dashboard._load_ledger(demo)
+    return dashboard.build_snapshot(ledger, demo=demo)
+
+
+# ─────────────────────────────────────────────
+# HTTP 서버
+# ─────────────────────────────────────────────
+class DashboardHandler(BaseHTTPRequestHandler):
+    demo = False
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        params = parse_qs(parsed.query)
+
+        if path == "/":
+            self._html(HTML_PAGE)
+        elif path == "/api/recommend":
+            market = params.get("market", ["KOSPI"])[0]
+            try:
+                data = run_recommend(market, self.demo)
+                self._json(data)
+            except Exception as e:
+                self._json({"error": str(e), "detail": traceback.format_exc()}, 500)
+        elif path == "/api/portfolio":
+            try:
+                self._json(portfolio_snapshot(self.demo))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif path == "/api/portfolio/history":
+            ledger = portfolio.load_ledger() if not self.demo else []
+            self._json({"transactions": ledger})
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            self._json({"error": "잘못된 JSON"}, 400)
+            return
+
+        if path == "/api/portfolio/add":
+            try:
+                ledger = portfolio.load_ledger()
+                portfolio.add_transaction(
+                    ledger, "buy", data["market"], data["ticker"],
+                    float(data["qty"]), float(data["price"]),
+                    data.get("name"), data.get("date"))
+                portfolio.save_ledger(ledger)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+
+        elif path == "/api/portfolio/sell":
+            try:
+                ledger = portfolio.load_ledger()
+                portfolio.add_transaction(
+                    ledger, "sell", data["market"], data["ticker"],
+                    float(data["qty"]), float(data["price"]),
+                    data.get("name"), data.get("date"))
+                portfolio.save_ledger(ledger)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+
+        elif path == "/api/portfolio/delete":
+            try:
+                idx = int(data["index"])
+                ledger = portfolio.load_ledger()
+                if 0 <= idx < len(ledger):
+                    removed = ledger.pop(idx)
+                    portfolio.save_ledger(ledger)
+                    self._json({"ok": True, "removed": removed})
+                else:
+                    self._json({"error": "잘못된 인덱스"}, 400)
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+        else:
+            self.send_error(404)
+
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _html(self, text):
+        body = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        req = args[0] if args else ""
+        if "/api/" in req:
+            print(f"  [{datetime.now().strftime('%H:%M:%S')}] {req}")
+
+
+# ─────────────────────────────────────────────
+# HTML (전체 대시보드 — 단일 페이지, 탭 구성)
+# ─────────────────────────────────────────────
+HTML_PAGE = r"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>주식 종목추천 & 포트폴리오</title>
+<style>
+:root {
+  --bg: #f5f6fa; --card: #fff; --text: #222; --sub: #888;
+  --border: #e0e0e0; --accent: #2563eb; --accent2: #1d4ed8;
+  --up: #dc2626; --down: #2563eb; --green: #16a34a;
+  --input-bg: #f9fafb;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --sub:#94a3b8;
+  --border:#334155; --accent:#60a5fa; --accent2:#93bbfd;
+  --up:#f87171; --down:#60a5fa; --green:#4ade80;
+  --input-bg:#1e293b;
+}}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{font-family:-apple-system,'Malgun Gothic','Noto Sans KR',sans-serif;
+     background:var(--bg); color:var(--text); line-height:1.5;}
+
+/* 헤더 */
+.header{background:var(--card); border-bottom:1px solid var(--border);
+        padding:.8rem 1.2rem; display:flex; align-items:center; gap:1rem;
+        position:sticky; top:0; z-index:10;}
+.header h1{font-size:1.1rem; font-weight:700; white-space:nowrap;}
+
+/* 탭 */
+.tabs{display:flex; gap:0; margin-left:auto;}
+.tab{padding:.5rem 1.2rem; cursor:pointer; border:none; background:none;
+     font-size:.95rem; color:var(--sub); border-bottom:2px solid transparent;
+     transition:all .15s;}
+.tab.active{color:var(--accent); border-bottom-color:var(--accent); font-weight:600;}
+.tab:hover{color:var(--text);}
+
+/* 컨텐츠 */
+.container{max-width:1000px; margin:0 auto; padding:1rem;}
+.page{display:none;} .page.active{display:block;}
+.card{background:var(--card); border:1px solid var(--border);
+      border-radius:10px; padding:1.2rem; margin-bottom:1rem;}
+
+/* 버튼 */
+.btn{padding:.5rem 1.4rem; border:none; border-radius:7px; cursor:pointer;
+     font-size:.9rem; font-weight:500; transition:background .15s;}
+.btn-primary{background:var(--accent); color:#fff;}
+.btn-primary:hover{background:var(--accent2);}
+.btn-primary:disabled{opacity:.5; cursor:wait;}
+.btn-sm{padding:.35rem .8rem; font-size:.82rem;}
+.btn-danger{background:#ef4444; color:#fff;}
+.btn-outline{background:none; border:1px solid var(--border); color:var(--text);}
+
+/* 테이블 */
+.tbl-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+table{border-collapse:collapse; width:100%; font-size:.88rem;}
+th{text-align:left; padding:.55rem .5rem; border-bottom:2px solid var(--border);
+   color:var(--sub); font-weight:600; font-size:.8rem; white-space:nowrap;}
+td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap;}
+.r{text-align:right;} .c{text-align:center;}
+.up{color:var(--up);} .down{color:var(--down);} .green{color:var(--green);}
+
+/* 폼 */
+.form-row{display:flex; flex-wrap:wrap; gap:.5rem; align-items:flex-end;}
+.form-group{display:flex; flex-direction:column; gap:.2rem;}
+.form-group label{font-size:.78rem; color:var(--sub); font-weight:600;}
+.form-group input,.form-group select{
+  padding:.4rem .6rem; border:1px solid var(--border); border-radius:6px;
+  font-size:.88rem; background:var(--input-bg); color:var(--text); width:auto;}
+.form-group input:focus,.form-group select:focus{outline:none; border-color:var(--accent);}
+
+/* 셀렉터 행 */
+.ctrl-row{display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:1rem;}
+.market-btn{padding:.4rem 1rem; border:1px solid var(--border); border-radius:20px;
+            background:var(--card); cursor:pointer; font-size:.88rem; color:var(--text);
+            transition:all .15s;}
+.market-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+
+/* 점수 바 */
+.score-bar{display:inline-block; height:6px; border-radius:3px;
+           background:var(--accent); opacity:.6; vertical-align:middle;}
+
+/* 요약 카드 */
+.summary{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+         gap:.8rem; margin-bottom:1rem;}
+.stat{text-align:center; padding:.8rem;}
+.stat .val{font-size:1.4rem; font-weight:700;}
+.stat .lbl{font-size:.78rem; color:var(--sub); margin-top:.15rem;}
+
+/* 알림 */
+.toast{position:fixed; bottom:1.5rem; right:1.5rem; background:#1e293b; color:#fff;
+       padding:.7rem 1.2rem; border-radius:8px; font-size:.88rem; z-index:100;
+       opacity:0; transition:opacity .3s; pointer-events:none;}
+.toast.show{opacity:1;}
+
+/* 모바일 */
+@media(max-width:600px){
+  .header{flex-wrap:wrap;} .tabs{margin-left:0; width:100%;}
+  .tab{flex:1; text-align:center; font-size:.85rem; padding:.5rem .4rem;}
+  .form-row{flex-direction:column;} .form-group{width:100%;}
+  .form-group input,.form-group select{width:100%;}
+  .summary{grid-template-columns:1fr 1fr;}
+}
+
+.note{font-size:.78rem; color:var(--sub); margin-top:1rem; line-height:1.6;}
+.spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border);
+         border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style></head><body>
+
+<!-- 헤더 + 탭 -->
+<div class="header">
+  <h1>Stock Dashboard</h1>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('rec')">종목 추천</button>
+    <button class="tab" onclick="switchTab('port')">내 포트폴리오</button>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ====== 탭1: 종목 추천 ====== -->
+<div id="page-rec" class="page active">
+  <div class="card">
+    <div class="ctrl-row">
+      <button class="market-btn active" onclick="selMarket(this,'KOSPI')">KOSPI</button>
+      <button class="market-btn" onclick="selMarket(this,'KOSDAQ')">KOSDAQ</button>
+      <button class="market-btn" onclick="selMarket(this,'NASDAQ')">NASDAQ</button>
+      <button class="btn btn-primary" id="rec-btn" onclick="loadRec()">추천 실행</button>
+      <span id="rec-status" style="font-size:.82rem;color:var(--sub)"></span>
+    </div>
+  </div>
+  <div id="rec-results"></div>
+</div>
+
+<!-- ====== 탭2: 포트폴리오 ====== -->
+<div id="page-port" class="page">
+
+  <!-- 매수/매도 입력 -->
+  <div class="card">
+    <div style="font-weight:600; margin-bottom:.6rem;">거래 기록</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>시장</label>
+        <select id="tx-market"><option>KOSPI</option><option>KOSDAQ</option><option>NASDAQ</option></select>
+      </div>
+      <div class="form-group">
+        <label>종목코드</label>
+        <input id="tx-ticker" placeholder="005930" style="width:100px;">
+      </div>
+      <div class="form-group">
+        <label>종목명</label>
+        <input id="tx-name" placeholder="삼성전자" style="width:100px;">
+      </div>
+      <div class="form-group">
+        <label>수량</label>
+        <input id="tx-qty" type="number" min="1" placeholder="10" style="width:80px;">
+      </div>
+      <div class="form-group">
+        <label>가격</label>
+        <input id="tx-price" type="number" min="0" step="any" placeholder="71000" style="width:110px;">
+      </div>
+      <div class="form-group">
+        <label>체결일</label>
+        <input id="tx-date" type="date">
+      </div>
+      <div class="form-group" style="justify-content:flex-end;">
+        <div style="display:flex;gap:.4rem;">
+          <button class="btn btn-primary btn-sm" onclick="addTx('buy')">매수</button>
+          <button class="btn btn-danger btn-sm" onclick="addTx('sell')">매도</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 손익 현황 -->
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.6rem;">
+      <div style="font-weight:600;">보유 종목 손익</div>
+      <button class="btn btn-primary btn-sm" id="pf-btn" onclick="loadPortfolio()">조회</button>
+    </div>
+    <div id="pf-summary" class="summary" style="display:none;"></div>
+    <div id="pf-status" style="font-size:.82rem;color:var(--sub);margin-bottom:.5rem;"></div>
+    <div class="tbl-wrap"><table id="pf-table" style="display:none;">
+      <thead><tr>
+        <th>시장</th><th>종목</th><th class="r">수량</th><th class="r">평단</th>
+        <th class="r">현재가</th><th class="r">전일比</th><th class="r">평가금액</th>
+        <th class="r">평가손익</th><th class="r">수익률</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div id="pf-totals" style="margin-top:.6rem;font-size:.9rem;"></div>
+  </div>
+
+  <!-- 거래 내역 -->
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.6rem;">
+      <div style="font-weight:600;">거래 내역</div>
+      <button class="btn btn-outline btn-sm" onclick="loadHistory()">불러오기</button>
+    </div>
+    <div class="tbl-wrap"><table id="hist-table" style="display:none;">
+      <thead><tr><th>일자</th><th>시장</th><th>종목</th><th class="c">구분</th>
+        <th class="r">수량</th><th class="r">가격</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<p class="note" style="text-align:center; padding:0 1rem 2rem;">
+  ※ 투자 판단의 참고자료이며 손실 책임은 투자자 본인에게 있습니다.
+  시세: 한국 네이버(실시간) / 미국 Yahoo(15분 지연). [조회]를 누른 시점에만 가져옵니다.
+</p>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── 탭 ──
+function switchTab(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  document.querySelector(`.tab[onclick*="${id}"]`).classList.add('active');
+}
+
+// ── 마켓 선택 ──
+let curMarket = 'KOSPI';
+function selMarket(el, m) {
+  curMarket = m;
+  document.querySelectorAll('.market-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── 유틸 ──
+function fmt(v, m, d) {
+  if (v === null || v === undefined) return '-';
+  const dec = d !== undefined ? d : (m === 'NASDAQ' ? 2 : 0);
+  return Number(v).toLocaleString('ko-KR', {minimumFractionDigits:dec, maximumFractionDigits:dec});
+}
+function cls(v) { return v > 0 ? 'up' : v < 0 ? 'down' : ''; }
+function sign(v, s) { return (v > 0 ? '+' : '') + s; }
+function unit(m) { return m === 'NASDAQ' ? '$' : '원'; }
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── 종목 추천 ──
+async function loadRec() {
+  const btn = document.getElementById('rec-btn');
+  const st = document.getElementById('rec-status');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  st.textContent = '분석 중… (첫 실행은 데이터 수집으로 수 분 소요될 수 있습니다)';
+  try {
+    const r = await fetch('/api/recommend?market=' + curMarket);
+    const d = await r.json();
+    if (d.error) { st.textContent = '오류: ' + d.error; return; }
+    st.textContent = `${d.market} | 기준일 ${d.as_of} | 유니버스 ${d.universe_count}개 종목`;
+    let html = '';
+    for (const [key, sec] of Object.entries(d.recommendations)) {
+      html += `<div class="card"><div style="font-weight:600;margin-bottom:.5rem;">${sec.label} 상위 5</div>
+        <div class="tbl-wrap"><table><thead><tr>
+        <th>종목</th><th class="r">모멘텀</th><th class="r">가치</th><th class="r">퀄리티</th>
+        <th class="r">수급</th><th class="r">심리</th><th class="r">점수</th>
+        </tr></thead><tbody>`;
+      for (const s of sec.rows) {
+        const sc = s.score || 0;
+        html += `<tr>
+          <td>${s.name}<br><small style="color:var(--sub)">${s.ticker}</small></td>
+          <td class="r">${fmtScore(s.momentum)}</td>
+          <td class="r">${fmtScore(s.value)}</td>
+          <td class="r">${fmtScore(s.quality)}</td>
+          <td class="r">${fmtScore(s.flow)}</td>
+          <td class="r">${fmtScore(s.sentiment)}</td>
+          <td class="r" style="font-weight:700">${sc !== null ? sc.toFixed(1) : '-'}
+            <span class="score-bar" style="width:${sc ? sc*0.6 : 0}px"></span></td>
+        </tr>`;
+      }
+      html += '</tbody></table></div></div>';
+    }
+    document.getElementById('rec-results').innerHTML = html;
+  } catch(e) { st.textContent = '네트워크 오류: ' + e; }
+  finally { btn.disabled = false; btn.textContent = '추천 실행'; }
+}
+function fmtScore(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--sub)">-</span>';
+  const pct = Math.round(v * 100);
+  const c = pct >= 70 ? 'up' : pct <= 30 ? 'down' : '';
+  return `<span class="${c}">${pct}</span>`;
+}
+
+// ── 포트폴리오 ──
+async function loadPortfolio() {
+  const btn = document.getElementById('pf-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  document.getElementById('pf-status').textContent = '시세 조회 중…';
+  try {
+    const d = await (await fetch('/api/portfolio')).json();
+    if (d.error) { document.getElementById('pf-status').textContent = d.error; return; }
+    document.getElementById('pf-status').textContent = '조회시각: ' + d.as_of;
+
+    // 요약 카드
+    const sumEl = document.getElementById('pf-summary');
+    if (Object.keys(d.totals).length) {
+      let sh = '';
+      for (const [m, t] of Object.entries(d.totals)) {
+        const u = unit(m);
+        sh += `<div class="stat card">
+          <div class="lbl">${m} 평가손익</div>
+          <div class="val ${cls(t.pnl)}">${sign(t.pnl, fmt(t.pnl, m) + u)}</div>
+          <div class="lbl">${sign(t.pnl_pct, fmt(t.pnl_pct, m, 2))}%</div>
+        </div>`;
+      }
+      for (const [m, v] of Object.entries(d.realized)) {
+        sh += `<div class="stat card">
+          <div class="lbl">${m} 실현손익</div>
+          <div class="val ${cls(v)}">${sign(v, fmt(v, m) + unit(m))}</div>
+          <div class="lbl">매도 확정</div>
+        </div>`;
+      }
+      sumEl.innerHTML = sh; sumEl.style.display = '';
+    } else { sumEl.style.display = 'none'; }
+
+    // 종목 테이블
+    const tbody = document.querySelector('#pf-table tbody');
+    tbody.innerHTML = '';
+    if (!d.rows.length) {
+      document.getElementById('pf-table').style.display = 'none';
+      document.getElementById('pf-totals').innerHTML =
+        '<span style="color:var(--sub)">보유 종목이 없습니다. 위에서 매수를 기록하세요.</span>';
+    } else {
+      for (const r of d.rows) {
+        const m = r.market, u = m === 'NASDAQ' ? '$' : '';
+        tbody.insertAdjacentHTML('beforeend', `<tr>
+          <td>${m}</td>
+          <td>${r.name}<br><small style="color:var(--sub)">${r.ticker}</small></td>
+          <td class="r">${fmt(r.qty,m,0)}</td>
+          <td class="r">${u}${fmt(r.avg_price,m)}</td>
+          <td class="r">${r.price===null?'조회불가':u+fmt(r.price,m)}</td>
+          <td class="r ${cls(r.day_change_pct)}">${r.day_change_pct===null?'-':sign(r.day_change_pct,fmt(r.day_change_pct,m,2)+'%')}</td>
+          <td class="r">${u}${fmt(r.value,m)}</td>
+          <td class="r ${cls(r.pnl)}">${r.pnl===null?'-':sign(r.pnl,u+fmt(r.pnl,m))}</td>
+          <td class="r ${cls(r.pnl_pct)}">${r.pnl_pct===null?'-':sign(r.pnl_pct,fmt(r.pnl_pct,m,2)+'%')}</td>
+        </tr>`);
+      }
+      document.getElementById('pf-table').style.display = '';
+      document.getElementById('pf-totals').innerHTML = '';
+    }
+  } catch(e) { document.getElementById('pf-status').textContent = '오류: '+e; }
+  finally { btn.disabled = false; btn.textContent = '조회'; }
+}
+
+// ── 매수/매도 ──
+async function addTx(side) {
+  const data = {
+    market: document.getElementById('tx-market').value,
+    ticker: document.getElementById('tx-ticker').value.trim(),
+    name: document.getElementById('tx-name').value.trim() || undefined,
+    qty: document.getElementById('tx-qty').value,
+    price: document.getElementById('tx-price').value,
+    date: document.getElementById('tx-date').value || undefined,
+  };
+  if (!data.ticker || !data.qty || !data.price) { toast('종목코드, 수량, 가격을 입력하세요'); return; }
+  const url = side === 'buy' ? '/api/portfolio/add' : '/api/portfolio/sell';
+  try {
+    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify(data)});
+    const d = await r.json();
+    if (d.error) { toast('오류: ' + d.error); return; }
+    toast((side==='buy'?'매수':'매도') + ' 기록 완료');
+    document.getElementById('tx-ticker').value = '';
+    document.getElementById('tx-name').value = '';
+    document.getElementById('tx-qty').value = '';
+    document.getElementById('tx-price').value = '';
+  } catch(e) { toast('네트워크 오류'); }
+}
+
+// ── 거래 내역 ──
+async function loadHistory() {
+  try {
+    const d = await (await fetch('/api/portfolio/history')).json();
+    const tbody = document.querySelector('#hist-table tbody');
+    tbody.innerHTML = '';
+    if (!d.transactions.length) { toast('거래 내역이 없습니다'); return; }
+    d.transactions.forEach((tx, i) => {
+      const verb = tx.side === 'buy' ? '매수' : '매도';
+      const vc = tx.side === 'buy' ? 'up' : 'down';
+      tbody.insertAdjacentHTML('beforeend', `<tr>
+        <td>${tx.date}</td><td>${tx.market}</td>
+        <td>${tx.name||tx.ticker}<br><small style="color:var(--sub)">${tx.ticker}</small></td>
+        <td class="c ${vc}">${verb}</td>
+        <td class="r">${Number(tx.qty).toLocaleString()}</td>
+        <td class="r">${Number(tx.price).toLocaleString()}</td>
+        <td><button class="btn btn-outline btn-sm" onclick="deleteTx(${i})">삭제</button></td>
+      </tr>`);
+    });
+    document.getElementById('hist-table').style.display = '';
+  } catch(e) { toast('오류: '+e); }
+}
+
+async function deleteTx(idx) {
+  if (!confirm('이 거래 기록을 삭제하시겠습니까?')) return;
+  try {
+    const r = await fetch('/api/portfolio/delete', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: idx})});
+    const d = await r.json();
+    if (d.error) { toast(d.error); return; }
+    toast('삭제 완료'); loadHistory();
+  } catch(e) { toast('오류'); }
+}
+</script></body></html>"""
+
+
+def main():
+    parser = argparse.ArgumentParser(description="종목추천 + 포트폴리오 통합 웹 대시보드")
+    parser.add_argument("--port", type=int, default=8899)
+    parser.add_argument("--demo", action="store_true",
+                        help="합성 데이터로 화면 확인 (API/장부 불필요)")
+    args = parser.parse_args()
+
+    DashboardHandler.demo = args.demo
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), DashboardHandler)
+    mode = " [DEMO]" if args.demo else ""
+    print(f"\n  종목추천 + 포트폴리오 대시보드{mode}")
+    print(f"  http://0.0.0.0:{args.port}")
+    print(f"  종료: Ctrl+C\n")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n종료합니다.")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

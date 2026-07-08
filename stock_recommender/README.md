@@ -21,6 +21,32 @@ python recommend.py --market NASDAQ
 python recommend.py --market KOSPI --as-of 2026-07-01
 ```
 
+## 투자 손익 대시보드 (조회형)
+
+추천 종목을 주식앱에서 실제 매수한 뒤, 매수 내역을 장부에 기록해두면
+**[조회]를 누르는 시점에만** 현재가를 가져와 평가손익을 보여줍니다 (상시 폴링 없음).
+
+```bash
+# 1) 매수/매도 내역 기록 (주식앱 체결 내역을 그대로 옮기면 됨)
+python portfolio.py add  --market KOSPI  --ticker 005930 --qty 10 --price 71000 --name 삼성전자
+python portfolio.py add  --market NASDAQ --ticker AAPL   --qty 5  --price 230.5 --name Apple
+python portfolio.py sell --market KOSPI  --ticker 005930 --qty 3  --price 75000
+python portfolio.py list        # 거래 내역
+python portfolio.py holdings    # 보유 현황 (시세 조회 없음)
+
+# 2) 손익 조회
+python dashboard.py             # 터미널에 1회 조회 결과 출력
+python dashboard.py --web       # http://127.0.0.1:8899 — 브라우저 [조회] 버튼으로 갱신
+python dashboard.py --demo      # 가상 장부 + 합성 시세로 화면 확인 (API 불필요)
+```
+
+- **시세 출처**: 한국은 네이버 금융 실시간 시세(실패 시 pykrx 종가 폴백),
+  나스닥은 Yahoo(약 15분 지연). 조회 버튼을 누른 순간에만 1회 조회합니다.
+- **표시 항목**: 종목별 평단·현재가·전일比·평가금액·평가손익·수익률,
+  시장별 합계(원/달러 분리), 매도로 확정된 실현손익.
+- **평균단가**: 이동평균법 — 추가 매수 시 평단 갱신, 매도 시 평단 유지 + 실현손익 기록.
+- 장부는 `data/portfolio.json`에 저장됩니다 (git 추적 제외).
+
 - `DART_API_KEY`가 없어도 실행은 됩니다 — ROE/부채비율/영업이익률(퀄리티 팩터)만 빠진 채
   나머지 팩터로 점수가 계산됩니다 (가중치 자동 재정규화).
 - 첫 실행은 데이터 수집 때문에 오래 걸립니다 (KOSPI 전 종목 시세 순회 수십 분).
@@ -37,6 +63,9 @@ stock_recommender/
 ├── factors.py         # 기술적 팩터 계산 (모멘텀, RSI, 거래량 급증)
 ├── scoring.py         # 스코어링 엔진 (정규화 → 카테고리 → 호라이즌 점수)
 ├── backtest.py        # Walk-forward 백테스트 골격
+├── portfolio.py       # 보유 종목 장부 (매수/매도 기록, 평균단가)
+├── quotes.py          # 조회 시점 현재가 조회 (네이버/Yahoo)
+├── dashboard.py       # 투자 손익 대시보드 (터미널 + 로컬 웹)
 ├── cache.py           # 수집 데이터 로컬 캐시 (.cache/)
 ├── dart.py            # DART Open API 연동 (재무비율, 공시기한 기준)
 ├── demo_data.py       # 합성 데이터 어댑터 (테스트용)

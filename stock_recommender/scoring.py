@@ -11,7 +11,7 @@ import pandas as pd
 from config import (FACTORS, HORIZON_WEIGHTS, COMPOSITE_WEIGHTS,
                     UNIVERSE_FILTERS, WINSORIZE_PCT, TOP_N,
                     COVERAGE_PENALTY, MIN_COVERAGE, VALUE_TRAP,
-                    PENALTY_FACTORS)
+                    PENALTY_FACTORS, ESSENTIAL_CATEGORIES)
 
 
 def apply_universe_filter(table: pd.DataFrame, market: str) -> pd.DataFrame:
@@ -23,6 +23,10 @@ def apply_universe_filter(table: pd.DataFrame, market: str) -> pd.DataFrame:
     )
     if "min_price" in f and "last_close" in table.columns:
         mask &= table["last_close"].astype(float) >= f["min_price"]
+    if market in ("KOSPI", "KOSDAQ"):
+        # 우선주 차단 (종목코드 끝자리 0이 아니면 우선주/신형우선주 등)
+        # 어댑터에서도 거르지만 과거 캐시 등으로 섞여 들어올 수 있어 이중 방어
+        mask &= table["ticker"].astype(str).str.endswith("0")
     return table[mask.fillna(False)].reset_index(drop=True)
 
 
@@ -84,7 +88,16 @@ def horizon_score(scored: pd.DataFrame, horizon: str) -> pd.Series:
         valid = col.notna()
         num[valid] += col[valid] * w
         den[valid] += w
-    return (num / den.replace(0, np.nan)) * 100  # 0~100점 스케일
+    score = (num / den.replace(0, np.nan)) * 100  # 0~100점 스케일
+
+    # 필수 카테고리 게이트: 핵심 근거가 모두 결측이면 이 호라이즌 점수 무효
+    # (예: 재무 데이터 없는 종목이 모멘텀만으로 장기 점수를 받는 것 방지)
+    essential = ESSENTIAL_CATEGORIES.get(horizon)
+    if essential:
+        has_core = pd.concat(
+            [scored[f"cat_{c}"].notna() for c in essential], axis=1).any(axis=1)
+        score[~has_core] = np.nan
+    return score
 
 
 def data_coverage(normed: pd.DataFrame) -> pd.Series:
@@ -136,8 +149,9 @@ def run_scoring(table: pd.DataFrame, market: str) -> pd.DataFrame:
     for h in HORIZON_WEIGHTS:
         scored[f"score_{h}"] = horizon_score(scored, h) * penalty
 
-    # 종합점수: 결측 호라이즌은 제외하고 가중치 재정규화
-    # (fillna(0)으로 합산하면 한 호라이즌만 없어도 점수가 부당하게 깎임)
+    # 종합점수: 세 호라이즌이 모두 유효한 종목만 대상
+    # (한 호라이즌이라도 필수 카테고리 미달로 무효면, 그 종목의 '종합'은
+    #  남은 호라이즌의 재탕일 뿐이므로 종합 랭킹에서 제외)
     num = pd.Series(0.0, index=scored.index)
     den = pd.Series(0.0, index=scored.index)
     for h, w in COMPOSITE_WEIGHTS.items():
@@ -146,6 +160,9 @@ def run_scoring(table: pd.DataFrame, market: str) -> pd.DataFrame:
         num[valid] += col[valid] * w
         den[valid] += w
     scored["score_composite"] = num / den.replace(0, np.nan)
+    all_valid = pd.concat([scored[f"score_{h}"].notna()
+                           for h in COMPOSITE_WEIGHTS], axis=1).all(axis=1)
+    scored.loc[~all_valid, "score_composite"] = np.nan
     return scored
 
 

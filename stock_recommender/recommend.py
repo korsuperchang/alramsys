@@ -96,7 +96,14 @@ def main():
         print(f"── {HORIZON_LABELS[key]} 상위 {len(df)}개 " + "─" * 40)
         print(format_table(df))
         for _, r in df.iterrows():
-            print(f"   · {r['name']}: {build_reason(r, key)}")
+            sector = r.get("sector")
+            tag = f" [{sector}]" if sector is not None and not pd.isna(sector) else ""
+            print(f"   · {r['name']}{tag}: {build_reason(r, key)}")
+        if "sector" in df.columns and not df.empty:
+            counts = df["sector"].fillna("미분류").value_counts()
+            dist = ", ".join(f"{s} {c}" for s, c in counts.items())
+            warn = "  ⚠ 섹터 쏠림 주의" if counts.iloc[0] >= max(3, len(df) - 1) else ""
+            print(f"   섹터 분포: {dist}{warn}")
         print()
 
     print("※ 본 결과는 정량 모델의 참고자료이며 투자 판단과 손실 책임은 투자자 본인에게 있습니다.")

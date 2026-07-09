@@ -106,6 +106,14 @@ class KoreaAdapter(MarketAdapter):
         snap = snap[~snap["name"].astype(str).str.contains("스팩", na=False)]
         snap = snap.reset_index(drop=True)
 
+        # 업종 분류 (KRX 업종분류현황, 시장당 1회 호출 — 표시/쏠림 점검용)
+        try:
+            sec = krx.get_market_sector_classifications(date, self.market_name)
+            snap["sector"] = snap["ticker"].map(sec["업종명"]) \
+                if sec is not None and not sec.empty else pd.NA
+        except Exception:
+            snap["sector"] = pd.NA
+
         # 2) 수급: 외국인/기관 20일 순매수 대금
         start = (pd.Timestamp(as_of) - pd.Timedelta(days=40)).strftime("%Y%m%d")
         try:

@@ -68,10 +68,15 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
     result = {}
     for key, df in recs.items():
         rows = []
+        sectors = []
         for _, r in df.iterrows():
+            sector = r.get("sector")
+            sector = None if sector is None or pd.isna(sector) else str(sector)
+            sectors.append(sector or "미분류")
             rows.append({
                 "ticker": r.get("ticker", ""),
                 "name": r.get("name", ""),
+                "sector": sector,
                 "momentum": _safe(r, "cat_momentum"),
                 "value": _safe(r, "cat_value"),
                 "quality": _safe(r, "cat_quality"),
@@ -80,7 +85,13 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
                 "score": _safe(r, f"score_{key}"),
                 "reason": build_reason(r, key),
             })
-        result[key] = {"label": horizon_labels[key], "rows": rows}
+        # 섹터 분포 요약 (쏠림 육안 점검용)
+        counts = pd.Series(sectors).value_counts() if sectors else pd.Series(dtype=int)
+        summary = " · ".join(f"{s} {c}" for s, c in counts.items())
+        if len(counts) and counts.iloc[0] >= max(3, len(sectors) - 1):
+            summary += " ⚠ 섹터 쏠림 주의"
+        result[key] = {"label": horizon_labels[key], "rows": rows,
+                       "sector_summary": summary}
 
     return {"market": market, "as_of": as_of,
             "universe_count": len(scored), "recommendations": result}
@@ -589,15 +600,18 @@ function renderRec(d, cached) {
     + (cached ? ' (저장된 결과)' : '');
   let html = '';
   for (const [key, sec] of Object.entries(d.recommendations)) {
-    html += `<div class="card"><div style="font-weight:600;margin-bottom:.5rem;">${sec.label} 상위 5</div>
-      <div class="tbl-wrap"><table><thead><tr>
+    html += `<div class="card"><div style="font-weight:600;margin-bottom:.2rem;">${sec.label} 상위 5</div>`;
+    if (sec.sector_summary) {
+      html += `<div style="font-size:.75rem;color:var(--sub);margin-bottom:.5rem;">섹터: ${sec.sector_summary}</div>`;
+    }
+    html += `<div class="tbl-wrap"><table><thead><tr>
       <th>종목</th><th class="r">모멘텀</th><th class="r">가치</th><th class="r">퀄리티</th>
       <th class="r">수급</th><th class="r">심리</th><th class="r">점수</th>
       </tr></thead><tbody>`;
     for (const s of sec.rows) {
       const sc = s.score || 0;
       html += `<tr>
-        <td>${s.name}<br><small style="color:var(--sub)">${s.ticker}</small></td>
+        <td>${s.name}<br><small style="color:var(--sub)">${s.ticker}${s.sector ? ' · ' + s.sector : ''}</small></td>
         <td class="r">${fmtScore(s.momentum)}</td>
         <td class="r">${fmtScore(s.value)}</td>
         <td class="r">${fmtScore(s.quality)}</td>

@@ -121,6 +121,7 @@ class NasdaqAdapter(MarketAdapter):
             rows.append({
                 "ticker": t,
                 "name": info.get("shortName", t),
+                "sector": info.get("sector"),
                 "market_cap": info.get("marketCap"),
                 "per": info.get("trailingPE"),
                 "pbr": info.get("priceToBook"),

@@ -48,9 +48,13 @@ class DemoAdapter(MarketAdapter):
     def get_snapshot(self, as_of: str) -> pd.DataFrame:
         n = self.n_stocks
         cap_scale = 1e12 if self.is_korea else 1e10  # 원화 vs 달러 규모 차이
+        sectors = ["반도체", "바이오", "금융", "화학", "서비스업", "기계"] \
+            if self.is_korea else ["Technology", "Healthcare", "Financials",
+                                   "Energy", "Consumer", "Industrials"]
         snap = pd.DataFrame({
             "ticker": self._tickers,
             "name": [f"데모종목{i}" for i in range(n)],
+            "sector": self.rng.choice(sectors, n),
             "market_cap": self.rng.lognormal(0, 1.2, n) * cap_scale * 0.3,
             "per": self.rng.lognormal(2.6, 0.6, n),           # 중앙값 ~13
             "pbr": self.rng.lognormal(0.2, 0.6, n),           # 중앙값 ~1.2

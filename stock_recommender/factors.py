@@ -69,8 +69,9 @@ def compute_price_factors(price_df: pd.DataFrame) -> pd.DataFrame:
             row["tv_surge"] = np.nan
             row["ret_5d"] = np.nan
 
-        # 유니버스 필터용: 20일 평균 거래대금
+        # 유니버스 필터용: 20일 평균 거래대금, 현재가 (저가주 필터)
         row["avg_trading_value_20d"] = tv.iloc[-20:].mean() if n >= 20 else np.nan
+        row["last_close"] = close.iloc[-1] if n >= 1 else np.nan
 
         results.append(row)
 
@@ -85,5 +86,13 @@ def build_factor_table(price_df: pd.DataFrame, snapshot_df: pd.DataFrame) -> pd.
     # PER 음수(적자), PBR 음수/0(자본잠식 또는 데이터 없음)은 밸류 팩터로 의미 없음
     table.loc[table["per"].astype(float) <= 0, "per"] = np.nan
     table.loc[table["pbr"].astype(float) <= 0, "pbr"] = np.nan
+
+    # 수급 규모 보정: 순매수 '금액' 그대로는 대형주가 구조적으로 유리
+    # → 시가총액 대비 비율(intensity)로 변환해 스코어링에 사용
+    cap = pd.to_numeric(table["market_cap"], errors="coerce")
+    cap = cap.where(cap > 0)
+    for raw, intensity in [("foreign_net_buy_20d", "foreign_net_buy_intensity"),
+                           ("inst_net_buy_20d", "inst_net_buy_intensity")]:
+        table[intensity] = pd.to_numeric(table[raw], errors="coerce") / cap
 
     return table

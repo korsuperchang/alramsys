@@ -28,18 +28,24 @@ FORMATTERS = {
     "roe": lambda v: f"ROE {v*100:.1f}%",
     "debt_ratio": lambda v: f"부채비율 {v:.0f}%",
     "op_margin": lambda v: f"영업이익률 {v*100:.1f}%",
-    "foreign_net_buy_20d": lambda v: (
-        f"외국인 20일 순매수 {_money_kr(v)}" if v > 0
-        else f"외국인 20일 순매도 {_money_kr(v)}"),
-    "inst_net_buy_20d": lambda v: (
-        f"기관 20일 순매수 {_money_kr(v)}" if v > 0
-        else f"기관 20일 순매도 {_money_kr(v)}"),
     "short_ratio_change": lambda v: f"공매도 비중 {v:+.2f}%p",
     "volume_surge": lambda v: "주가·거래대금 흐름 양호" if v > 0 else "하락 속 거래 급증",
 }
 
 
 def _factor_text(row: pd.Series, name: str) -> str | None:
+    # 수급 intensity: 시총 대비 비율로 표시하되 원금액(억)이 있으면 함께 표기
+    if name in ("foreign_net_buy_intensity", "inst_net_buy_intensity"):
+        v = row.get(name)
+        if v is None or pd.isna(v):
+            return None
+        who = "외국인" if name.startswith("foreign") else "기관"
+        action = "순매수" if v > 0 else "순매도"
+        text = f"{who} 20일 {action} 시총 대비 {abs(v)*100:.1f}%"
+        raw = row.get(name.replace("_intensity", "_20d"))
+        if raw is not None and not pd.isna(raw):
+            text += f" ({_money_kr(float(raw))})"
+        return text
     # volume_surge는 원재료(5일 수익률, 거래대금 증감)가 있으면 상황을 해석해서 표시
     if name == "volume_surge":
         r5, surge = row.get("ret_5d"), row.get("tv_surge")
@@ -96,4 +102,9 @@ def build_reason(row: pd.Series, horizon: str) -> str:
         else "특정 팩터 쏠림 없이 전반적으로 고른 상위권"
     if neg:
         out += "  /  주의: " + ", ".join(t for _, t in neg[:2])
+
+    # 데이터가 부족한 종목은 점수 신뢰도가 낮음을 표시 (커버리지 페널티와 연동)
+    cov = row.get("coverage_ratio")
+    if cov is not None and not pd.isna(cov) and cov < 0.8:
+        out += f"  /  데이터 커버리지 {cov*100:.0f}%"
     return out

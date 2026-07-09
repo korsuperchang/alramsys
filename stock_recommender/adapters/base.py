@@ -10,11 +10,12 @@ MarketAdapter: 시장별 데이터 소스를 통일된 인터페이스로 추상
 
 2. get_snapshot(as_of) → DataFrame (as_of 시점에 '알 수 있었던' 최신 값)
    columns: [
-     "ticker", "name", "market_cap",
+     "ticker", "name", "sector", "market_cap",
      "per", "pbr", "roe", "debt_ratio", "op_margin",     # 재무 (공시일 기준!)
      "foreign_net_buy_20d", "inst_net_buy_20d",           # 수급 (한국만, 없으면 NaN)
      "short_ratio_change",                                # 공매도 (없으면 NaN)
    ]
+   * sector: 업종명 (표시용, 없으면 NaN — 스코어링에는 사용하지 않음)
 
 핵심 원칙:
 - 재무데이터는 반드시 '공시일' 기준으로 as_of 시점에 공개된 최신 분기 데이터만 사용
@@ -29,7 +30,7 @@ import pandas as pd
 PRICE_COLUMNS = ["ticker", "date", "open", "high", "low", "close", "volume", "trading_value"]
 
 SNAPSHOT_COLUMNS = [
-    "ticker", "name", "market_cap",
+    "ticker", "name", "sector", "market_cap",
     "per", "pbr", "roe", "debt_ratio", "op_margin",
     "foreign_net_buy_20d", "inst_net_buy_20d", "short_ratio_change",
 ]

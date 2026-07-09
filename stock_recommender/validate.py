@@ -216,7 +216,8 @@ def main():
     print("[3/3] 리포트 생성")
     print_report(detail, args.market, TOP_N)
 
-    out = f"data/validation_{args.market}_{pd.Timestamp.today():%Y%m%d}.csv"
+    # 개선 전/후 비교를 위해 실행 시각까지 파일명에 포함 (덮어쓰기 방지)
+    out = f"data/validation_{args.market}_{pd.Timestamp.today():%Y%m%d_%H%M}.csv"
     try:
         from pathlib import Path
         Path("data").mkdir(exist_ok=True)

@@ -20,8 +20,6 @@ def _money_kr(v: float) -> str:
 
 # 팩터 원값 → 표시 문구 (rank가 방향을 이미 보정했으므로 여기선 사실만 기술)
 FORMATTERS = {
-    "mom_12_1": lambda v: f"12개월 모멘텀 {v*100:+.0f}%",
-    "mom_3m": lambda v: f"3개월 수익률 {v*100:+.0f}%",
     "rsi_overbought": lambda v: f"RSI {70 + v:.0f} 과열",
     "per": lambda v: f"PER {v:.1f}배",
     "pbr": lambda v: f"PBR {v:.2f}배",
@@ -34,6 +32,19 @@ FORMATTERS = {
 
 
 def _factor_text(row: pd.Series, name: str) -> str | None:
+    # 위험조정 모멘텀: 점수는 조정값 기준이지만 표시는 원수익률이 직관적
+    if name in ("mom_12_1_adj", "mom_3m_adj"):
+        raw = row.get(name.replace("_adj", ""))
+        if raw is None or pd.isna(raw):
+            return None
+        label = "12개월 모멘텀" if name.startswith("mom_12") else "3개월 수익률"
+        return f"{label} {raw*100:+.0f}% (변동성 조정)"
+    # 과열: 원재료인 최근 1개월 수익률로 표시
+    if name == "overheat_20d":
+        r20 = row.get("ret_20d")
+        if r20 is None or pd.isna(r20):
+            return None
+        return f"최근 1개월 {r20*100:+.0f}% 급등 과열"
     # 수급 intensity: 시총 대비 비율로 표시하되 원금액(억)이 있으면 함께 표기
     if name in ("foreign_net_buy_intensity", "inst_net_buy_intensity"):
         v = row.get(name)
@@ -98,10 +109,14 @@ def build_reason(row: pd.Series, horizon: str) -> str:
     pos.sort(key=lambda x: -x[0])
     neg.sort(key=lambda x: x[0])
 
+    warnings = [t for _, t in neg[:2]]
+    if row.get("value_trap"):
+        warnings.append("저평가이나 하락 추세 (가치 함정 가능)")
+
     out = " · ".join(t for _, t in pos[:3]) if pos \
         else "특정 팩터 쏠림 없이 전반적으로 고른 상위권"
-    if neg:
-        out += "  /  주의: " + ", ".join(t for _, t in neg[:2])
+    if warnings:
+        out += "  /  주의: " + ", ".join(warnings[:3])
 
     # 데이터가 부족한 종목은 점수 신뢰도가 낮음을 표시 (커버리지 페널티와 연동)
     cov = row.get("coverage_ratio")

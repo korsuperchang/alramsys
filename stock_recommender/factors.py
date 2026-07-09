@@ -7,6 +7,14 @@
 import numpy as np
 import pandas as pd
 
+from config import OVERHEAT_THRESHOLD
+
+
+def _risk_adjust(raw: float, daily_rets: pd.Series) -> float:
+    """수익률 / 연환산 변동성 (Sharpe형) — 급등락주의 모멘텀 과대평가 방지"""
+    vol = daily_rets.std() * np.sqrt(252)
+    return raw / vol if vol and vol > 0 else np.nan
+
 
 def compute_rsi(close: pd.Series, window: int = 14) -> float:
     """마지막 시점의 RSI (Wilder 방식 근사)"""
@@ -34,16 +42,37 @@ def compute_price_factors(price_df: pd.DataFrame) -> pd.DataFrame:
 
         row = {"ticker": ticker}
 
+        rets = close.pct_change()
+
         # 12-1 모멘텀: 12개월 전 → 1개월 전 수익률 (최근 1개월 제외해 단기반전 보정)
+        # 스코어링에는 변동성으로 나눈 위험조정값(_adj)을 사용, 원값은 표시용
         if n >= 252:
             row["mom_12_1"] = close.iloc[-21] / close.iloc[-252] - 1
+            row["mom_12_1_adj"] = _risk_adjust(row["mom_12_1"],
+                                               rets.iloc[-252:-21])
         elif n >= 120:  # 데이터 부족 시 6-1 모멘텀으로 대체
             row["mom_12_1"] = close.iloc[-21] / close.iloc[0] - 1
+            row["mom_12_1_adj"] = _risk_adjust(row["mom_12_1"],
+                                               rets.iloc[:-21])
         else:
             row["mom_12_1"] = np.nan
+            row["mom_12_1_adj"] = np.nan
 
-        # 3개월 수익률
-        row["mom_3m"] = close.iloc[-1] / close.iloc[-63] - 1 if n >= 63 else np.nan
+        # 3개월 수익률 (동일하게 위험조정)
+        if n >= 63:
+            row["mom_3m"] = close.iloc[-1] / close.iloc[-63] - 1
+            row["mom_3m_adj"] = _risk_adjust(row["mom_3m"], rets.iloc[-63:])
+        else:
+            row["mom_3m"] = np.nan
+            row["mom_3m_adj"] = np.nan
+
+        # 최근 1개월 과열: +20% 초과 급등분만 페널티 (추천 직후 되돌림 위험)
+        if n >= 21:
+            row["ret_20d"] = close.iloc[-1] / close.iloc[-21] - 1
+            row["overheat_20d"] = max(row["ret_20d"] - OVERHEAT_THRESHOLD, 0.0)
+        else:
+            row["ret_20d"] = np.nan
+            row["overheat_20d"] = np.nan
 
         # RSI(14) 과열 페널티: 70 초과분만 사용
         # (원값을 그대로 쓰면 RSI 낮음=하락추세가 고득점 → 모멘텀과 충돌)

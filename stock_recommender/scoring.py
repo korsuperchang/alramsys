@@ -10,7 +10,8 @@ import pandas as pd
 
 from config import (FACTORS, HORIZON_WEIGHTS, COMPOSITE_WEIGHTS,
                     UNIVERSE_FILTERS, WINSORIZE_PCT, TOP_N,
-                    COVERAGE_PENALTY, MIN_COVERAGE)
+                    COVERAGE_PENALTY, MIN_COVERAGE, VALUE_TRAP,
+                    PENALTY_FACTORS)
 
 
 def apply_universe_filter(table: pd.DataFrame, market: str) -> pd.DataFrame:
@@ -43,6 +44,13 @@ def normalize_factors(table: pd.DataFrame) -> pd.DataFrame:
                 normed[f"rank_{name}"] = np.nan
                 continue
             s = pd.to_numeric(normed[name], errors="coerce")
+            if name in PENALTY_FACTORS:
+                # 페널티형: 0(해당 없음)은 제외(NaN), 초과분이 있는 종목만
+                # 전체 대비 rank → 상위 급등/과열일수록 0에 가까운 하위 rank
+                rank = 1 - s.rank(pct=True)
+                rank[s <= 0] = np.nan
+                normed[f"rank_{name}"] = rank
+                continue
             if s.notna().sum() < 5:  # 유효값이 너무 적으면 팩터 무효화
                 normed[f"rank_{name}"] = np.nan
                 continue
@@ -84,7 +92,9 @@ def data_coverage(normed: pd.DataFrame) -> pd.Series:
     종목별 데이터 커버리지 = 유효 팩터 수 / 이 시장에서 산출 가능한 팩터 수
     시장 전체가 결측인 팩터(예: 나스닥 수급)는 분모에서 제외 → 시장 간 불이익 없음
     """
-    all_rank_cols = [f"rank_{name}" for factors in FACTORS.values() for name in factors]
+    # 페널티형 팩터는 '해당 없음=NaN'이 정상이므로 커버리지 계산에서 제외
+    all_rank_cols = [f"rank_{name}" for factors in FACTORS.values()
+                     for name in factors if name not in PENALTY_FACTORS]
     usable = [c for c in all_rank_cols
               if c in normed.columns and normed[c].notna().any()]
     if not usable:
@@ -114,6 +124,13 @@ def run_scoring(table: pd.DataFrame, market: str) -> pd.DataFrame:
         raise ValueError(f"[{market}] 데이터 커버리지 {MIN_COVERAGE:.0%} 이상 종목이 없습니다.")
 
     scored = category_scores(normed)
+
+    # 가치 함정 필터: 저평가 상위권인데 모멘텀 최하위 = 싼 이유가 있을 가능성
+    # → 가치 점수를 감점하고 플래그를 남겨 추천 이유에 경고 표시
+    trap = ((scored["cat_value"] >= VALUE_TRAP["value_min"])
+            & (scored["cat_momentum"] <= VALUE_TRAP["momentum_max"]))
+    scored["value_trap"] = trap.fillna(False)
+    scored.loc[scored["value_trap"], "cat_value"] *= VALUE_TRAP["dampen"]
 
     penalty = scored["coverage_ratio"].map(_coverage_multiplier)
     for h in HORIZON_WEIGHTS:

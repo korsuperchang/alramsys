@@ -88,7 +88,9 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
         # 섹터 분포 요약 (쏠림 육안 점검용)
         counts = pd.Series(sectors).value_counts() if sectors else pd.Series(dtype=int)
         summary = " · ".join(f"{s} {c}" for s, c in counts.items())
-        if len(counts) and counts.iloc[0] >= max(3, len(sectors) - 1):
+        # 쏠림 경고는 실제 업종에만 (미분류는 데이터 부재이지 쏠림이 아님)
+        if len(counts) and counts.index[0] != "미분류" \
+                and counts.iloc[0] >= max(3, len(sectors) - 1):
             summary += " ⚠ 섹터 쏠림 주의"
         result[key] = {"label": horizon_labels[key], "rows": rows,
                        "sector_summary": summary}

@@ -102,7 +102,9 @@ def main():
         if "sector" in df.columns and not df.empty:
             counts = df["sector"].fillna("미분류").value_counts()
             dist = ", ".join(f"{s} {c}" for s, c in counts.items())
-            warn = "  ⚠ 섹터 쏠림 주의" if counts.iloc[0] >= max(3, len(df) - 1) else ""
+            warn = "  ⚠ 섹터 쏠림 주의" \
+                if counts.index[0] != "미분류" \
+                and counts.iloc[0] >= max(3, len(df) - 1) else ""
             print(f"   섹터 분포: {dist}{warn}")
         print()
 

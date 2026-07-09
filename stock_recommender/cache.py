@@ -21,8 +21,8 @@ def _path(kind: str, market: str, as_of: str) -> Path:
     return CACHE_DIR / f"{market}_{kind}_{date}.pkl"
 
 
-def load(kind: str, market: str, as_of: str) -> pd.DataFrame | None:
-    """캐시가 있으면 DataFrame, 없으면 None"""
+def load(kind: str, market: str, as_of: str):
+    """캐시가 있으면 저장된 객체(DataFrame/dict 등), 없으면 None"""
     p = _path(kind, market, as_of)
     if p.exists():
         try:
@@ -32,9 +32,9 @@ def load(kind: str, market: str, as_of: str) -> pd.DataFrame | None:
     return None
 
 
-def save(kind: str, market: str, as_of: str, df: pd.DataFrame) -> None:
+def save(kind: str, market: str, as_of: str, obj) -> None:
     CACHE_DIR.mkdir(exist_ok=True)
-    df.to_pickle(_path(kind, market, as_of))
+    pd.to_pickle(obj, _path(kind, market, as_of))
 
 
 def latest_before(kind: str, market: str, as_of: str) -> tuple[str, pd.DataFrame] | None:

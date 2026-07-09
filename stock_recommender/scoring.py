@@ -88,9 +88,16 @@ def run_scoring(table: pd.DataFrame, market: str) -> pd.DataFrame:
     for h in HORIZON_WEIGHTS:
         scored[f"score_{h}"] = horizon_score(scored, h)
 
-    scored["score_composite"] = sum(
-        scored[f"score_{h}"].fillna(0) * w for h, w in COMPOSITE_WEIGHTS.items()
-    )
+    # 종합점수: 결측 호라이즌은 제외하고 가중치 재정규화
+    # (fillna(0)으로 합산하면 한 호라이즌만 없어도 점수가 부당하게 깎임)
+    num = pd.Series(0.0, index=scored.index)
+    den = pd.Series(0.0, index=scored.index)
+    for h, w in COMPOSITE_WEIGHTS.items():
+        col = scored[f"score_{h}"]
+        valid = col.notna()
+        num[valid] += col[valid] * w
+        den[valid] += w
+    scored["score_composite"] = num / den.replace(0, np.nan)
     return scored
 
 

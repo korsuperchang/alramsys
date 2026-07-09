@@ -12,7 +12,10 @@
 
 import argparse
 import json
+import os
 import sys
+import threading
+import time
 import traceback
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +23,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
 
+import cache
 import portfolio
 import quotes
 from config import HORIZONS
@@ -27,7 +31,8 @@ from config import HORIZONS
 # ─────────────────────────────────────────────
 # 추천 엔진 (recommend.py 로직 재사용)
 # ─────────────────────────────────────────────
-def run_recommend(market: str, demo: bool, as_of: str | None = None):
+def run_recommend(market: str, demo: bool, as_of: str | None = None,
+                  set_stage=lambda s: None):
     from factors import build_factor_table
     from scoring import run_scoring, top_recommendations
 
@@ -43,8 +48,11 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None):
         from adapters.nasdaq import NasdaqAdapter
         adapter = NasdaqAdapter()
 
+    set_stage("가격 데이터 수집 중 (첫 실행은 수십 분 소요, 이후엔 캐시로 단축)")
     price_df = adapter.get_price_data(as_of)
+    set_stage("재무/수급 스냅샷 수집 중")
     snapshot_df = adapter.get_snapshot(as_of)
+    set_stage("팩터 계산 및 스코어링 중")
     table = build_factor_table(price_df, snapshot_df)
     scored = run_scoring(table, market)
     recs = top_recommendations(scored)
@@ -93,25 +101,97 @@ def portfolio_snapshot(demo: bool):
 
 
 # ─────────────────────────────────────────────
+# 추천 백그라운드 작업 관리
+# HTTP 요청 하나로 수십 분을 버티면 모바일 브라우저가 타임아웃되므로,
+# 작업은 스레드로 돌리고 브라우저는 몇 초마다 상태만 폴링한다.
+# 완료된 결과는 디스크에 저장되어 서버 재시작/다른 기기에서도 재사용.
+# ─────────────────────────────────────────────
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+
+
+def _recs_cache_kind(demo: bool) -> str:
+    return "recs_demo" if demo else "recs"
+
+
+def _start_job(market: str, demo: bool) -> dict:
+    job = {"status": "running", "stage": "준비 중", "started": time.time()}
+    JOBS[market] = job
+
+    def work():
+        try:
+            result = run_recommend(
+                market, demo,
+                set_stage=lambda s: job.__setitem__("stage", s))
+            job["result"] = result
+            job["status"] = "done"
+            cache.save(_recs_cache_kind(demo), market, result["as_of"], result)
+        except Exception as e:
+            job["status"] = "error"
+            job["error"] = str(e)
+            print(f"[추천 실패] {market}: {traceback.format_exc()}")
+
+    threading.Thread(target=work, daemon=True).start()
+    return job
+
+
+def _job_status(market: str, demo: bool, force: bool) -> dict:
+    with JOBS_LOCK:
+        job = JOBS.get(market)
+        if job and job["status"] == "running":
+            return {"status": "running", "stage": job["stage"],
+                    "elapsed": int(time.time() - job["started"])}
+        if force:
+            _start_job(market, demo)
+            return {"status": "running", "stage": "준비 중", "elapsed": 0}
+
+    if job and job["status"] == "done":
+        return {"status": "done", "result": job["result"]}
+    if job and job["status"] == "error":
+        return {"status": "error", "error": job.get("error", "알 수 없는 오류")}
+
+    # 실행 이력이 없으면 디스크에 저장된 지난 결과라도 보여줌
+    kind = _recs_cache_kind(demo)
+    today = pd.Timestamp.today().strftime("%Y-%m-%d")
+    cached = cache.load(kind, market, today)
+    if cached is None:
+        prev = cache.latest_before(kind, market, today)
+        cached = prev[1] if prev else None
+    if cached is not None:
+        return {"status": "done", "result": cached, "cached": True}
+    return {"status": "idle"}
+
+
+# ─────────────────────────────────────────────
 # HTTP 서버
 # ─────────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
     demo = False
+    pin = None  # 환경변수 DASH_PIN 설정 시 /api/* 요청에 PIN 요구
+
+    def _authorized(self) -> bool:
+        if not self.pin:
+            return True
+        return self.headers.get("X-Dash-Pin") == self.pin
 
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
+        if path.startswith("/api/") and not self._authorized():
+            self._json({"error": "PIN 필요"}, 401)
+            return
+
         if path == "/":
             self._html(HTML_PAGE)
         elif path == "/api/recommend":
             market = params.get("market", ["KOSPI"])[0]
+            force = params.get("force", ["0"])[0] == "1"
             try:
-                data = run_recommend(market, self.demo)
-                self._json(data)
+                self._json(_job_status(market, self.demo, force))
             except Exception as e:
-                self._json({"error": str(e), "detail": traceback.format_exc()}, 500)
+                self._json({"error": str(e)}, 500)
         elif path == "/api/portfolio":
             try:
                 self._json(portfolio_snapshot(self.demo))
@@ -126,6 +206,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+
+        if not self._authorized():
+            self._json({"error": "PIN 필요"}, 401)
+            return
+
+        if self.demo:  # 데모 화면에서 실제 장부가 조작되는 사고 방지
+            self._json({"error": "데모 모드에서는 거래 기록을 수정할 수 없습니다. "
+                                 "--demo 없이 실행하세요."}, 400)
+            return
+
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         try:
             data = json.loads(body) if body else {}
@@ -428,6 +518,20 @@ function selMarket(el, m) {
   curMarket = m;
   document.querySelectorAll('.market-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
+  loadRec(false);  // 시장 전환 시 저장된 결과/진행 상태 자동 표시
+}
+
+// ── 공통 fetch (PIN 인증 헤더 자동 첨부) ──
+async function api(url, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers);
+  const pin = localStorage.getItem('dashpin');
+  if (pin) opts.headers['X-Dash-Pin'] = pin;
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    const p = prompt('대시보드 PIN을 입력하세요');
+    if (p) { localStorage.setItem('dashpin', p); return api(url, opts); }
+  }
+  return r;
 }
 
 // ── 유틸 ──
@@ -445,43 +549,68 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// ── 종목 추천 ──
-async function loadRec() {
+// ── 종목 추천 (백그라운드 작업 + 폴링) ──
+let recTimer = null;
+function fmtElapsed(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+async function loadRec(force = true) {
   const btn = document.getElementById('rec-btn');
   const st = document.getElementById('rec-status');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
-  st.textContent = '분석 중… (첫 실행은 데이터 수집으로 수 분 소요될 수 있습니다)';
+  clearTimeout(recTimer);
   try {
-    const r = await fetch('/api/recommend?market=' + curMarket);
+    const r = await api('/api/recommend?market=' + curMarket + (force ? '&force=1' : ''));
     const d = await r.json();
-    if (d.error) { st.textContent = '오류: ' + d.error; return; }
-    st.textContent = `${d.market} | 기준일 ${d.as_of} | 유니버스 ${d.universe_count}개 종목`;
-    let html = '';
-    for (const [key, sec] of Object.entries(d.recommendations)) {
-      html += `<div class="card"><div style="font-weight:600;margin-bottom:.5rem;">${sec.label} 상위 5</div>
-        <div class="tbl-wrap"><table><thead><tr>
-        <th>종목</th><th class="r">모멘텀</th><th class="r">가치</th><th class="r">퀄리티</th>
-        <th class="r">수급</th><th class="r">심리</th><th class="r">점수</th>
-        </tr></thead><tbody>`;
-      for (const s of sec.rows) {
-        const sc = s.score || 0;
-        html += `<tr>
-          <td>${s.name}<br><small style="color:var(--sub)">${s.ticker}</small></td>
-          <td class="r">${fmtScore(s.momentum)}</td>
-          <td class="r">${fmtScore(s.value)}</td>
-          <td class="r">${fmtScore(s.quality)}</td>
-          <td class="r">${fmtScore(s.flow)}</td>
-          <td class="r">${fmtScore(s.sentiment)}</td>
-          <td class="r" style="font-weight:700">${sc !== null ? sc.toFixed(1) : '-'}
-            <span class="score-bar" style="width:${sc ? sc*0.6 : 0}px"></span></td>
-        </tr>`;
-      }
-      html += '</tbody></table></div></div>';
+    if (d.status === 'running') {
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+      st.textContent = `분석 중 ${fmtElapsed(d.elapsed || 0)} — ${d.stage || ''}`;
+      recTimer = setTimeout(() => loadRec(false), 4000);  // 4초마다 상태 확인
+      return;
     }
-    document.getElementById('rec-results').innerHTML = html;
-  } catch(e) { st.textContent = '네트워크 오류: ' + e; }
-  finally { btn.disabled = false; btn.textContent = '추천 실행'; }
+    btn.disabled = false; btn.textContent = '추천 실행';
+    if (d.status === 'error') { st.textContent = '오류: ' + d.error; return; }
+    if (d.status === 'idle') {
+      st.textContent = '저장된 추천이 없습니다. [추천 실행]을 누르세요.';
+      document.getElementById('rec-results').innerHTML = '';
+      return;
+    }
+    renderRec(d.result, d.cached);
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '추천 실행';
+    st.textContent = '네트워크 오류: ' + e;
+  }
 }
+function renderRec(d, cached) {
+  const st = document.getElementById('rec-status');
+  st.textContent = `${d.market} | 기준일 ${d.as_of} | 유니버스 ${d.universe_count}개 종목`
+    + (cached ? ' (저장된 결과)' : '');
+  let html = '';
+  for (const [key, sec] of Object.entries(d.recommendations)) {
+    html += `<div class="card"><div style="font-weight:600;margin-bottom:.5rem;">${sec.label} 상위 5</div>
+      <div class="tbl-wrap"><table><thead><tr>
+      <th>종목</th><th class="r">모멘텀</th><th class="r">가치</th><th class="r">퀄리티</th>
+      <th class="r">수급</th><th class="r">심리</th><th class="r">점수</th>
+      </tr></thead><tbody>`;
+    for (const s of sec.rows) {
+      const sc = s.score || 0;
+      html += `<tr>
+        <td>${s.name}<br><small style="color:var(--sub)">${s.ticker}</small></td>
+        <td class="r">${fmtScore(s.momentum)}</td>
+        <td class="r">${fmtScore(s.value)}</td>
+        <td class="r">${fmtScore(s.quality)}</td>
+        <td class="r">${fmtScore(s.flow)}</td>
+        <td class="r">${fmtScore(s.sentiment)}</td>
+        <td class="r" style="font-weight:700">${sc !== null ? sc.toFixed(1) : '-'}
+          <span class="score-bar" style="width:${sc ? sc*0.6 : 0}px"></span></td>
+      </tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
+  document.getElementById('rec-results').innerHTML = html;
+}
+// 페이지 열 때 저장된 결과/진행 중인 작업 자동 표시
+window.addEventListener('load', () => loadRec(false));
 function fmtScore(v) {
   if (v === null || v === undefined) return '<span style="color:var(--sub)">-</span>';
   const pct = Math.round(v * 100);
@@ -495,7 +624,7 @@ async function loadPortfolio() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
   document.getElementById('pf-status').textContent = '시세 조회 중…';
   try {
-    const d = await (await fetch('/api/portfolio')).json();
+    const d = await (await api('/api/portfolio')).json();
     if (d.error) { document.getElementById('pf-status').textContent = d.error; return; }
     document.getElementById('pf-status').textContent = '조회시각: ' + d.as_of;
 
@@ -563,8 +692,8 @@ async function addTx(side) {
   if (!data.ticker || !data.qty || !data.price) { toast('종목코드, 수량, 가격을 입력하세요'); return; }
   const url = side === 'buy' ? '/api/portfolio/add' : '/api/portfolio/sell';
   try {
-    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
-                                body: JSON.stringify(data)});
+    const r = await api(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify(data)});
     const d = await r.json();
     if (d.error) { toast('오류: ' + d.error); return; }
     toast((side==='buy'?'매수':'매도') + ' 기록 완료');
@@ -578,7 +707,7 @@ async function addTx(side) {
 // ── 거래 내역 ──
 async function loadHistory() {
   try {
-    const d = await (await fetch('/api/portfolio/history')).json();
+    const d = await (await api('/api/portfolio/history')).json();
     const tbody = document.querySelector('#hist-table tbody');
     tbody.innerHTML = '';
     if (!d.transactions.length) { toast('거래 내역이 없습니다'); return; }
@@ -601,7 +730,7 @@ async function loadHistory() {
 async function deleteTx(idx) {
   if (!confirm('이 거래 기록을 삭제하시겠습니까?')) return;
   try {
-    const r = await fetch('/api/portfolio/delete', {
+    const r = await api('/api/portfolio/delete', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({index: idx})});
     const d = await r.json();
@@ -620,10 +749,15 @@ def main():
     args = parser.parse_args()
 
     DashboardHandler.demo = args.demo
+    DashboardHandler.pin = os.environ.get("DASH_PIN") or None
     server = ThreadingHTTPServer(("0.0.0.0", args.port), DashboardHandler)
     mode = " [DEMO]" if args.demo else ""
     print(f"\n  종목추천 + 포트폴리오 대시보드{mode}")
     print(f"  http://0.0.0.0:{args.port}")
+    if DashboardHandler.pin:
+        print("  PIN 인증: 활성화 (환경변수 DASH_PIN)")
+    else:
+        print("  [주의] PIN 미설정 — 공개 IP라면 export DASH_PIN=숫자 설정 권장")
     print(f"  종료: Ctrl+C\n")
     try:
         server.serve_forever()

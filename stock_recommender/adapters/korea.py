@@ -45,7 +45,9 @@ class KoreaAdapter(MarketAdapter):
     # ──────────────────────────────────────
     def get_tickers(self, as_of: str) -> list[str]:
         date = as_of.replace("-", "")
-        return krx.get_market_ticker_list(date, market=self.market_name)
+        tickers = krx.get_market_ticker_list(date, market=self.market_name)
+        # 보통주만 (종목코드 끝자리 '0'): 우선주는 같은 회사가 중복 추천되는 문제 방지
+        return [t for t in tickers if t.endswith("0")]
 
     # ──────────────────────────────────────
     def get_price_data(self, as_of: str, lookback_days: int = 300) -> pd.DataFrame:
@@ -99,6 +101,10 @@ class KoreaAdapter(MarketAdapter):
             fund[["ticker", "per", "pbr"]], on="ticker", how="left")
         snap["name"] = snap["ticker"].map(
             lambda t: krx.get_market_ticker_name(t))
+
+        # 스팩(기업인수목적회사)은 실적·팩터 의미가 없으므로 제외
+        snap = snap[~snap["name"].astype(str).str.contains("스팩", na=False)]
+        snap = snap.reset_index(drop=True)
 
         # 2) 수급: 외국인/기관 20일 순매수 대금
         start = (pd.Timestamp(as_of) - pd.Timedelta(days=40)).strftime("%Y%m%d")

@@ -54,7 +54,13 @@ class NasdaqAdapter(MarketAdapter):
             raw = r.read().decode()
         df = pd.read_csv(io.StringIO(raw), sep="|")
         df = df[df["Test Issue"] == "N"]
-        tickers = df["Symbol"].dropna().tolist()
+        if "ETF" in df.columns:  # ETF는 개별종목 추천 대상이 아님
+            df = df[df["ETF"] != "Y"]
+        tickers = df["Symbol"].dropna().astype(str).tolist()
+        # 5글자 티커의 마지막 글자 W/R/U는 워런트/라이츠/유닛 (보통주 아님,
+        # 시세도 없어서 yfinance 'possibly delisted' 에러의 원인)
+        tickers = [t for t in tickers
+                   if t.isalpha() and not (len(t) == 5 and t[-1] in "WRU")]
         if self.max_tickers:
             tickers = tickers[: self.max_tickers]
         return tickers

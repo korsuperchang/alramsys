@@ -45,14 +45,23 @@ def compute_price_factors(price_df: pd.DataFrame) -> pd.DataFrame:
         # 3개월 수익률
         row["mom_3m"] = close.iloc[-1] / close.iloc[-63] - 1 if n >= 63 else np.nan
 
-        # RSI(14)
-        row["rsi_14"] = compute_rsi(close) if n >= 15 else np.nan
+        # RSI(14) 과열 페널티: 70 초과분만 사용
+        # (원값을 그대로 쓰면 RSI 낮음=하락추세가 고득점 → 모멘텀과 충돌)
+        if n >= 15:
+            rsi = compute_rsi(close)
+            row["rsi_overbought"] = max(rsi - 70.0, 0.0) if rsi == rsi else np.nan
+        else:
+            row["rsi_overbought"] = np.nan
 
-        # 거래량 급증률: 최근 5일 평균 거래대금 / 직전 20일 평균 거래대금
+        # 거래대금 급증 × 주가 방향: 급증 자체는 방향이 없음
+        # (상승하며 급증 = 매수세 유입 / 하락하며 급증 = 투매) → 5일 수익률 부호를 곱함
         if n >= 25:
             recent = tv.iloc[-5:].mean()
             base = tv.iloc[-25:-5].mean()
-            row["volume_surge"] = recent / base - 1 if base > 0 else np.nan
+            surge = recent / base - 1 if base > 0 else np.nan
+            ret_5d = close.iloc[-1] / close.iloc[-6] - 1
+            direction = 1.0 if ret_5d > 0 else (-1.0 if ret_5d < 0 else 0.0)
+            row["volume_surge"] = surge * direction if surge == surge else np.nan
         else:
             row["volume_surge"] = np.nan
 
@@ -69,7 +78,8 @@ def build_factor_table(price_df: pd.DataFrame, snapshot_df: pd.DataFrame) -> pd.
     tech = compute_price_factors(price_df)
     table = snapshot_df.merge(tech, on="ticker", how="inner")
 
-    # PER 음수(적자)는 밸류 팩터로 의미 없음 → NaN 처리
+    # PER 음수(적자), PBR 음수/0(자본잠식 또는 데이터 없음)은 밸류 팩터로 의미 없음
     table.loc[table["per"].astype(float) <= 0, "per"] = np.nan
+    table.loc[table["pbr"].astype(float) <= 0, "pbr"] = np.nan
 
     return table

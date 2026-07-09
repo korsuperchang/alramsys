@@ -55,6 +55,10 @@ class KoreaAdapter(MarketAdapter):
             hit = cache.load("price", self.market_name, as_of)
             if hit is not None:
                 return hit
+            # 검증(validate.py)이 수집해 둔 더 긴 가격 이력이 있으면 재사용
+            hist = cache.load("price_hist", self.market_name, as_of)
+            if hist is not None:
+                return hist
 
         date = pd.Timestamp(as_of)
         start = (date - pd.Timedelta(days=int(lookback_days * 1.6))).strftime("%Y%m%d")

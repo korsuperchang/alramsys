@@ -64,6 +64,7 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
         "composite": "종합",
     }
 
+    from explain import build_reason
     result = {}
     for key, df in recs.items():
         rows = []
@@ -77,6 +78,7 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
                 "flow": _safe(r, "cat_flow"),
                 "sentiment": _safe(r, "cat_sentiment"),
                 "score": _safe(r, f"score_{key}"),
+                "reason": build_reason(r, key),
             })
         result[key] = {"label": horizon_labels[key], "rows": rows}
 
@@ -604,6 +606,11 @@ function renderRec(d, cached) {
         <td class="r" style="font-weight:700">${sc !== null ? sc.toFixed(1) : '-'}
           <span class="score-bar" style="width:${sc ? sc*0.6 : 0}px"></span></td>
       </tr>`;
+      if (s.reason) {
+        html += `<tr><td colspan="7" style="font-size:.78rem;color:var(--sub);
+          padding:0 .5rem .6rem 1.2rem;border-bottom:1px solid var(--border);
+          white-space:normal;line-height:1.5;">└ ${s.reason}</td></tr>`;
+      }
     }
     html += '</tbody></table></div></div>';
   }

@@ -42,7 +42,9 @@ def get_adapter(market: str, demo: bool):
 
 
 def format_table(df: pd.DataFrame) -> str:
-    df = df.copy()
+    display_cols = [c for c in df.columns
+                    if c in ("ticker", "name") or c.startswith(("cat_", "score_"))]
+    df = df[display_cols].copy()
     for c in df.columns:
         if c.startswith(("cat_", "score_")):
             df[c] = pd.to_numeric(df[c], errors="coerce").round(1)
@@ -89,9 +91,12 @@ def main():
     print("[4/4] 추천 종목 산출\n")
     recs = top_recommendations(scored)
 
+    from explain import build_reason
     for key, df in recs.items():
         print(f"── {HORIZON_LABELS[key]} 상위 {len(df)}개 " + "─" * 40)
         print(format_table(df))
+        for _, r in df.iterrows():
+            print(f"   · {r['name']}: {build_reason(r, key)}")
         print()
 
     print("※ 본 결과는 정량 모델의 참고자료이며 투자 판단과 손실 책임은 투자자 본인에게 있습니다.")

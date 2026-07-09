@@ -62,8 +62,12 @@ def compute_price_factors(price_df: pd.DataFrame) -> pd.DataFrame:
             ret_5d = close.iloc[-1] / close.iloc[-6] - 1
             direction = 1.0 if ret_5d > 0 else (-1.0 if ret_5d < 0 else 0.0)
             row["volume_surge"] = surge * direction if surge == surge else np.nan
+            row["tv_surge"] = surge      # 추천 이유 표시용 원재료
+            row["ret_5d"] = ret_5d
         else:
             row["volume_surge"] = np.nan
+            row["tv_surge"] = np.nan
+            row["ret_5d"] = np.nan
 
         # 유니버스 필터용: 20일 평균 거래대금
         row["avg_trading_value_20d"] = tv.iloc[-20:].mean() if n >= 20 else np.nan

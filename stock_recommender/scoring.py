@@ -102,16 +102,15 @@ def run_scoring(table: pd.DataFrame, market: str) -> pd.DataFrame:
 
 
 def top_recommendations(scored: pd.DataFrame, n: int = TOP_N) -> dict[str, pd.DataFrame]:
-    """호라이즌별 + 종합 상위 N개 추천 (근거 카테고리 점수 포함)"""
-    display_cols = ["ticker", "name"] + \
-        [f"cat_{c}" for c in FACTORS] + \
-        [f"score_{h}" for h in HORIZON_WEIGHTS] + ["score_composite"]
-    display_cols = [c for c in display_cols if c in scored.columns]
-
+    """
+    호라이즌별 + 종합 상위 N개 추천
+    - 전체 컬럼(원값·rank 포함)을 유지해 반환 → 추천 이유 생성(explain.py)에 사용
+    - 화면 출력용 컬럼 선별은 각 출력단(recommend.py/app.py)에서 수행
+    """
     result = {}
     for key in list(HORIZON_WEIGHTS) + ["composite"]:
         col = f"score_{key}"
         result[key] = (scored.dropna(subset=[col])
-                       .nlargest(n, col)[display_cols]
+                       .nlargest(n, col)
                        .reset_index(drop=True))
     return result

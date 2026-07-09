@@ -138,13 +138,18 @@ def fetch_financial_ratios(tickers: list[str], as_of: str,
 
     bsns_year, reprt_code = resolve_available_report(as_of)
 
+    # (사업연도, 보고서) 단위 캐시 — 시장별 실행이 같은 파일을 공유하므로
+    # '캐시에 없는 종목만' 추가 수집해서 누적 (KOSPI 먼저 실행 후 KOSDAQ을
+    # 돌리면 캐시가 KOSPI 종목뿐이라 KOSDAQ 전체가 NaN 되던 버그 수정)
     cache_path = CACHE_DIR / f"dart_fin_{bsns_year}_{reprt_code}.pkl"
-    if cache_path.exists():
-        cached = pd.read_pickle(cache_path)
+    cached = pd.read_pickle(cache_path) if cache_path.exists() \
+        else pd.DataFrame(columns=["ticker", "roe", "debt_ratio", "op_margin"])
+    missing = [t for t in tickers if t not in set(cached["ticker"])]
+    if not missing:
         return cached[cached["ticker"].isin(tickers)].reset_index(drop=True)
 
     corp_map = load_corp_codes(api_key)
-    corp_map = corp_map[corp_map["ticker"].isin(tickers)]
+    corp_map = corp_map[corp_map["ticker"].isin(missing)]
     code_to_ticker = dict(zip(corp_map["corp_code"], corp_map["ticker"]))
     corp_codes = corp_map["corp_code"].tolist()
 
@@ -182,10 +187,17 @@ def fetch_financial_ratios(tickers: list[str], as_of: str,
             "op_margin": op / revenue if _valid_denom(op, revenue) else float("nan"),
         })
 
-    result = pd.DataFrame(rows, columns=["ticker", "roe", "debt_ratio", "op_margin"])
+    # 조회했지만 데이터가 없던 종목도 NaN으로 기록 → 재실행 시 반복 조회 방지
+    got = {r["ticker"] for r in rows}
+    rows += [{"ticker": t, "roe": float("nan"), "debt_ratio": float("nan"),
+              "op_margin": float("nan")} for t in missing if t not in got]
+
+    new_df = pd.DataFrame(rows, columns=["ticker", "roe", "debt_ratio", "op_margin"])
+    merged = (pd.concat([cached, new_df], ignore_index=True)
+              .drop_duplicates(subset="ticker", keep="first"))
     CACHE_DIR.mkdir(exist_ok=True)
-    result.to_pickle(cache_path)
-    return result
+    merged.to_pickle(cache_path)
+    return merged[merged["ticker"].isin(tickers)].reset_index(drop=True)
 
 
 def _valid_denom(numer, denom) -> bool:

@@ -116,6 +116,69 @@ def portfolio_snapshot(demo: bool):
 
 
 # ─────────────────────────────────────────────
+# 종목 검색 (포트폴리오 입력 자동완성)
+# ─────────────────────────────────────────────
+_stock_list_cache: dict[str, dict] = {}
+
+
+def _get_stock_list(market: str) -> list[dict]:
+    today = pd.Timestamp.today().strftime("%Y%m%d")
+    cached = _stock_list_cache.get(market)
+    if cached and cached["date"] == today:
+        return cached["stocks"]
+    stocks = []
+    if market in ("KOSPI", "KOSDAQ"):
+        try:
+            from pykrx import stock as krx
+            tickers = krx.get_market_ticker_list(today, market=market)
+            for t in tickers:
+                try:
+                    stocks.append({"ticker": t,
+                                   "name": krx.get_market_ticker_name(t) or t})
+                except Exception:
+                    stocks.append({"ticker": t, "name": t})
+        except Exception:
+            pass
+    _stock_list_cache[market] = {"date": today, "stocks": stocks}
+    return stocks
+
+
+def _search_stocks(market: str, query: str, limit: int = 15) -> list[dict]:
+    if not query:
+        return []
+    stocks = _get_stock_list(market)
+    q = query.strip().lower()
+    exact, partial = [], []
+    for s in stocks:
+        if q == s["ticker"].lower() or q == s["name"].lower():
+            exact.append(s)
+        elif q in s["ticker"].lower() or q in s["name"].lower():
+            partial.append(s)
+    return (exact + partial)[:limit]
+
+
+def _lookup_stock(market: str, ticker: str) -> dict:
+    result = {"ticker": ticker}
+    if market in ("KOSPI", "KOSDAQ"):
+        try:
+            from pykrx import stock as krx
+            result["name"] = krx.get_market_ticker_name(ticker) or ""
+        except Exception:
+            result["name"] = ""
+    elif market == "NASDAQ":
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            result["name"] = info.get("shortName") or info.get("longName") or ""
+        except Exception:
+            result["name"] = ""
+    q = quotes.get_quotes(market, [ticker])
+    if ticker in q:
+        result["price"] = q[ticker]["price"]
+    return result
+
+
+# ─────────────────────────────────────────────
 # 추천 백그라운드 작업 관리
 # HTTP 요청 하나로 수십 분을 버티면 모바일 브라우저가 타임아웃되므로,
 # 작업은 스레드로 돌리고 브라우저는 몇 초마다 상태만 폴링한다.
@@ -215,6 +278,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/portfolio/history":
             ledger = portfolio.load_ledger() if not self.demo else []
             self._json({"transactions": ledger})
+        elif path == "/api/stock/search":
+            market = params.get("market", ["KOSPI"])[0]
+            query = params.get("q", [""])[0]
+            try:
+                self._json({"results": _search_stocks(market, query)})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif path == "/api/stock/price":
+            market = params.get("market", ["KOSPI"])[0]
+            ticker = params.get("ticker", [""])[0]
+            if not ticker:
+                self._json({"error": "종목코드 필요"}, 400)
+            else:
+                try:
+                    self._json(_lookup_stock(market, ticker))
+                except Exception as e:
+                    self._json({"error": str(e)}, 500)
         else:
             self.send_error(404)
 
@@ -408,6 +488,17 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
 .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border);
          border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.search-wrap{position:relative;}
+.search-dd{position:absolute;left:0;right:0;top:100%;background:var(--card);
+  border:1px solid var(--border);border-radius:0 0 8px 8px;max-height:220px;
+  overflow-y:auto;z-index:20;display:none;box-shadow:0 4px 12px rgba(0,0,0,.15);}
+.search-dd.show{display:block;}
+.sdi{padding:.55rem .8rem;cursor:pointer;font-size:.88rem;
+  border-bottom:1px solid var(--border);}
+.sdi:hover,.sdi:active{background:var(--accent);color:#fff;}
+.sdi small{color:var(--sub);margin-left:.4rem;}
+.sdi:hover small,.sdi:active small{color:rgba(255,255,255,.7);}
 </style></head><body>
 
 <!-- 헤더 + 탭 -->
@@ -441,18 +532,32 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
   <!-- 매수/매도 입력 -->
   <div class="card">
     <div style="font-weight:600; margin-bottom:.6rem;">거래 기록</div>
-    <div class="form-row">
+    <div class="form-row" style="margin-bottom:.5rem;">
       <div class="form-group">
         <label>시장</label>
-        <select id="tx-market"><option>KOSPI</option><option>KOSDAQ</option><option>NASDAQ</option></select>
+        <select id="tx-market" onchange="onMarketChg()"><option>KOSPI</option><option>KOSDAQ</option><option>NASDAQ</option></select>
+      </div>
+      <div class="form-group" style="flex:1;min-width:160px;">
+        <label>종목 검색</label>
+        <div class="search-wrap">
+          <input id="tx-search" placeholder="종목명 또는 코드 입력" autocomplete="off"
+                 oninput="onStockSearch()" style="width:100%;">
+          <div id="search-dd" class="search-dd"></div>
+        </div>
       </div>
       <div class="form-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-outline btn-sm" type="button" onclick="lookupPrice()">시세</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
         <label>종목코드</label>
-        <input id="tx-ticker" placeholder="005930" style="width:100px;">
+        <input id="tx-ticker" placeholder="005930" style="width:100px;" readonly>
       </div>
       <div class="form-group">
         <label>종목명</label>
-        <input id="tx-name" placeholder="삼성전자" style="width:100px;">
+        <input id="tx-name" placeholder="삼성전자" style="width:100px;" readonly>
       </div>
       <div class="form-group">
         <label>수량</label>
@@ -720,6 +825,7 @@ async function addTx(side) {
     const d = await r.json();
     if (d.error) { toast('오류: ' + d.error); return; }
     toast((side==='buy'?'매수':'매도') + ' 기록 완료');
+    document.getElementById('tx-search').value = '';
     document.getElementById('tx-ticker').value = '';
     document.getElementById('tx-name').value = '';
     document.getElementById('tx-qty').value = '';
@@ -760,6 +866,67 @@ async function deleteTx(idx) {
     if (d.error) { toast(d.error); return; }
     toast('삭제 완료'); loadHistory();
   } catch(e) { toast('오류'); }
+}
+
+// ── 종목 검색 자동완성 ──
+let _sTimer;
+function onStockSearch(){
+  clearTimeout(_sTimer);
+  const q=document.getElementById('tx-search').value.trim();
+  const dd=document.getElementById('search-dd');
+  if(q.length<1){dd.classList.remove('show');return;}
+  const market=document.getElementById('tx-market').value;
+  _sTimer=setTimeout(async()=>{
+    try{
+      const r=await api('/api/stock/search?market='+market+'&q='+encodeURIComponent(q));
+      const d=await r.json();
+      const list=d.results||[];
+      if(!list.length){dd.classList.remove('show');return;}
+      dd._data=list;
+      dd.innerHTML=list.map((s,i)=>
+        '<div class="sdi" data-i="'+i+'"><b>'+escH(s.name)+'</b><small>'+s.ticker+'</small></div>'
+      ).join('');
+      dd.classList.add('show');
+    }catch(e){}
+  },300);
+}
+function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function onMarketChg(){
+  document.getElementById('tx-search').value='';
+  document.getElementById('tx-ticker').value='';
+  document.getElementById('tx-name').value='';
+  document.getElementById('tx-price').value='';
+  document.getElementById('search-dd').classList.remove('show');
+}
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.search-wrap'))document.getElementById('search-dd').classList.remove('show');
+});
+document.getElementById('search-dd').addEventListener('click',function(e){
+  const el=e.target.closest('.sdi');
+  if(!el)return;
+  const s=this._data[+el.dataset.i];
+  document.getElementById('tx-ticker').value=s.ticker;
+  document.getElementById('tx-name').value=s.name;
+  document.getElementById('tx-search').value=s.name+' ('+s.ticker+')';
+  this.classList.remove('show');
+  lookupPrice();
+});
+async function lookupPrice(){
+  const market=document.getElementById('tx-market').value;
+  let ticker=document.getElementById('tx-ticker').value.trim();
+  if(!ticker){
+    ticker=document.getElementById('tx-search').value.trim().toUpperCase();
+    if(ticker)document.getElementById('tx-ticker').value=ticker;
+  }
+  if(!ticker){toast('종목코드를 입력하세요');return;}
+  toast('시세 조회 중...');
+  try{
+    const r=await api('/api/stock/price?market='+market+'&ticker='+ticker);
+    const d=await r.json();
+    if(d.name)document.getElementById('tx-name').value=d.name;
+    if(d.price)document.getElementById('tx-price').value=d.price;
+    toast(d.price?'현재가 조회 완료':'시세 조회 실패');
+  }catch(e){toast('시세 조회 실패');}
 }
 </script></body></html>"""
 

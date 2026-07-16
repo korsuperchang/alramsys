@@ -54,7 +54,17 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
     snapshot_df = adapter.get_snapshot(as_of)
     set_stage("팩터 계산 및 스코어링 중")
     table = build_factor_table(price_df, snapshot_df)
-    scored = run_scoring(table, market)
+    try:
+        scored = run_scoring(table, market)
+    except ValueError:
+        prev_day = (pd.Timestamp(as_of)
+                    - pd.tseries.offsets.BDay(1)).strftime("%Y-%m-%d")
+        set_stage(f"당일 데이터 부족 — {prev_day} 기준 재시도 중")
+        price_df = adapter.get_price_data(prev_day)
+        snapshot_df = adapter.get_snapshot(prev_day)
+        table = build_factor_table(price_df, snapshot_df)
+        scored = run_scoring(table, market)
+        as_of = prev_day
     recs = top_recommendations(scored)
 
     horizon_labels = {
@@ -226,6 +236,11 @@ def _job_status(market: str, demo: bool, force: bool) -> dict:
     if job and job["status"] == "done":
         return {"status": "done", "result": job["result"]}
     if job and job["status"] == "error":
+        kind = _recs_cache_kind(demo)
+        today = pd.Timestamp.today().strftime("%Y-%m-%d")
+        prev = cache.latest_before(kind, market, today)
+        if prev:
+            return {"status": "done", "result": prev[1], "cached": True}
         return {"status": "error", "error": job.get("error", "알 수 없는 오류")}
 
     # 실행 이력이 없으면 디스크에 저장된 지난 결과라도 보여줌

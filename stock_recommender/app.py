@@ -75,6 +75,21 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
     }
 
     from explain import build_reason
+
+    # 추천 종목의 업체정보(기업개요) 일괄 조회
+    all_tickers = list({
+        r.get("ticker", "") for df in recs.values() for _, r in df.iterrows()
+        if r.get("ticker")})
+    if market in ("KOSPI", "KOSDAQ") and all_tickers:
+        set_stage("업체정보 조회 중")
+        try:
+            from company_info import get_company_descs
+            descs = get_company_descs(all_tickers)
+        except Exception:
+            descs = {}
+    else:
+        descs = {}
+
     result = {}
     for key, df in recs.items():
         rows = []
@@ -83,10 +98,12 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
             sector = r.get("sector")
             sector = None if sector is None or pd.isna(sector) else str(sector)
             sectors.append(sector or "미분류")
+            ticker = r.get("ticker", "")
             rows.append({
-                "ticker": r.get("ticker", ""),
+                "ticker": ticker,
                 "name": r.get("name", ""),
                 "sector": sector,
+                "desc": descs.get(ticker),
                 "momentum": _safe(r, "cat_momentum"),
                 "value": _safe(r, "cat_value"),
                 "quality": _safe(r, "cat_quality"),
@@ -742,10 +759,17 @@ function renderRec(d, cached) {
         <td class="r" style="font-weight:700">${sc !== null ? sc.toFixed(1) : '-'}
           <span class="score-bar" style="width:${sc ? sc*0.6 : 0}px"></span></td>
       </tr>`;
+      let detail = '';
+      if (s.desc) {
+        detail += `<div style="color:var(--fg);margin-bottom:2px;">📋 ${s.desc}</div>`;
+      }
       if (s.reason) {
+        detail += `<div>└ ${s.reason}</div>`;
+      }
+      if (detail) {
         html += `<tr><td colspan="7" style="font-size:.78rem;color:var(--sub);
           padding:0 .5rem .6rem 1.2rem;border-bottom:1px solid var(--border);
-          white-space:normal;line-height:1.5;">└ ${s.reason}</td></tr>`;
+          white-space:normal;line-height:1.5;">${detail}</td></tr>`;
       }
     }
     html += '</tbody></table></div></div>';

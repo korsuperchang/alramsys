@@ -80,6 +80,41 @@ def _factor_text(row: pd.Series, name: str) -> str | None:
         return None
 
 
+_CAT_PHRASE = {
+    "momentum": "안정적 상승 추세",
+    "value": "저평가 매력",
+    "quality": "우수한 재무 건전성",
+    "flow": "기관·외국인 매수세 유입",
+    "sentiment": "시장 관심도 상승",
+}
+_HORIZON_REASON = {
+    "short": "단기 추가 상승 여력 기대",
+    "mid": "중기 재평가 가능성",
+    "long": "장기 투자 매력",
+    "composite": "종합적 투자 매력",
+}
+
+
+def _build_summary(row: pd.Series, horizon: str) -> str:
+    """카테고리 점수 기반 자연어 요약 (업종 + 추천 이유)"""
+    sector = row.get("sector")
+    tag = f"[{sector}] " if sector and not pd.isna(sector) \
+        and str(sector) != "미분류" else ""
+
+    cats = {}
+    for cat in FACTORS:
+        score = row.get(f"cat_{cat}")
+        if score is not None and not pd.isna(score):
+            cats[cat] = float(score)
+    strong = [c for c, s in sorted(cats.items(), key=lambda x: -x[1])
+              if s >= 0.6][:2]
+    reason = _HORIZON_REASON.get(horizon, "")
+    if not strong:
+        return f"{tag}전반적으로 고른 상위권 → {reason}"
+    strengths = " + ".join(_CAT_PHRASE.get(c, c) for c in strong)
+    return f"{tag}{strengths} → {reason}"
+
+
 def build_reason(row: pd.Series, horizon: str) -> str:
     """스코어링된 한 종목(row) → 추천 근거 한 줄"""
     if horizon == "composite":
@@ -122,4 +157,6 @@ def build_reason(row: pd.Series, horizon: str) -> str:
     cov = row.get("coverage_ratio")
     if cov is not None and not pd.isna(cov) and cov < 0.8:
         out += f"  /  데이터 커버리지 {cov*100:.0f}%"
-    return out
+
+    summary = _build_summary(row, horizon)
+    return f"{summary} ▸ {out}"

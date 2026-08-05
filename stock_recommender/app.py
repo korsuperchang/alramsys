@@ -327,6 +327,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._json(_lookup_stock(market, ticker))
                 except Exception as e:
                     self._json({"error": str(e)}, 500)
+        elif path == "/api/scanner":
+            try:
+                sp = Path(__file__).resolve().parent / ".cache" / "scanner_state.json"
+                if sp.exists():
+                    self._json(json.loads(sp.read_text(encoding="utf-8")))
+                else:
+                    self._json({"phase": "미실행",
+                                "signals": [], "morning_candidates": [],
+                                "afternoon_candidates": []})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
         else:
             self.send_error(404)
 
@@ -538,6 +549,7 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
   <h1>Stock Dashboard</h1>
   <div class="tabs">
     <button class="tab active" onclick="switchTab('rec')">종목 추천</button>
+    <button class="tab" onclick="switchTab('scan')">실시간 스캔</button>
     <button class="tab" onclick="switchTab('port')">내 포트폴리오</button>
   </div>
 </div>
@@ -558,7 +570,26 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
   <div id="rec-results"></div>
 </div>
 
-<!-- ====== 탭2: 포트폴리오 ====== -->
+<!-- ====== 탭2: 실시간 스캔 ====== -->
+<div id="page-scan" class="page">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <span style="font-weight:600;">장중 실시간 스캐너</span>
+        <span id="scan-phase" style="margin-left:.5rem;font-size:.82rem;color:var(--sub);"></span>
+      </div>
+      <button class="btn btn-primary" onclick="loadScan()">새로고침</button>
+    </div>
+    <div style="font-size:.75rem;color:var(--sub);margin-top:.3rem;">
+      09:30 스캔 → 10:00~11:30 감시 → 14:50 스캔 → 15:00~15:25 감시
+    </div>
+  </div>
+  <div id="scan-signals"></div>
+  <div id="scan-morning"></div>
+  <div id="scan-afternoon"></div>
+</div>
+
+<!-- ====== 탭3: 포트폴리오 ====== -->
 <div id="page-port" class="page">
 
   <!-- 매수/매도 입력 -->
@@ -777,7 +808,7 @@ function renderRec(d, cached) {
   document.getElementById('rec-results').innerHTML = html;
 }
 // 페이지 열 때 저장된 결과/진행 중인 작업 자동 표시
-window.addEventListener('load', () => loadRec(false));
+window.addEventListener('load', () => { loadRec(false); loadScan(); });
 function fmtScore(v) {
   if (v === null || v === undefined) return '<span style="color:var(--sub)">-</span>';
   const pct = Math.round(v * 100);
@@ -966,6 +997,100 @@ async function lookupPrice(){
     if(d.price)document.getElementById('tx-price').value=d.price;
     toast(d.price?'현재가 조회 완료':'시세 조회 실패');
   }catch(e){toast('시세 조회 실패');}
+}
+// ── 실시간 스캐너 ──
+async function loadScan() {
+  try {
+    const r = await api('/api/scanner');
+    const d = await r.json();
+    renderScan(d);
+  } catch(e) {
+    document.getElementById('scan-signals').innerHTML =
+      '<div class="card" style="color:var(--sub)">스캐너 데이터 없음 (scanner.py 실행 필요)</div>';
+  }
+}
+function renderScan(d) {
+  const phaseEl = document.getElementById('scan-phase');
+  phaseEl.textContent = d.phase ? `[${d.phase}] ${d.last_update || ''}` : '';
+
+  // 신호
+  let sh = '';
+  if (d.signals && d.signals.length) {
+    sh += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">매매 신호</div>';
+    for (const s of d.signals) {
+      const color = s.type.includes('오전') ? '#4fc3f7' : '#ffb74d';
+      sh += `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);">
+        <span style="background:${color};color:#000;padding:1px 6px;border-radius:3px;
+          font-size:.75rem;font-weight:600;">${s.type} ${s.time}</span>
+        <strong style="margin-left:.4rem;">${s.name}</strong>
+        <span style="color:var(--sub);font-size:.82rem;">(${s.ticker})</span>
+        <div style="font-size:.8rem;margin-top:.2rem;">${s.reason}</div>`;
+      if (s.stop_loss) sh += `<div style="font-size:.75rem;color:var(--sub);">
+        손절 ${Number(s.stop_loss).toLocaleString()}원 / 익절 ${Number(s.take_profit).toLocaleString()}원 / ${s.deadline} 청산</div>`;
+      else if (s.deadline) sh += `<div style="font-size:.75rem;color:var(--sub);">${s.deadline} 강제 청산</div>`;
+      sh += '</div>';
+    }
+    sh += '</div>';
+  }
+  document.getElementById('scan-signals').innerHTML = sh;
+
+  // 오전 후보
+  let mh = '';
+  if (d.morning_candidates && d.morning_candidates.length) {
+    mh += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">오전 후보 (09:30 박스)</div>';
+    mh += '<div class="tbl-wrap"><table><thead><tr>';
+    mh += '<th>종목</th><th class="r">박스</th><th class="r">폭</th>';
+    mh += '<th class="r">등락</th><th class="r">거래대금</th><th>상태</th>';
+    mh += '</tr></thead><tbody>';
+    for (const c of d.morning_candidates) {
+      const stColor = c.status === '감시중' ? 'var(--sub)' :
+        c.status === '진입' ? '#4fc3f7' :
+        c.status.includes('익절') ? '#66bb6a' :
+        c.status.includes('손절') ? '#ef5350' : 'var(--sub)';
+      mh += `<tr>
+        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
+        <td class="r">${Number(c.box_low).toLocaleString()}~${Number(c.box_high).toLocaleString()}</td>
+        <td class="r">${c.box_width_pct}%</td>
+        <td class="r">${c.change_pct >= 0 ? '+' : ''}${c.change_pct}%</td>
+        <td class="r">${c.trade_value_억}억</td>
+        <td style="color:${stColor};font-weight:600;font-size:.82rem;">${c.status}</td>
+      </tr>`;
+    }
+    mh += '</tbody></table></div></div>';
+  }
+  document.getElementById('scan-morning').innerHTML = mh;
+
+  // 오후 후보
+  let ah = '';
+  if (d.afternoon_candidates && d.afternoon_candidates.length) {
+    ah += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">오후 후보 (14:50 스캔)</div>';
+    ah += '<div class="tbl-wrap"><table><thead><tr>';
+    ah += '<th>종목</th><th class="r">전고점</th><th class="r">현재가</th>';
+    ah += '<th class="r">등락</th><th class="r">거래대금</th><th>상태</th>';
+    ah += '</tr></thead><tbody>';
+    for (const c of d.afternoon_candidates) {
+      const stColor = c.status === '감시중' ? 'var(--sub)' :
+        c.status === '진입' ? '#ffb74d' : 'var(--sub)';
+      ah += `<tr>
+        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
+        <td class="r">${Number(c.day_high).toLocaleString()}</td>
+        <td class="r">${Number(c.current).toLocaleString()}</td>
+        <td class="r">${c.change_pct >= 0 ? '+' : ''}${c.change_pct}%</td>
+        <td class="r">${c.trade_value_억}억</td>
+        <td style="color:${stColor};font-weight:600;font-size:.82rem;">${c.status}</td>
+      </tr>`;
+    }
+    ah += '</tbody></table></div></div>';
+  }
+  document.getElementById('scan-afternoon').innerHTML = ah;
+
+  if (!sh && !mh && !ah) {
+    document.getElementById('scan-signals').innerHTML =
+      `<div class="card" style="color:var(--sub)">
+        ${d.phase === '미실행' ? '스캐너가 실행되지 않았습니다. 서버에서 scanner.py를 실행하세요.'
+          : '아직 스캔 결과가 없습니다. (현재: ' + (d.phase || '대기') + ')'}
+      </div>`;
+  }
 }
 </script></body></html>"""
 

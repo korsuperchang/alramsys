@@ -29,15 +29,23 @@ STATE_PATH = CACHE_DIR / "scanner_state.json"
 
 # ── 전략 파라미터 ──────────────────────────────
 
+# 후보 조회 대상 시장 (전체 1회 호출은 코스피가 상위를 독식하므로 분리 호출)
+SCAN_MARKETS = ("0001", "1001")               # 코스피, 코스닥
+
 # 오전 스캔 (09:30)
 MORNING_MIN_TRADE_VALUE = 5_000_000_000      # 누적 거래대금 50억 (9:30 시점 기준)
 MORNING_CHANGE_LOW = 1.0                      # 등락률 하한 %
 MORNING_CHANGE_HIGH = 7.0                     # 등락률 상한 %
 MORNING_MAX_BOX_WIDTH = 0.025                 # 박스폭 2.5% 이내 (아침 변동 감안)
 
+# 박스 계산 (분봉 기반)
+BOX_SKIP_OPEN_MIN = 10        # 시초가 급변동 구간(09:00~09:10) 제외
+BOX_MIN_CANDLES = 10          # 박스 판정에 필요한 최소 분봉 수
+
 # 오전 감시 (10:00~11:30)
 BREAKOUT_VOL_MULTIPLIER = 3.0                 # 거래량 3배 이상
-STOP_LOSS_PCT = -2.0                          # 손절 -2%
+MAX_CHASE_PCT = 1.0           # 돌파 기준선 대비 +1% 이내에서만 진입 (추격 방지)
+STOP_LOSS_PCT = -3.0                          # 손절 -3% (돌파 후 눌림목 감안)
 TAKE_PROFIT_PCT = 5.0                         # 익절 +5%
 
 # 오후 스캔 (14:50)
@@ -82,6 +90,74 @@ class DayScanner:
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
 
+    # ── 청산 조건 확인 ────────────────────────────
+
+    def _check_exit(self, c: dict, current: int) -> bool:
+        """
+        보유 중인 후보의 손절/익절 확인 → 청산했으면 True
+
+        폴링마다 호출되어야 하므로 '진입' 상태를 걸러내지 말 것.
+        """
+        entry = c.get("entry_price")
+        if not entry:
+            return False
+        pnl = (current - entry) / entry * 100
+        c["pnl_pct"] = round(pnl, 2)
+        c["last_price"] = current
+
+        if pnl <= STOP_LOSS_PCT:
+            c["status"] = f"손절 ({pnl:+.1f}%)"
+            c["exit_price"] = current
+            self._log(f"  {c['name']} 손절 {current:,}원 ({pnl:+.1f}%)")
+            return True
+        if pnl >= TAKE_PROFIT_PCT:
+            c["status"] = f"익절 ({pnl:+.1f}%)"
+            c["exit_price"] = current
+            self._log(f"  {c['name']} 익절 {current:,}원 ({pnl:+.1f}%)")
+            return True
+        return False
+
+    def _force_close(self, c: dict, label: str):
+        """시간 마감에 따른 강제 청산 — 마지막 시세로 손익 확정"""
+        price = self.kis.get_price(c["ticker"])
+        current = price["price"] if price else c.get("last_price")
+        if current and c.get("entry_price"):
+            pnl = (current - c["entry_price"]) / c["entry_price"] * 100
+            c["pnl_pct"] = round(pnl, 2)
+            c["exit_price"] = current
+            c["status"] = f"{label} ({pnl:+.1f}%)"
+            self._log(f"  {c['name']} {label} {current:,}원 ({pnl:+.1f}%)")
+        else:
+            c["status"] = label
+            self._log(f"  {c['name']} {label}")
+
+    # ── 박스(횡보 구간) 계산 ──────────────────────
+
+    def _calc_box(self, ticker: str) -> tuple[int, int, float] | None:
+        """
+        분봉으로 박스 저점·고점·폭을 계산 → (low, high, width)
+
+        당일 고가/저가를 그대로 쓰면 시초가 급변동이 섞여 박스가 아니라
+        '하루 변동폭'이 된다. 09:00~09:10 구간을 버리고 이후 분봉의
+        고가/저가만으로 횡보 범위를 잡는다.
+        """
+        candles = self.kis.get_minute_candles(ticker)
+        if len(candles) <= BOX_SKIP_OPEN_MIN:
+            return None
+        window = candles[BOX_SKIP_OPEN_MIN:]
+        if len(window) < BOX_MIN_CANDLES:
+            return None
+
+        highs = [c["high"] for c in window if c["high"] > 0]
+        lows = [c["low"] for c in window if c["low"] > 0]
+        if not highs or not lows:
+            return None
+
+        high, low = max(highs), min(lows)
+        if low <= 0:
+            return None
+        return low, high, (high - low) / low
+
     # ── 09:30 오전 스캔 ────────────────────────
 
     def morning_scan(self):
@@ -89,12 +165,13 @@ class DayScanner:
         self.state["phase"] = "오전 스캔 중"
         self._save_state()
 
-        # 거래대금 상위 종목 조회
-        ranked = self.kis.get_volume_rank("0000")
-        self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨")
+        # 거래대금 상위 종목 조회 (코스피/코스닥 분리 호출, ETF·ETN 제외)
+        ranked = self.kis.get_volume_rank_multi(SCAN_MARKETS)
+        self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨 "
+                  f"(ETF/ETN 제외, {'+'.join(SCAN_MARKETS)})")
 
         candidates = []
-        skip_tv, skip_pct, skip_box = 0, 0, 0
+        skip_tv, skip_pct, skip_box, skip_nodata = 0, 0, 0, 0
         for stock in ranked:
             tv = stock["trade_value"]
             pct = stock["change_pct"]
@@ -106,14 +183,12 @@ class DayScanner:
                 skip_pct += 1
                 continue
 
-            # 개별 시세 조회 → 박스폭 계산
-            price = self.kis.get_price(stock["ticker"])
-            if not price:
+            # 분봉으로 박스(횡보 구간) 계산 — 시초가 급변동 구간은 제외
+            box = self._calc_box(stock["ticker"])
+            if box is None:
+                skip_nodata += 1
                 continue
-            high, low = price["high"], price["low"]
-            if low <= 0:
-                continue
-            box_width = (high - low) / low
+            low, high, box_width = box
             if box_width > MORNING_MAX_BOX_WIDTH:
                 skip_box += 1
                 continue
@@ -143,9 +218,11 @@ class DayScanner:
             "skip_trade_value": skip_tv,
             "skip_change_pct": skip_pct,
             "skip_box_width": skip_box,
+            "skip_no_data": skip_nodata,
         }
         self._log(f"오전 후보 {len(candidates)}개 선정 "
-                  f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, 박스폭 {skip_box})")
+                  f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, "
+                  f"박스폭 {skip_box}, 분봉없음 {skip_nodata})")
         self.state["phase"] = "오전 감시 대기"
         self._save_state()
 
@@ -165,7 +242,9 @@ class DayScanner:
 
         while True:
             now = datetime.now()
-            if now.hour >= 11 and now.minute > 30:
+            # (시, 분) 튜플 비교 — 'hour>=11 and minute>30' 은 12:00에 False가 되어
+            # 마감 시각을 지나쳐 계속 도는 문제가 있었다
+            if (now.hour, now.minute) >= (11, 30):
                 break
             if now.hour < 10:
                 time.sleep(30)
@@ -179,7 +258,8 @@ class DayScanner:
                 self._log(f"기관 순매수 상위 {len(inst_set)}개 갱신")
 
             for c in self.morning_candidates:
-                if c["status"] != "감시중":
+                # 감시중(진입 대기) 또는 진입(보유 중)만 처리
+                if c["status"] not in ("감시중", "진입"):
                     continue
 
                 price = self.kis.get_price(c["ticker"])
@@ -188,8 +268,25 @@ class DayScanner:
 
                 current = price["price"]
 
-                # 돌파 확인
+                # ── 보유 중이면 손절/익절만 확인 ──
+                if c["status"] == "진입":
+                    self._check_exit(c, current)
+                    time.sleep(0.1)
+                    continue
+
+                # ── 진입 대기: 돌파 확인 ──
                 if current <= c["box_high"]:
+                    continue
+
+                # 추격 방지 — 돌파 기준선 대비 +MAX_CHASE_PCT% 초과면 이미 늦음.
+                # 후보를 죽이지는 않는다: 눌림목에서 박스 상단으로 되돌아오면
+                # 그때가 오히려 좋은 진입 자리이므로 다음 폴링에 다시 본다.
+                chase = (current - c["box_high"]) / c["box_high"] * 100
+                if chase > MAX_CHASE_PCT:
+                    if not c.get("chase_logged"):
+                        c["chase_logged"] = True
+                        self._log(f"  {c['name']} 박스 상단 대비 +{chase:.1f}% "
+                                  f"— 추격 회피, 눌림목 대기")
                     continue
 
                 # 거래량 확인 (분봉으로 직전 20분 평균 대비)
@@ -228,18 +325,6 @@ class DayScanner:
                     self._log(
                         f"  {c['name']} 돌파+거래량 OK, 기관 미확인 — 보류")
 
-                # 진입 후 손절/익절 체크
-                if c["status"] == "진입" and c["entry_price"]:
-                    pnl = (current - c["entry_price"]) / c["entry_price"] * 100
-                    if pnl <= STOP_LOSS_PCT:
-                        c["status"] = f"손절 ({pnl:+.1f}%)"
-                        self._log(f"  {c['name']} 손절 {current:,}원 "
-                                  f"({pnl:+.1f}%)")
-                    elif pnl >= TAKE_PROFIT_PCT:
-                        c["status"] = f"익절 ({pnl:+.1f}%)"
-                        self._log(f"  {c['name']} 익절 {current:,}원 "
-                                  f"({pnl:+.1f}%)")
-
                 time.sleep(0.1)
 
             self._save_state()
@@ -248,8 +333,7 @@ class DayScanner:
         # 11:30 강제 청산
         for c in self.morning_candidates:
             if c["status"] == "진입":
-                c["status"] = "11:30 청산"
-                self._log(f"  {c['name']} 11:30 강제 청산")
+                self._force_close(c, "11:30 청산")
         self.state["phase"] = "점심 휴식"
         self._save_state()
 
@@ -260,7 +344,8 @@ class DayScanner:
         self.state["phase"] = "오후 스캔 중"
         self._save_state()
 
-        ranked = self.kis.get_volume_rank("0000")
+        ranked = self.kis.get_volume_rank_multi(SCAN_MARKETS)
+        self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨 (ETF/ETN 제외)")
         candidates = []
         skip_tv, skip_dip = 0, 0
 
@@ -326,14 +411,14 @@ class DayScanner:
 
         while True:
             now = datetime.now()
-            if now.hour >= 15 and now.minute >= 25:
+            if (now.hour, now.minute) >= (15, 25):
                 break
             if now.hour < 15:
                 time.sleep(30)
                 continue
 
             for c in self.afternoon_candidates:
-                if c["status"] != "감시중":
+                if c["status"] not in ("감시중", "진입"):
                     continue
 
                 price = self.kis.get_price(c["ticker"])
@@ -342,8 +427,23 @@ class DayScanner:
 
                 current = price["price"]
 
+                # 보유 중이면 손절/익절만 확인
+                if c["status"] == "진입":
+                    self._check_exit(c, current)
+                    time.sleep(0.1)
+                    continue
+
                 # 전고점 돌파 확인
                 if current <= c["day_high"]:
+                    continue
+
+                # 추격 방지 (후보는 유지 — 되돌림 시 재진입 기회)
+                chase = (current - c["day_high"]) / c["day_high"] * 100
+                if chase > MAX_CHASE_PCT:
+                    if not c.get("chase_logged"):
+                        c["chase_logged"] = True
+                        self._log(f"  {c['name']} 전고점 대비 +{chase:.1f}% "
+                                  f"— 추격 회피, 되돌림 대기")
                     continue
 
                 # 거래량 폭발 확인
@@ -354,6 +454,9 @@ class DayScanner:
                     c["entry_price"] = current
                     c["entry_time"] = now.strftime("%H:%M")
                     c["status"] = "진입"
+                    c["stop_loss"] = round(current * (1 + STOP_LOSS_PCT / 100))
+                    c["take_profit"] = round(
+                        current * (1 + TAKE_PROFIT_PCT / 100))
                     signal = {
                         "type": "오후 돌파",
                         "time": now.strftime("%H:%M"),
@@ -363,12 +466,14 @@ class DayScanner:
                         "day_high": c["day_high"],
                         "reason": f"전고점 {c['day_high']:,}원 돌파 "
                                   f"(현재 {current:,}원) + 거래량 폭발",
+                        "stop_loss": c["stop_loss"],
+                        "take_profit": c["take_profit"],
                         "deadline": "15:25",
                     }
                     self.signals.append(signal)
                     self._log(
                         f"*** 신호: {c['name']} {current:,}원 진입 "
-                        f"(15:25 청산) ***")
+                        f"(손절 {c['stop_loss']:,} / 15:25 청산) ***")
 
                 time.sleep(0.1)
 
@@ -378,8 +483,7 @@ class DayScanner:
         # 15:25 강제 청산
         for c in self.afternoon_candidates:
             if c["status"] == "진입":
-                c["status"] = "15:25 청산"
-                self._log(f"  {c['name']} 15:25 강제 청산")
+                self._force_close(c, "15:25 청산")
         self.state["phase"] = "장 마감"
         self._save_state()
 

@@ -1097,7 +1097,9 @@ function renderScan(d) {
           + `<span style="font-size:.8rem;">`
           + `거래대금 미달: ${f.skip_trade_value}개 · `
           + `등락률 범위 밖: ${f.skip_change_pct}개 · `
-          + `박스폭 초과: ${f.skip_box_width}개</span>`;
+          + `박스폭 초과: ${f.skip_box_width}개`
+          + (f.skip_no_data ? ` · 분봉 없음: ${f.skip_no_data}개` : '')
+          + `</span>`;
       }
       if (d.afternoon_filter) {
         const f = d.afternoon_filter;

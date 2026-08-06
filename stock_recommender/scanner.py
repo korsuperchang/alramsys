@@ -137,6 +137,13 @@ class DayScanner:
             time.sleep(0.1)
 
         self.morning_candidates = candidates
+        self.state["morning_filter"] = {
+            "total": len(ranked),
+            "passed": len(candidates),
+            "skip_trade_value": skip_tv,
+            "skip_change_pct": skip_pct,
+            "skip_box_width": skip_box,
+        }
         self._log(f"오전 후보 {len(candidates)}개 선정 "
                   f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, 박스폭 {skip_box})")
         self.state["phase"] = "오전 감시 대기"

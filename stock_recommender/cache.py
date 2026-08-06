@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-CACHE_DIR = Path(__file__).resolve().parent / ".cache"
+from paths import CACHE_DIR  # noqa: F401  (기존 `from cache import CACHE_DIR` 호환)
 
 
 def _path(kind: str, market: str, as_of: str) -> Path:

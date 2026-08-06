@@ -22,8 +22,9 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from cache import CACHE_DIR
+from paths import CACHE_DIR
 from kis_api import KISClient
+from paper import PaperTrader
 
 STATE_PATH = CACHE_DIR / "scanner_state.json"
 
@@ -60,8 +61,10 @@ POLL_INTERVAL = 60  # 폴링 간격 (초)
 
 class DayScanner:
 
-    def __init__(self):
+    def __init__(self, paper: bool = True):
         self.kis = KISClient()
+        # 모의매매 기록기 — 실제 주문은 내지 않고 가상 체결만 남긴다
+        self.paper = PaperTrader() if paper else None
         self.morning_candidates: list[dict] = []
         self.afternoon_candidates: list[dict] = []
         self.signals: list[dict] = []
@@ -81,6 +84,8 @@ class DayScanner:
         self.state["morning_candidates"] = self.morning_candidates
         self.state["afternoon_candidates"] = self.afternoon_candidates
         self.state["signals"] = self.signals
+        if self.paper:
+            self.state["paper"] = self.paper.stats()
         CACHE_DIR.mkdir(exist_ok=True)
         STATE_PATH.write_text(
             json.dumps(self.state, ensure_ascii=False, indent=1),
@@ -89,6 +94,26 @@ class DayScanner:
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
+
+    # ── 모의매매 기록 ────────────────────────────
+
+    def _paper_buy(self, c: dict, price: int, kind: str):
+        if not self.paper:
+            return
+        pos = self.paper.buy(c["ticker"], c["name"], price, kind,
+                             c.get("stop_loss"), c.get("take_profit"))
+        if pos:
+            self._log(f"  [모의] 매수 {pos['qty']}주 × {price:,}원 "
+                      f"= {pos['cost']:,}원")
+
+    def _paper_sell(self, c: dict, price: int, reason: str):
+        if not self.paper:
+            return
+        t = self.paper.sell(c["ticker"], price, reason)
+        if t:
+            self._log(f"  [모의] 매도 {price:,}원 → "
+                      f"실현손익 {t['net_pnl']:+,}원 ({t['pnl_pct']:+.2f}%, "
+                      f"비용차감전 {t['gross_pct']:+.2f}%)")
 
     # ── 청산 조건 확인 ────────────────────────────
 
@@ -109,11 +134,13 @@ class DayScanner:
             c["status"] = f"손절 ({pnl:+.1f}%)"
             c["exit_price"] = current
             self._log(f"  {c['name']} 손절 {current:,}원 ({pnl:+.1f}%)")
+            self._paper_sell(c, current, "손절")
             return True
         if pnl >= TAKE_PROFIT_PCT:
             c["status"] = f"익절 ({pnl:+.1f}%)"
             c["exit_price"] = current
             self._log(f"  {c['name']} 익절 {current:,}원 ({pnl:+.1f}%)")
+            self._paper_sell(c, current, "익절")
             return True
         return False
 
@@ -127,6 +154,7 @@ class DayScanner:
             c["exit_price"] = current
             c["status"] = f"{label} ({pnl:+.1f}%)"
             self._log(f"  {c['name']} {label} {current:,}원 ({pnl:+.1f}%)")
+            self._paper_sell(c, current, label)
         else:
             c["status"] = label
             self._log(f"  {c['name']} {label}")
@@ -317,6 +345,7 @@ class DayScanner:
                         "deadline": "11:30",
                     }
                     self.signals.append(signal)
+                    self._paper_buy(c, current, "오전 돌파")
                     self._log(
                         f"*** 신호: {c['name']} {current:,}원 진입 "
                         f"(손절 {c['stop_loss']:,} / "
@@ -471,6 +500,7 @@ class DayScanner:
                         "deadline": "15:25",
                     }
                     self.signals.append(signal)
+                    self._paper_buy(c, current, "오후 돌파")
                     self._log(
                         f"*** 신호: {c['name']} {current:,}원 진입 "
                         f"(손절 {c['stop_loss']:,} / 15:25 청산) ***")

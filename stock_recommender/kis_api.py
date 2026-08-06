@@ -16,7 +16,7 @@ from pathlib import Path
 
 import requests
 
-from cache import CACHE_DIR
+from paths import CACHE_DIR
 
 BASE_URL = "https://openapi.koreainvestment.com:9443"
 TOKEN_PATH = CACHE_DIR / "kis_token.json"

@@ -328,6 +328,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._json(_lookup_stock(market, ticker))
                 except Exception as e:
                     self._json({"error": str(e)}, 500)
+        elif path == "/api/paper":
+            try:
+                pp = (Path(__file__).resolve().parent
+                      / ".cache" / "paper_trades.json")
+                if pp.exists():
+                    self._json(json.loads(pp.read_text(encoding="utf-8")))
+                else:
+                    self._json({"trades": [], "open": {}, "stats": None})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
         elif path == "/api/scanner":
             try:
                 sp = Path(__file__).resolve().parent / ".cache" / "scanner_state.json"
@@ -585,6 +595,7 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
       09:30 스캔 → 10:00~11:30 감시 → 14:50 스캔 → 15:00~15:25 감시
     </div>
   </div>
+  <div id="scan-paper"></div>
   <div id="scan-signals"></div>
   <div id="scan-morning"></div>
   <div id="scan-afternoon"></div>
@@ -793,7 +804,7 @@ function renderRec(d, cached) {
       </tr>`;
       let detail = '';
       if (s.desc) {
-        detail += `<div style="color:var(--fg);margin-bottom:2px;">📋 ${s.desc}</div>`;
+        detail += `<div style="color:var(--text);margin-bottom:2px;">📋 ${s.desc}</div>`;
       }
       if (s.reason) {
         detail += `<div>└ ${s.reason}</div>`;
@@ -1009,6 +1020,82 @@ async function loadScan() {
     document.getElementById('scan-signals').innerHTML =
       '<div class="card" style="color:var(--sub)">스캐너 데이터 없음 (scanner.py 실행 필요)</div>';
   }
+  try {
+    const r = await api('/api/paper');
+    renderPaper(await r.json());
+  } catch(e) { /* 모의매매 기록 없음 — 무시 */ }
+}
+
+// ── 모의매매 성과 ──
+function renderPaper(d) {
+  const el = document.getElementById('scan-paper');
+  const s = d.stats;
+  const open = d.open ? Object.values(d.open) : [];
+  if (!s || !s.trades) {
+    el.innerHTML = open.length ? paperOpenHtml(open) : '';
+    return;
+  }
+  const col = v => v > 0 ? 'var(--up)' : (v < 0 ? 'var(--down)' : 'var(--sub)');
+  const won = n => (n > 0 ? '+' : '') + n.toLocaleString() + '원';
+
+  let h = '<div class="card"><div style="font-weight:600;margin-bottom:.5rem;">'
+    + '모의매매 성과 <span style="font-size:.72rem;color:var(--sub);font-weight:400;">'
+    + '(가상 기록 — 실제 주문 아님, 수수료·세금 반영)</span></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:.5rem;">';
+  const tiles = [
+    ['누적 손익', won(s.total_pnl), col(s.total_pnl)],
+    ['승률', s.win_rate + '%', 'var(--text)'],
+    ['거래', s.trades + '건', 'var(--text)'],
+    ['평균 손익', s.avg_pnl_pct + '%', col(s.avg_pnl_pct)],
+    ['손익비', s.profit_factor || '-', col(s.profit_factor - 1)],
+    ['거래비용', s.total_cost.toLocaleString() + '원', 'var(--sub)'],
+  ];
+  for (const [k, v, c] of tiles) {
+    h += `<div style="text-align:center;padding:.4rem 0;">
+      <div style="font-size:.68rem;color:var(--sub);">${k}</div>
+      <div style="font-weight:600;color:${c};font-size:.9rem;">${v}</div></div>`;
+  }
+  h += '</div>';
+  h += `<div style="font-size:.72rem;color:var(--sub);margin-top:.5rem;">`
+    + `승 ${s.wins}건(평균 ${s.avg_win_pct}%) · 패 ${s.losses}건(평균 ${s.avg_loss_pct}%)`
+    + ` · 최고 ${s.best_pct}% · 최저 ${s.worst_pct}%</div></div>`;
+
+  if (open.length) h += paperOpenHtml(open);
+
+  const recent = (d.trades || []).slice(-15).reverse();
+  if (recent.length) {
+    h += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">최근 모의 거래</div>'
+      + '<div style="overflow-x:auto;"><table><thead><tr>'
+      + '<th>날짜</th><th>종목</th><th>유형</th><th class="num">진입</th>'
+      + '<th class="num">청산</th><th class="num">손익</th><th>사유</th>'
+      + '</tr></thead><tbody>';
+    for (const t of recent) {
+      h += `<tr><td style="font-size:.74rem;color:var(--sub);">${t.date}</td>
+        <td>${t.name}</td>
+        <td style="font-size:.74rem;color:var(--sub);">${(t.kind||'').replace(' 돌파','')}</td>
+        <td class="num">${t.entry_price.toLocaleString()}</td>
+        <td class="num">${t.exit_price.toLocaleString()}</td>
+        <td class="num" style="color:${col(t.net_pnl)};font-weight:600;">${t.pnl_pct}%</td>
+        <td style="font-size:.74rem;">${t.reason}</td></tr>`;
+    }
+    h += '</tbody></table></div></div>';
+  }
+  el.innerHTML = h;
+}
+function paperOpenHtml(open) {
+  let h = '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">'
+    + `모의 보유 중 (${open.length})</div><div style="overflow-x:auto;">`
+    + '<table><thead><tr><th>종목</th><th class="num">진입가</th>'
+    + '<th class="num">수량</th><th class="num">손절</th><th class="num">익절</th>'
+    + '</tr></thead><tbody>';
+  for (const p of open) {
+    h += `<tr><td>${p.name}</td>
+      <td class="num">${p.entry_price.toLocaleString()}</td>
+      <td class="num">${p.qty}</td>
+      <td class="num" style="color:var(--down);">${p.stop_loss ? p.stop_loss.toLocaleString() : '-'}</td>
+      <td class="num" style="color:var(--up);">${p.take_profit ? p.take_profit.toLocaleString() : '-'}</td></tr>`;
+  }
+  return h + '</tbody></table></div></div>';
 }
 function renderScan(d) {
   const phaseEl = document.getElementById('scan-phase');

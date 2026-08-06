@@ -30,10 +30,10 @@ STATE_PATH = CACHE_DIR / "scanner_state.json"
 # ── 전략 파라미터 ──────────────────────────────
 
 # 오전 스캔 (09:30)
-MORNING_MIN_TRADE_VALUE = 15_000_000_000     # 누적 거래대금 150억
-MORNING_CHANGE_LOW = 1.5                      # 등락률 하한 %
-MORNING_CHANGE_HIGH = 5.0                     # 등락률 상한 %
-MORNING_MAX_BOX_WIDTH = 0.015                 # 박스폭 1.5% 이내
+MORNING_MIN_TRADE_VALUE = 5_000_000_000      # 누적 거래대금 50억 (9:30 시점 기준)
+MORNING_CHANGE_LOW = 1.0                      # 등락률 하한 %
+MORNING_CHANGE_HIGH = 7.0                     # 등락률 상한 %
+MORNING_MAX_BOX_WIDTH = 0.025                 # 박스폭 2.5% 이내 (아침 변동 감안)
 
 # 오전 감시 (10:00~11:30)
 BREAKOUT_VOL_MULTIPLIER = 3.0                 # 거래량 3배 이상
@@ -94,13 +94,16 @@ class DayScanner:
         self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨")
 
         candidates = []
+        skip_tv, skip_pct, skip_box = 0, 0, 0
         for stock in ranked:
             tv = stock["trade_value"]
             pct = stock["change_pct"]
 
             if tv < MORNING_MIN_TRADE_VALUE:
+                skip_tv += 1
                 continue
             if not (MORNING_CHANGE_LOW <= pct <= MORNING_CHANGE_HIGH):
+                skip_pct += 1
                 continue
 
             # 개별 시세 조회 → 박스폭 계산
@@ -112,6 +115,7 @@ class DayScanner:
                 continue
             box_width = (high - low) / low
             if box_width > MORNING_MAX_BOX_WIDTH:
+                skip_box += 1
                 continue
 
             candidate = {
@@ -133,7 +137,8 @@ class DayScanner:
             time.sleep(0.1)
 
         self.morning_candidates = candidates
-        self._log(f"오전 후보 {len(candidates)}개 선정")
+        self._log(f"오전 후보 {len(candidates)}개 선정 "
+                  f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, 박스폭 {skip_box})")
         self.state["phase"] = "오전 감시 대기"
         self._save_state()
 

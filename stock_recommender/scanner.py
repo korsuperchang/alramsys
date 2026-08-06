@@ -547,45 +547,73 @@ class DayScanner:
             self.afternoon_scan()
             return
 
+        # 한 번 띄워두면 매 거래일을 알아서 처리한다 (종료하지 않음).
+        # 각 단계는 '정확한 분'이 아니라 '구간'으로 판정한다. 정각 조건은
+        # 스캔이 1분 넘게 걸리거나 늦게 기동하면 그날 단계를 통째로 건너뛴다.
+        done: set[str] = set()
+        cur_date: str | None = None
+
         while True:
             now = datetime.now()
-            h, m = now.hour, now.minute
+            today = now.strftime("%Y-%m-%d")
 
-            # 09:30 오전 스캔
-            if h == 9 and m == 30:
-                self.morning_scan()
-                time.sleep(60)
+            if today != cur_date:          # 날짜가 바뀌면 하루치 상태 초기화
+                cur_date = today
+                done.clear()
+                self._reset_day(today)
 
-            # 10:00~11:30 오전 감시
-            elif h == 10 and m == 0:
-                self.morning_monitor()
-                time.sleep(60)
-
-            # 14:50 오후 스캔
-            elif h == 14 and m == 50:
-                self.afternoon_scan()
-                time.sleep(60)
-
-            # 15:00~15:25 오후 감시
-            elif h == 15 and m == 0:
-                self.afternoon_monitor()
-                time.sleep(60)
-
-            # 15:30 종료
-            elif h >= 15 and m >= 30:
-                self._log("장 마감 — 스캐너 종료")
-                self.state["phase"] = "종료"
+            if now.weekday() >= 5:         # 토/일은 조회 자체가 무의미
+                self.state["phase"] = "휴장 (주말)"
                 self._save_state()
-                break
+                time.sleep(600)
+                continue
 
-            # 대기
+            hm = (now.hour, now.minute)
+
+            if "m_scan" not in done and (9, 30) <= hm < (10, 0):
+                done.add("m_scan")
+                self.morning_scan()
+            elif "m_mon" not in done and (10, 0) <= hm < (11, 30):
+                done.add("m_mon")
+                self.morning_monitor()
+            elif "a_scan" not in done and (14, 50) <= hm < (15, 0):
+                done.add("a_scan")
+                self.afternoon_scan()
+            elif "a_mon" not in done and (15, 0) <= hm < (15, 25):
+                done.add("a_mon")
+                self.afternoon_monitor()
             else:
-                phase = "관찰 (09:00~09:30)" if h == 9 and m < 30 \
-                    else "점심 휴식" if 11 < h < 14 or (h == 14 and m < 50) \
-                    else "대기"
-                self.state["phase"] = phase
+                self.state["phase"] = self._idle_phase(hm)
                 self._save_state()
                 time.sleep(30)
+
+    def _idle_phase(self, hm: tuple[int, int]) -> str:
+        if hm < (9, 0):
+            return "장 시작 전"
+        if hm < (9, 30):
+            return "관찰 (09:00~09:30)"
+        if hm < (10, 0):
+            return "오전 감시 대기"
+        if hm < (14, 50):
+            return "점심 휴식"
+        if hm < (15, 25):
+            return "오후 감시 대기"
+        return "장 마감"
+
+    def _reset_day(self, today: str):
+        """새 거래일 시작 — 전일 후보/신호를 비우고 미청산 포지션을 정리"""
+        self.state["date"] = today
+        self.morning_candidates = []
+        self.afternoon_candidates = []
+        self.signals = []
+        if self.paper:
+            dropped = self.paper.drop_stale(today)
+            for d in dropped:
+                self._log(f"  [모의] {d['name']} 전일 미청산 포지션 폐기 "
+                          f"(청산가 불명 — 성과 집계에서 제외)")
+        self.state["phase"] = "대기"
+        self._save_state()
+        self._log(f"=== {today} 거래일 시작 ===")
 
 
 if __name__ == "__main__":

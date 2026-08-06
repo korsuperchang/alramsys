@@ -131,6 +131,22 @@ class PaperTrader:
     def has(self, ticker: str) -> bool:
         return ticker in self.open
 
+    def drop_stale(self, today: str) -> list[dict]:
+        """
+        전일에 열렸는데 청산되지 않은 포지션을 버린다.
+
+        스캐너가 중간에 죽으면 포지션이 열린 채 남는다. 청산가를 알 수
+        없으므로 손익을 지어내지 않고 폐기한다 — 성과 집계를 오염시키는
+        것보다 표본에서 빼는 편이 정직하다.
+        """
+        stale = [p for p in self.open.values() if p.get("date") != today]
+        if not stale:
+            return []
+        for p in stale:
+            self.open.pop(p["ticker"], None)
+        self.save()
+        return stale
+
     # ── 성과 집계 ──────────────────────────────
 
     def stats(self, kind: str | None = None) -> dict:

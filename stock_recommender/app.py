@@ -1089,13 +1089,24 @@ function renderScan(d) {
     let msg = '';
     if (d.phase === '미실행') {
       msg = '스캐너가 실행되지 않았습니다. 서버에서 scanner.py를 실행하세요.';
-    } else if (d.morning_filter) {
-      const f = d.morning_filter;
-      msg = `조건 통과 종목 없음 (${f.total}개 중)<br>`
-        + `<span style="font-size:.8rem;">`
-        + `거래대금 미달: ${f.skip_trade_value}개 · `
-        + `등락률 범위 밖: ${f.skip_change_pct}개 · `
-        + `박스폭 초과: ${f.skip_box_width}개</span>`;
+    } else if (d.morning_filter || d.afternoon_filter) {
+      msg = '';
+      if (d.morning_filter) {
+        const f = d.morning_filter;
+        msg += `<b>오전</b> 통과 종목 없음 (${f.total}개 중)<br>`
+          + `<span style="font-size:.8rem;">`
+          + `거래대금 미달: ${f.skip_trade_value}개 · `
+          + `등락률 범위 밖: ${f.skip_change_pct}개 · `
+          + `박스폭 초과: ${f.skip_box_width}개</span>`;
+      }
+      if (d.afternoon_filter) {
+        const f = d.afternoon_filter;
+        if (msg) msg += '<br><br>';
+        msg += `<b>오후</b> 통과 종목 없음 (${f.total}개 중)<br>`
+          + `<span style="font-size:.8rem;">`
+          + `거래대금 미달: ${f.skip_trade_value}개 · `
+          + `낙폭 초과: ${f.skip_dip}개</span>`;
+      }
     } else {
       msg = '아직 스캔 결과가 없습니다. (현재: ' + (d.phase || '대기') + ')';
     }

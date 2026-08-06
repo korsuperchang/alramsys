@@ -262,10 +262,12 @@ class DayScanner:
 
         ranked = self.kis.get_volume_rank("0000")
         candidates = []
+        skip_tv, skip_dip = 0, 0
 
         for stock in ranked:
             tv = stock["trade_value"]
             if tv < AFTERNOON_MIN_TRADE_VALUE:
+                skip_tv += 1
                 continue
 
             price = self.kis.get_price(stock["ticker"])
@@ -279,6 +281,7 @@ class DayScanner:
                 continue
             dip_pct = (low_p - open_p) / open_p * 100
             if dip_pct < AFTERNOON_MAX_DIP:
+                skip_dip += 1
                 continue
 
             candidate = {
@@ -299,7 +302,14 @@ class DayScanner:
             time.sleep(0.1)
 
         self.afternoon_candidates = candidates
-        self._log(f"오후 후보 {len(candidates)}개 선정")
+        self.state["afternoon_filter"] = {
+            "total": len(ranked),
+            "passed": len(candidates),
+            "skip_trade_value": skip_tv,
+            "skip_dip": skip_dip,
+        }
+        self._log(f"오후 후보 {len(candidates)}개 선정 "
+                  f"(탈락: 거래대금 {skip_tv}, 낙폭 {skip_dip})")
         self.state["phase"] = "오후 감시 대기"
         self._save_state()
 
@@ -398,8 +408,9 @@ class DayScanner:
         self._log(f"스캐너 시작 ({today})")
 
         if test:
-            self._log("테스트 모드 — 즉시 오전 스캔 실행")
+            self._log("테스트 모드 — 즉시 오전+오후 스캔 실행")
             self.morning_scan()
+            self.afternoon_scan()
             return
 
         while True:

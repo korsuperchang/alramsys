@@ -705,6 +705,29 @@ function switchTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   document.querySelector(`.tab[onclick*="${id}"]`).classList.add('active');
+  if (id === 'scan') { loadScan(); startScanAuto(); } else { stopScanAuto(); }
+}
+
+// ── 스캔 자동 갱신 ──
+// 스캔 탭을 보고 있고 장중일 때만 30초마다 폴링한다.
+// 탭을 벗어나거나 장이 끝나면 멈춰 불필요한 요청을 만들지 않는다.
+let scanTimer = null;
+function inMarketHours() {
+  const n = new Date();
+  if (n.getDay() === 0 || n.getDay() === 6) return false;
+  const hm = n.getHours() * 60 + n.getMinutes();
+  return hm >= 9 * 60 && hm <= 15 * 60 + 30;
+}
+function startScanAuto() {
+  stopScanAuto();
+  if (!inMarketHours()) return;
+  scanTimer = setInterval(() => {
+    if (!inMarketHours()) { stopScanAuto(); return; }
+    loadScan();
+  }, 30000);
+}
+function stopScanAuto() {
+  if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
 }
 
 // ── 마켓 선택 ──
@@ -1097,9 +1120,50 @@ function paperOpenHtml(open) {
   }
   return h + '</tbody></table></div></div>';
 }
+// 박스 상단(또는 전고점)까지의 거리 — 음수면 아직 미달, 양수면 돌파
+function gapCell(c) {
+  if (c.gap_pct === undefined || c.gap_pct === null)
+    return '<span style="color:var(--sub)">-</span>';
+  if (c.gap_pct > 0)
+    return `<span style="color:var(--up);font-weight:600;">✓ +${c.gap_pct}%</span>`;
+  return `<span style="color:var(--sub)">${c.gap_pct}%</span>`;
+}
+// 거래량 배수 — 돌파 전에는 조회하지 않으므로 '-'
+function volCell(c, need) {
+  if (c.vol_ratio === undefined || c.vol_ratio === null)
+    return '<span style="color:var(--sub)">-</span>';
+  const ok = c.vol_ratio >= need;
+  return `<span style="color:${ok ? 'var(--up)' : 'var(--sub)'};`
+    + `font-weight:${ok ? 600 : 400};">${ok ? '✓ ' : ''}${c.vol_ratio}배</span>`;
+}
+function statusCell(c) {
+  const s = c.status || '';
+  const color = s === '진입' ? '#4fc3f7'
+    : s.includes('익절') ? '#66bb6a'
+    : s.includes('손절') ? '#ef5350' : 'var(--sub)';
+  let h = `<span style="color:${color};font-weight:600;font-size:.82rem;">${s}</span>`;
+  if (s === '감시중' && c.blocked_by)
+    h += `<br><small style="color:var(--sub);">${c.blocked_by}</small>`;
+  return h;
+}
+// 감시 단계 병목 요약 — 후보가 어디서 막혀 있는지 한 줄로
+function funnelHtml(f) {
+  if (!f) return '';
+  let parts = [`후보 ${f.candidates}`, `돌파 ${f.breakout}`];
+  if (f.entered) parts.push(`진입 ${f.entered}`);
+  let h = `<div style="font-size:.75rem;color:var(--sub);margin-bottom:.4rem;">`
+    + parts.join(' → ');
+  const b = f.blocked || {};
+  const keys = Object.keys(b);
+  if (keys.length)
+    h += ' · 막힘: ' + keys.map(k => `${k} ${b[k]}`).join(', ');
+  return h + '</div>';
+}
 function renderScan(d) {
   const phaseEl = document.getElementById('scan-phase');
-  phaseEl.textContent = d.phase ? `[${d.phase}] ${d.last_update || ''}` : '';
+  const auto = scanTimer ? ' · 30초마다 자동 갱신' : '';
+  phaseEl.textContent = d.phase
+    ? `[${d.phase}] ${d.last_update || ''}${auto}` : '';
 
   // 신호
   let sh = '';
@@ -1126,22 +1190,23 @@ function renderScan(d) {
   let mh = '';
   if (d.morning_candidates && d.morning_candidates.length) {
     mh += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">오전 후보 (09:30 박스)</div>';
+    mh += funnelHtml(d.funnel && d.funnel.morning);
     mh += '<div class="tbl-wrap"><table><thead><tr>';
-    mh += '<th>종목</th><th class="r">박스</th><th class="r">폭</th>';
-    mh += '<th class="r">등락</th><th class="r">거래대금</th><th>상태</th>';
-    mh += '</tr></thead><tbody>';
+    mh += '<th>종목</th><th class="r">박스 상단</th><th class="r">현재가</th>';
+    mh += '<th class="r">돌파</th><th class="r">거래량</th><th class="r">기관</th>';
+    mh += '<th>상태</th></tr></thead><tbody>';
     for (const c of d.morning_candidates) {
-      const stColor = c.status === '감시중' ? 'var(--sub)' :
-        c.status === '진입' ? '#4fc3f7' :
-        c.status.includes('익절') ? '#66bb6a' :
-        c.status.includes('손절') ? '#ef5350' : 'var(--sub)';
       mh += `<tr>
         <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
-        <td class="r">${Number(c.box_low).toLocaleString()}~${Number(c.box_high).toLocaleString()}</td>
-        <td class="r">${c.box_width_pct}%</td>
-        <td class="r">${c.change_pct >= 0 ? '+' : ''}${c.change_pct}%</td>
-        <td class="r">${c.trade_value_억}억</td>
-        <td style="color:${stColor};font-weight:600;font-size:.82rem;">${c.status}</td>
+        <td class="r">${Number(c.box_high).toLocaleString()}
+          <br><small style="color:var(--sub)">폭 ${c.box_width_pct}%</small></td>
+        <td class="r">${c.current ? Number(c.current).toLocaleString() : '-'}</td>
+        <td class="r">${gapCell(c)}</td>
+        <td class="r">${volCell(c, 3.0)}</td>
+        <td class="r">${c.chk_inst === undefined ? '<span style="color:var(--sub)">-</span>'
+          : (c.chk_inst ? '<span style="color:var(--up)">✓</span>'
+                        : '<span style="color:var(--sub)">✗</span>')}</td>
+        <td>${statusCell(c)}</td>
       </tr>`;
     }
     mh += '</tbody></table></div></div>';
@@ -1152,20 +1217,19 @@ function renderScan(d) {
   let ah = '';
   if (d.afternoon_candidates && d.afternoon_candidates.length) {
     ah += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">오후 후보 (14:50 스캔)</div>';
+    ah += funnelHtml(d.funnel && d.funnel.afternoon);
     ah += '<div class="tbl-wrap"><table><thead><tr>';
     ah += '<th>종목</th><th class="r">전고점</th><th class="r">현재가</th>';
-    ah += '<th class="r">등락</th><th class="r">거래대금</th><th>상태</th>';
+    ah += '<th class="r">돌파</th><th class="r">거래량</th><th>상태</th>';
     ah += '</tr></thead><tbody>';
     for (const c of d.afternoon_candidates) {
-      const stColor = c.status === '감시중' ? 'var(--sub)' :
-        c.status === '진입' ? '#ffb74d' : 'var(--sub)';
       ah += `<tr>
         <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
         <td class="r">${Number(c.day_high).toLocaleString()}</td>
-        <td class="r">${Number(c.current).toLocaleString()}</td>
-        <td class="r">${c.change_pct >= 0 ? '+' : ''}${c.change_pct}%</td>
-        <td class="r">${c.trade_value_억}억</td>
-        <td style="color:${stColor};font-weight:600;font-size:.82rem;">${c.status}</td>
+        <td class="r">${c.current ? Number(c.current).toLocaleString() : '-'}</td>
+        <td class="r">${gapCell(c)}</td>
+        <td class="r">${volCell(c, 3.0)}</td>
+        <td>${statusCell(c)}</td>
       </tr>`;
     }
     ah += '</tbody></table></div></div>';

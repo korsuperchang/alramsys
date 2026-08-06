@@ -84,6 +84,7 @@ class DayScanner:
         self.state["morning_candidates"] = self.morning_candidates
         self.state["afternoon_candidates"] = self.afternoon_candidates
         self.state["signals"] = self.signals
+        self.state["funnel"] = self._funnel()
         if self.paper:
             self.state["paper"] = self.paper.stats()
         CACHE_DIR.mkdir(exist_ok=True)
@@ -94,6 +95,29 @@ class DayScanner:
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
+
+    def _funnel(self) -> dict:
+        """
+        감시 단계 병목 집계 — 후보가 어느 조건에서 막혀 있는지 센다.
+        신호가 계속 0건일 때 어떤 조건이 과한지 판단하는 근거가 된다.
+        """
+        out = {}
+        for label, rows in (("morning", self.morning_candidates),
+                            ("afternoon", self.afternoon_candidates)):
+            if not rows:
+                continue
+            blocked: dict[str, int] = {}
+            for c in rows:
+                key = c.get("blocked_by")
+                if key:
+                    blocked[key] = blocked.get(key, 0) + 1
+            out[label] = {
+                "candidates": len(rows),
+                "breakout": sum(1 for c in rows if c.get("chk_breakout")),
+                "entered": sum(1 for c in rows if c.get("entry_price")),
+                "blocked": blocked,
+            }
+        return out
 
     # ── 모의매매 기록 ────────────────────────────
 
@@ -302,27 +326,45 @@ class DayScanner:
                     time.sleep(0.1)
                     continue
 
-                # ── 진입 대기: 돌파 확인 ──
-                if current <= c["box_high"]:
+                # ── 진입 대기: 조건별 현재 상태를 매 폴링마다 기록 ──
+                # (웹에서 어느 조건에서 막혀 있는지 실시간으로 보기 위함)
+                gap = (current - c["box_high"]) / c["box_high"] * 100
+                inst_ok = c["ticker"] in inst_set
+                c.update({
+                    "current": current,
+                    "gap_pct": round(gap, 2),      # 박스 상단 대비 (음수=미달)
+                    "chk_breakout": current > c["box_high"],
+                    "chk_inst": inst_ok,
+                    "checked_at": now.strftime("%H:%M"),
+                })
+
+                if not c["chk_breakout"]:
+                    c["vol_ratio"] = None          # 돌파 전엔 거래량 미확인
+                    c["blocked_by"] = "돌파 대기"
                     continue
 
                 # 추격 방지 — 돌파 기준선 대비 +MAX_CHASE_PCT% 초과면 이미 늦음.
                 # 후보를 죽이지는 않는다: 눌림목에서 박스 상단으로 되돌아오면
                 # 그때가 오히려 좋은 진입 자리이므로 다음 폴링에 다시 본다.
-                chase = (current - c["box_high"]) / c["box_high"] * 100
-                if chase > MAX_CHASE_PCT:
+                if gap > MAX_CHASE_PCT:
+                    c["blocked_by"] = "추격 회피"
                     if not c.get("chase_logged"):
                         c["chase_logged"] = True
-                        self._log(f"  {c['name']} 박스 상단 대비 +{chase:.1f}% "
+                        self._log(f"  {c['name']} 박스 상단 대비 +{gap:.1f}% "
                                   f"— 추격 회피, 눌림목 대기")
                     continue
 
                 # 거래량 확인 (분봉으로 직전 20분 평균 대비)
-                vol_ok = self._check_volume_surge(
-                    c["ticker"], BREAKOUT_VOL_MULTIPLIER)
+                ratio = self._volume_ratio(c["ticker"])
+                c["vol_ratio"] = ratio
+                vol_ok = ratio is not None and ratio >= BREAKOUT_VOL_MULTIPLIER
 
-                # 기관 매수 확인
-                inst_ok = c["ticker"] in inst_set
+                if not vol_ok:
+                    c["blocked_by"] = "거래량 부족"
+                elif not inst_ok:
+                    c["blocked_by"] = "기관 미확인"
+                else:
+                    c["blocked_by"] = None
 
                 if vol_ok and inst_ok:
                     c["entry_price"] = current
@@ -462,22 +504,34 @@ class DayScanner:
                     time.sleep(0.1)
                     continue
 
-                # 전고점 돌파 확인
-                if current <= c["day_high"]:
+                # 조건별 현재 상태 기록 (웹 실시간 표시용)
+                gap = (current - c["day_high"]) / c["day_high"] * 100
+                c.update({
+                    "current": current,
+                    "gap_pct": round(gap, 2),
+                    "chk_breakout": current > c["day_high"],
+                    "checked_at": now.strftime("%H:%M"),
+                })
+
+                if not c["chk_breakout"]:
+                    c["vol_ratio"] = None
+                    c["blocked_by"] = "돌파 대기"
                     continue
 
                 # 추격 방지 (후보는 유지 — 되돌림 시 재진입 기회)
-                chase = (current - c["day_high"]) / c["day_high"] * 100
-                if chase > MAX_CHASE_PCT:
+                if gap > MAX_CHASE_PCT:
+                    c["blocked_by"] = "추격 회피"
                     if not c.get("chase_logged"):
                         c["chase_logged"] = True
-                        self._log(f"  {c['name']} 전고점 대비 +{chase:.1f}% "
+                        self._log(f"  {c['name']} 전고점 대비 +{gap:.1f}% "
                                   f"— 추격 회피, 되돌림 대기")
                     continue
 
                 # 거래량 폭발 확인
-                vol_ok = self._check_volume_surge(
-                    c["ticker"], AFTERNOON_VOL_MULTIPLIER)
+                ratio = self._volume_ratio(c["ticker"])
+                c["vol_ratio"] = ratio
+                vol_ok = ratio is not None and ratio >= AFTERNOON_VOL_MULTIPLIER
+                c["blocked_by"] = None if vol_ok else "거래량 부족"
 
                 if vol_ok:
                     c["entry_price"] = current
@@ -519,20 +573,24 @@ class DayScanner:
 
     # ── 거래량 급증 확인 ──────────────────────
 
-    def _check_volume_surge(self, ticker: str,
-                            multiplier: float) -> bool:
-        """분봉 거래량이 직전 20분 평균의 N배 이상인지 확인"""
+    def _volume_ratio(self, ticker: str) -> float | None:
+        """
+        직전 1분봉 거래량이 그 앞 20분 평균의 몇 배인지 반환 (없으면 None)
+
+        불리언 대신 배수를 돌려주어 '2.1배 / 필요 3.0배'처럼 얼마나
+        모자란지 화면에 보여줄 수 있게 한다.
+        """
         try:
             candles = self.kis.get_minute_candles(ticker)
             if len(candles) < 21:
-                return False
+                return None
             recent = candles[-1]["volume"]
             avg_20 = sum(c["volume"] for c in candles[-21:-1]) / 20
             if avg_20 <= 0:
-                return False
-            return recent >= avg_20 * multiplier
+                return None
+            return round(recent / avg_20, 2)
         except Exception:
-            return False
+            return None
 
     # ── 메인 루프 ──────────────────────────────
 

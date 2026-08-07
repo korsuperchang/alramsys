@@ -92,6 +92,7 @@ class DayScanner:
         self.state["afternoon_candidates"] = self.afternoon_candidates
         self.state["signals"] = self.signals
         self.state["funnel"] = self._funnel()
+        self.state["done"] = sorted(getattr(self, "_done", ()))
         if self.paper:
             self.state["paper"] = self.paper.stats()
         CACHE_DIR.mkdir(exist_ok=True)
@@ -677,8 +678,16 @@ class DayScanner:
         # 한 번 띄워두면 매 거래일을 알아서 처리한다 (종료하지 않음).
         # 각 단계는 '정확한 분'이 아니라 '구간'으로 판정한다. 정각 조건은
         # 스캔이 1분 넘게 걸리거나 늦게 기동하면 그날 단계를 통째로 건너뛴다.
-        done: set[str] = set()
-        cur_date: str | None = None
+        #
+        # 재시작에 대비해 같은 날 상태 파일이 있으면 후보를 복원한다.
+        # 09:30 스캔 창은 하루 한 번뿐이라, 복원하지 않으면 장중 재시작이
+        # 그날 후보를 통째로 날려버린다.
+        self._done = self._restore_today()
+        cur_date = self.state["date"] if self._done else None
+        if self._done:
+            self._log(f"당일 상태 복원 — 오전 후보 "
+                      f"{len(self.morning_candidates)}개, "
+                      f"완료 단계 {sorted(self._done)}")
 
         while True:
             now = kst.now()
@@ -686,8 +695,9 @@ class DayScanner:
 
             if today != cur_date:          # 날짜가 바뀌면 하루치 상태 초기화
                 cur_date = today
-                done.clear()
+                self._done = set()
                 self._reset_day(today)
+            done = self._done
 
             if now.weekday() >= 5:         # 토/일은 조회 자체가 무의미
                 self.state["phase"] = "휴장 (주말)"
@@ -721,11 +731,41 @@ class DayScanner:
             return "관찰 (09:00~09:30)"
         if hm < (10, 0):
             return "오전 감시 대기"
+        if hm < (11, 30):
+            return "오전 감시"
         if hm < (14, 50):
             return "점심 휴식"
-        if hm < (15, 25):
+        if hm < (15, 0):
             return "오후 감시 대기"
+        if hm < (15, 25):
+            return "오후 감시"
         return "장 마감"
+
+    def _restore_today(self) -> set[str]:
+        """
+        같은 날 상태 파일이 있으면 후보·신호를 복원하고 완료된 스캔 단계를 반환.
+
+        스캔은 시간 창(09:30~10:00)이 하루 한 번뿐이라 재시작으로 잃으면
+        그날은 복구할 수 없다. 반면 감시는 창이 남아 있으면 다시 들어가야
+        하므로 완료 표시를 이어받지 않는다 — 그래야 중단된 감시가 재개된다.
+        """
+        if not STATE_PATH.exists():
+            return set()
+        try:
+            old = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return set()
+        if old.get("date") != kst.today():
+            return set()
+
+        self.morning_candidates = old.get("morning_candidates", [])
+        self.afternoon_candidates = old.get("afternoon_candidates", [])
+        self.signals = old.get("signals", [])
+        self.state["date"] = old["date"]
+        for k in ("morning_filter", "afternoon_filter"):
+            if k in old:
+                self.state[k] = old[k]
+        return {s for s in old.get("done", []) if s.endswith("_scan")}
 
     def _reset_day(self, today: str):
         """새 거래일 시작 — 전일 후보/신호를 비우고 미청산 포지션을 정리"""

@@ -42,6 +42,7 @@ MORNING_MAX_BOX_WIDTH = 0.025                 # 박스폭 2.5% 이내 (아침 �
 
 # 박스 계산 (분봉 기반)
 BOX_SKIP_OPEN_MIN = 10        # 시초가 급변동 구간(09:00~09:10) 제외
+BOX_WINDOW_MIN = 20           # 박스로 볼 구간 길이 (09:10~09:30)
 BOX_MIN_CANDLES = 10          # 박스 판정에 필요한 최소 분봉 수
 
 # 오전 감시 (10:00~11:30)
@@ -191,13 +192,18 @@ class DayScanner:
         분봉으로 박스 저점·고점·폭을 계산 → (low, high, width)
 
         당일 고가/저가를 그대로 쓰면 시초가 급변동이 섞여 박스가 아니라
-        '하루 변동폭'이 된다. 09:00~09:10 구간을 버리고 이후 분봉의
-        고가/저가만으로 횡보 범위를 잡는다.
+        '하루 변동폭'이 된다. 09:00~09:10 구간을 버리고 그 뒤 BOX_WINDOW_MIN
+        분(기본 09:10~09:30)만 본다.
+
+        구간 상한이 없으면 09:30이 아닌 시각에 돌렸을 때 — 예를 들어
+        --test로 장 마감 후 실행하면 — 09:10~현재의 하루치 전체가 '박스'가
+        되어 폭이 무조건 기준을 넘는다. 스캔 시각과 무관하게 같은 길이의
+        구간을 보도록 잘라낸다.
         """
         candles = self.kis.get_minute_candles(ticker)
         if len(candles) <= BOX_SKIP_OPEN_MIN:
             return None
-        window = candles[BOX_SKIP_OPEN_MIN:]
+        window = candles[BOX_SKIP_OPEN_MIN:BOX_SKIP_OPEN_MIN + BOX_WINDOW_MIN]
         if len(window) < BOX_MIN_CANDLES:
             return None
 

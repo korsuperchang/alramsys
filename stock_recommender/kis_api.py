@@ -22,6 +22,8 @@ from paths import CACHE_DIR
 BASE_URL = "https://openapi.koreainvestment.com:9443"
 TOKEN_PATH = CACHE_DIR / "kis_token.json"
 
+MARKET_NAMES = {"0000": "전체", "0001": "코스피", "1001": "코스닥"}
+
 # ETF/ETN 브랜드 접두어 — 국내 ETF는 "브랜드 + 공백 + 기초자산" 형식이다
 # (예: "KODEX 레버리지", "ACE 미국30년국채").  공백을 필수로 두지 않으면
 # 'ACE침대', 'BNK금융지주', '파워로직스' 같은 실제 종목까지 걸러버린다.
@@ -261,6 +263,7 @@ class KISClient:
                 results.append({
                     "ticker": ticker,
                     "name": name,
+                    "market": MARKET_NAMES.get(market, market),
                     "price": int(r.get("stck_prpr", 0)),
                     "change_pct": float(r.get("prdy_ctrt", 0)),
                     "volume": int(r.get("acml_vol", 0)),

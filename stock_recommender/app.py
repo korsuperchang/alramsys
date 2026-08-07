@@ -1146,6 +1146,27 @@ function statusCell(c) {
     h += `<br><small style="color:var(--sub);">${c.blocked_by}</small>`;
   return h;
 }
+// 종목코드 옆 시장 배지 (코스피/코스닥)
+function mktTag(m) {
+  if (!m) return '';
+  const c = m === '코스닥' ? '#f59e0b' : '#6366f1';
+  return ` <span style="color:${c};font-weight:600;">${m}</span>`;
+}
+// 시장별 통과 현황 — 한쪽 시장이 통째로 걸러지고 있는지 확인용
+function marketSplitHtml(cands, f) {
+  const bm = f && f.by_market;
+  if (!bm) return '';
+  let rows = [];
+  for (const [mkt, s] of Object.entries(bm)) {
+    const reasons = ['거래대금','등락률','박스폭','분봉없음']
+      .filter(k => s[k]).map(k => `${k} ${s[k]}`).join(', ');
+    rows.push(`<span style="white-space:nowrap;"><b>${mkt}</b> `
+      + `${s.passed}/${s.total}</span>`
+      + (reasons ? `<span style="color:var(--sub)"> (${reasons})</span>` : ''));
+  }
+  return `<div style="font-size:.75rem;color:var(--sub);margin-bottom:.35rem;">`
+    + rows.join(' · ') + '</div>';
+}
 // 감시 단계 병목 요약 — 후보가 어디서 막혀 있는지 한 줄로
 function funnelHtml(f) {
   if (!f) return '';
@@ -1190,6 +1211,7 @@ function renderScan(d) {
   let mh = '';
   if (d.morning_candidates && d.morning_candidates.length) {
     mh += '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">오전 후보 (09:30 박스)</div>';
+    mh += marketSplitHtml(d.morning_candidates, d.morning_filter);
     mh += funnelHtml(d.funnel && d.funnel.morning);
     mh += '<div class="tbl-wrap"><table><thead><tr>';
     mh += '<th>종목</th><th class="r">박스 상단</th><th class="r">현재가</th>';
@@ -1197,7 +1219,7 @@ function renderScan(d) {
     mh += '<th>상태</th></tr></thead><tbody>';
     for (const c of d.morning_candidates) {
       mh += `<tr>
-        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
+        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}${mktTag(c.market)}</small></td>
         <td class="r">${Number(c.box_high).toLocaleString()}
           <br><small style="color:var(--sub)">폭 ${c.box_width_pct}%</small></td>
         <td class="r">${c.current ? Number(c.current).toLocaleString() : '-'}</td>
@@ -1224,7 +1246,7 @@ function renderScan(d) {
     ah += '</tr></thead><tbody>';
     for (const c of d.afternoon_candidates) {
       ah += `<tr>
-        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}</small></td>
+        <td>${c.name}<br><small style="color:var(--sub)">${c.ticker}${mktTag(c.market)}</small></td>
         <td class="r">${Number(c.day_high).toLocaleString()}</td>
         <td class="r">${c.current ? Number(c.current).toLocaleString() : '-'}</td>
         <td class="r">${gapCell(c)}</td>
@@ -1281,7 +1303,7 @@ function rejectedHtml(label, f) {
     const bw = r.box_width_pct !== undefined ? r.box_width_pct + '%'
       : (r.dip_pct !== undefined ? '저가 ' + r.dip_pct + '%' : '-');
     h += `<tr>
-      <td>${r.name}<br><small style="color:var(--sub)">${r.ticker}</small></td>
+      <td>${r.name}<br><small style="color:var(--sub)">${r.ticker}${mktTag(r.market)}</small></td>
       <td class="r" style="color:${r.change_pct >= 0 ? 'var(--up)' : 'var(--down)'};">
         ${r.change_pct >= 0 ? '+' : ''}${r.change_pct}%</td>
       <td class="r">${r.trade_value_억}억</td>

@@ -38,7 +38,11 @@ SCAN_MARKETS = ("0001", "1001")               # 코스피, 코스닥
 MORNING_MIN_TRADE_VALUE = 5_000_000_000      # 누적 거래대금 50억 (9:30 시점 기준)
 MORNING_CHANGE_LOW = 1.0                      # 등락률 하한 %
 MORNING_CHANGE_HIGH = 7.0                     # 등락률 상한 %
-MORNING_MAX_BOX_WIDTH = 0.025                 # 박스폭 2.5% 이내 (아침 변동 감안)
+# 박스폭 상한 — 시장별로 다르게 둔다.
+# 하나의 기준을 쓰면 변동성이 큰 코스닥이 구조적으로 불리해져 후보가
+# 코스피 대형주로만 채워진다. 코스닥은 같은 '횡보'라도 폭이 더 넓다.
+MORNING_MAX_BOX_WIDTH = 0.025                 # 코스피 2.5%
+MORNING_MAX_BOX_WIDTH_KOSDAQ = 0.035          # 코스닥 3.5%
 
 # 박스 계산 (분봉 기반)
 BOX_END_TIME = "093000"       # 박스 구간 종료 시각 — 스캔이 늦게 돌아도 고정
@@ -234,12 +238,25 @@ class DayScanner:
         candidates = []
         rejected: list[dict] = []
         skip_tv, skip_pct, skip_box, skip_nodata = 0, 0, 0, 0
+        # 시장별 통과/탈락 — 한쪽 시장이 통째로 걸러지고 있는지 보려고
+        by_market: dict[str, dict] = {}
+
+        def tally(stock, key):
+            m = by_market.setdefault(
+                stock.get("market", "?"),
+                {"total": 0, "passed": 0, "거래대금": 0, "등락률": 0,
+                 "박스폭": 0, "분봉없음": 0})
+            if key == "total":
+                m["total"] += 1
+            else:
+                m[key] += 1
 
         def reject(stock, reason, **extra):
             """탈락 종목도 실제 수치와 함께 남긴다 — 조건이 과한지 눈으로 보려고"""
             if len(rejected) < 20:
                 rejected.append({
                     "ticker": stock["ticker"], "name": stock["name"],
+                    "market": stock.get("market"),
                     "change_pct": stock["change_pct"],
                     "trade_value_억": round(stock["trade_value"] / 1e8),
                     "reason": reason, **extra})
@@ -247,13 +264,16 @@ class DayScanner:
         for stock in ranked:
             tv = stock["trade_value"]
             pct = stock["change_pct"]
+            tally(stock, "total")
 
             if tv < MORNING_MIN_TRADE_VALUE:
                 skip_tv += 1
+                tally(stock, "거래대금")
                 reject(stock, "거래대금 미달")
                 continue
             if not (MORNING_CHANGE_LOW <= pct <= MORNING_CHANGE_HIGH):
                 skip_pct += 1
+                tally(stock, "등락률")
                 reject(stock, "등락률 범위 밖")
                 continue
 
@@ -261,18 +281,25 @@ class DayScanner:
             box = self._calc_box(stock["ticker"])
             if box is None:
                 skip_nodata += 1
+                tally(stock, "분봉없음")
                 reject(stock, "분봉 없음")
                 continue
             low, high, box_width = box
-            if box_width > MORNING_MAX_BOX_WIDTH:
+            max_width = (MORNING_MAX_BOX_WIDTH_KOSDAQ
+                         if stock.get("market") == "코스닥"
+                         else MORNING_MAX_BOX_WIDTH)
+            if box_width > max_width:
                 skip_box += 1
+                tally(stock, "박스폭")
                 reject(stock, "박스폭 초과",
                        box_width_pct=round(box_width * 100, 2))
                 continue
 
+            tally(stock, "passed")
             candidate = {
                 "ticker": stock["ticker"],
                 "name": stock["name"],
+                "market": stock.get("market"),
                 "box_high": high,
                 "box_low": low,
                 "box_width_pct": round(box_width * 100, 2),
@@ -297,6 +324,7 @@ class DayScanner:
             "skip_box_width": skip_box,
             "skip_no_data": skip_nodata,
             "rejected": rejected,
+            "by_market": by_market,
         }
         self._log(f"오전 후보 {len(candidates)}개 선정 "
                   f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, "
@@ -451,6 +479,7 @@ class DayScanner:
             if len(rejected) < 20:
                 rejected.append({
                     "ticker": stock["ticker"], "name": stock["name"],
+                    "market": stock.get("market"),
                     "change_pct": stock["change_pct"],
                     "trade_value_억": round(stock["trade_value"] / 1e8),
                     "reason": reason, **extra})
@@ -480,6 +509,7 @@ class DayScanner:
             candidate = {
                 "ticker": stock["ticker"],
                 "name": stock["name"],
+                "market": stock.get("market"),
                 "day_high": price["high"],
                 "current": price["price"],
                 "trade_value_억": round(tv / 1e8),

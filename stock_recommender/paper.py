@@ -16,6 +16,7 @@
 import json
 from datetime import datetime
 
+import kst
 from paths import CACHE_DIR
 
 TRADES_PATH = CACHE_DIR / "paper_trades.json"
@@ -59,7 +60,7 @@ class PaperTrader:
             "trades": self.trades,
             "open": self.open,
             "stats": self.stats(),
-            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "updated": kst.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # ── 매매 ──────────────────────────────────
@@ -82,8 +83,8 @@ class PaperTrader:
             "ticker": ticker,
             "name": name,
             "kind": kind,                 # "오전 돌파" / "오후 돌파"
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "entry_time": datetime.now().strftime("%H:%M:%S"),
+            "date": kst.now().strftime("%Y-%m-%d"),
+            "entry_time": kst.now().strftime("%H:%M:%S"),
             "entry_price": price,
             "qty": qty,
             "cost": cost,
@@ -113,7 +114,7 @@ class PaperTrader:
 
         trade = {
             **pos,
-            "exit_time": datetime.now().strftime("%H:%M:%S"),
+            "exit_time": kst.now().strftime("%H:%M:%S"),
             "exit_price": price,
             "exit_fee": exit_fee,
             "tax": tax,

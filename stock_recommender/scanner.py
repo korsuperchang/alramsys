@@ -22,6 +22,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import kst
 from paths import CACHE_DIR
 from kis_api import KISClient
 from paper import PaperTrader
@@ -80,7 +81,7 @@ class DayScanner:
     # ── 상태 저장 ──────────────────────────────
 
     def _save_state(self):
-        self.state["last_update"] = datetime.now().strftime("%H:%M:%S")
+        self.state["last_update"] = kst.now().strftime("%H:%M:%S")
         self.state["morning_candidates"] = self.morning_candidates
         self.state["afternoon_candidates"] = self.afternoon_candidates
         self.state["signals"] = self.signals
@@ -93,7 +94,7 @@ class DayScanner:
             encoding="utf-8")
 
     def _log(self, msg: str):
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = kst.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
 
     def _funnel(self) -> dict:
@@ -223,26 +224,42 @@ class DayScanner:
                   f"(ETF/ETN 제외, {'+'.join(SCAN_MARKETS)})")
 
         candidates = []
+        rejected: list[dict] = []
         skip_tv, skip_pct, skip_box, skip_nodata = 0, 0, 0, 0
+
+        def reject(stock, reason, **extra):
+            """탈락 종목도 실제 수치와 함께 남긴다 — 조건이 과한지 눈으로 보려고"""
+            if len(rejected) < 20:
+                rejected.append({
+                    "ticker": stock["ticker"], "name": stock["name"],
+                    "change_pct": stock["change_pct"],
+                    "trade_value_억": round(stock["trade_value"] / 1e8),
+                    "reason": reason, **extra})
+
         for stock in ranked:
             tv = stock["trade_value"]
             pct = stock["change_pct"]
 
             if tv < MORNING_MIN_TRADE_VALUE:
                 skip_tv += 1
+                reject(stock, "거래대금 미달")
                 continue
             if not (MORNING_CHANGE_LOW <= pct <= MORNING_CHANGE_HIGH):
                 skip_pct += 1
+                reject(stock, "등락률 범위 밖")
                 continue
 
             # 분봉으로 박스(횡보 구간) 계산 — 시초가 급변동 구간은 제외
             box = self._calc_box(stock["ticker"])
             if box is None:
                 skip_nodata += 1
+                reject(stock, "분봉 없음")
                 continue
             low, high, box_width = box
             if box_width > MORNING_MAX_BOX_WIDTH:
                 skip_box += 1
+                reject(stock, "박스폭 초과",
+                       box_width_pct=round(box_width * 100, 2))
                 continue
 
             candidate = {
@@ -271,6 +288,7 @@ class DayScanner:
             "skip_change_pct": skip_pct,
             "skip_box_width": skip_box,
             "skip_no_data": skip_nodata,
+            "rejected": rejected,
         }
         self._log(f"오전 후보 {len(candidates)}개 선정 "
                   f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, "
@@ -293,7 +311,7 @@ class DayScanner:
         inst_set: set[str] = set()
 
         while True:
-            now = datetime.now()
+            now = kst.now()
             # (시, 분) 튜플 비교 — 'hour>=11 and minute>30' 은 12:00에 False가 되어
             # 마감 시각을 지나쳐 계속 도는 문제가 있었다
             if (now.hour, now.minute) >= (11, 30):
@@ -418,12 +436,22 @@ class DayScanner:
         ranked = self.kis.get_volume_rank_multi(SCAN_MARKETS)
         self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨 (ETF/ETN 제외)")
         candidates = []
+        rejected: list[dict] = []
         skip_tv, skip_dip = 0, 0
+
+        def reject(stock, reason, **extra):
+            if len(rejected) < 20:
+                rejected.append({
+                    "ticker": stock["ticker"], "name": stock["name"],
+                    "change_pct": stock["change_pct"],
+                    "trade_value_억": round(stock["trade_value"] / 1e8),
+                    "reason": reason, **extra})
 
         for stock in ranked:
             tv = stock["trade_value"]
             if tv < AFTERNOON_MIN_TRADE_VALUE:
                 skip_tv += 1
+                reject(stock, "거래대금 미달")
                 continue
 
             price = self.kis.get_price(stock["ticker"])
@@ -438,6 +466,7 @@ class DayScanner:
             dip_pct = (low_p - open_p) / open_p * 100
             if dip_pct < AFTERNOON_MAX_DIP:
                 skip_dip += 1
+                reject(stock, "낙폭 초과", dip_pct=round(dip_pct, 1))
                 continue
 
             candidate = {
@@ -463,6 +492,7 @@ class DayScanner:
             "passed": len(candidates),
             "skip_trade_value": skip_tv,
             "skip_dip": skip_dip,
+            "rejected": rejected,
         }
         self._log(f"오후 후보 {len(candidates)}개 선정 "
                   f"(탈락: 거래대금 {skip_tv}, 낙폭 {skip_dip})")
@@ -481,7 +511,7 @@ class DayScanner:
         self._save_state()
 
         while True:
-            now = datetime.now()
+            now = kst.now()
             if (now.hour, now.minute) >= (15, 25):
                 break
             if now.hour < 15:
@@ -595,7 +625,7 @@ class DayScanner:
     # ── 메인 루프 ──────────────────────────────
 
     def run(self, test: bool = False):
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = kst.now().strftime("%Y-%m-%d")
         self.state["date"] = today
         self._log(f"스캐너 시작 ({today})")
 
@@ -612,7 +642,7 @@ class DayScanner:
         cur_date: str | None = None
 
         while True:
-            now = datetime.now()
+            now = kst.now()
             today = now.strftime("%Y-%m-%d")
 
             if today != cur_date:          # 날짜가 바뀌면 하루치 상태 초기화

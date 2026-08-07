@@ -1263,9 +1263,33 @@ function renderScan(d) {
     } else {
       msg = '아직 스캔 결과가 없습니다. (현재: ' + (d.phase || '대기') + ')';
     }
-    document.getElementById('scan-signals').innerHTML =
-      `<div class="card" style="color:var(--sub)">${msg}</div>`;
+    let h = `<div class="card" style="color:var(--sub)">${msg}</div>`;
+    h += rejectedHtml('오전', d.morning_filter);
+    h += rejectedHtml('오후', d.afternoon_filter);
+    document.getElementById('scan-signals').innerHTML = h;
   }
+}
+// 탈락 종목을 실제 수치와 함께 보여준다 — 조건이 과한지 눈으로 판단하려고
+function rejectedHtml(label, f) {
+  if (!f || !f.rejected || !f.rejected.length) return '';
+  let h = `<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">`
+    + `${label} 조회 종목 (거래대금 상위 ${f.total}개 중 ${f.rejected.length}개 표시)</div>`
+    + '<div class="tbl-wrap"><table><thead><tr><th>종목</th>'
+    + '<th class="r">등락</th><th class="r">거래대금</th>'
+    + '<th class="r">박스폭</th><th>탈락 사유</th></tr></thead><tbody>';
+  for (const r of f.rejected) {
+    const bw = r.box_width_pct !== undefined ? r.box_width_pct + '%'
+      : (r.dip_pct !== undefined ? '저가 ' + r.dip_pct + '%' : '-');
+    h += `<tr>
+      <td>${r.name}<br><small style="color:var(--sub)">${r.ticker}</small></td>
+      <td class="r" style="color:${r.change_pct >= 0 ? 'var(--up)' : 'var(--down)'};">
+        ${r.change_pct >= 0 ? '+' : ''}${r.change_pct}%</td>
+      <td class="r">${r.trade_value_억}억</td>
+      <td class="r" style="color:var(--sub)">${bw}</td>
+      <td style="font-size:.78rem;color:var(--sub);">${r.reason}</td>
+    </tr>`;
+  }
+  return h + '</tbody></table></div></div>';
 }
 </script></body></html>"""
 

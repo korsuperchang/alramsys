@@ -10,6 +10,7 @@
 
 import json
 import os
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,10 @@ BASE_URL = "https://openapi.koreainvestment.com:9443"
 TOKEN_PATH = CACHE_DIR / "kis_token.json"
 
 MARKET_NAMES = {"0000": "전체", "0001": "코스피", "1001": "코스닥"}
+
+# 요청 최소 간격 — KIS 실전 계정은 초당 20건 제한. 초당 12건 수준으로
+# 여유를 두어 스캔 중 500(초당 거래건수 초과)이 나지 않게 한다.
+MIN_CALL_INTERVAL = 0.08
 
 # ETF/ETN 브랜드 접두어 — 국내 ETF는 "브랜드 + 공백 + 기초자산" 형식이다
 # (예: "KODEX 레버리지", "ACE 미국30년국채").  공백을 필수로 두지 않으면
@@ -58,6 +63,8 @@ class KISClient:
                 "KIS API 키가 없습니다. 환경변수 KIS_APP_KEY, KIS_APP_SECRET 설정 필요")
         self._token: str | None = None
         self._token_expires: float = 0
+        self._last_call: float = 0.0
+        self._lock = threading.Lock()
         self._load_cached_token()
 
     # ── 인증 ──────────────────────────────────
@@ -112,20 +119,36 @@ class KISClient:
             "custtype": "P",
         }
 
+    def _throttle(self):
+        """
+        호출 간격 제한 — KIS는 초당 요청 수를 넘기면 500을 돌려준다.
+
+        호출부마다 sleep을 뿌리면 새 경로가 생길 때마다 빠뜨리게 되므로
+        클라이언트 안에서 일괄 처리한다. 실제로 오후 스캔의 get_price
+        루프는 탈락 종목에서 sleep 없이 continue해 제한에 걸렸다.
+        """
+        with self._lock:
+            gap = time.time() - self._last_call
+            if gap < MIN_CALL_INTERVAL:
+                time.sleep(MIN_CALL_INTERVAL - gap)
+            self._last_call = time.time()
+
     def _get(self, path: str, tr_id: str, params: dict,
              retries: int = 2) -> dict:
         for attempt in range(retries + 1):
+            self._throttle()
             try:
                 r = requests.get(f"{BASE_URL}{path}",
                                  headers=self._headers(tr_id),
                                  params=params, timeout=10)
                 r.raise_for_status()
                 return r.json()
-            except requests.RequestException:
-                if attempt < retries:
-                    time.sleep(1)
-                else:
+            except requests.RequestException as e:
+                if attempt >= retries:
                     raise
+                # 초당 제한(5xx)이면 더 길게 쉬어야 풀린다
+                status = getattr(e.response, "status_code", None)
+                time.sleep(2.0 if status and status >= 500 else 0.5)
 
     # ── 현재가 조회 ──────────────────────────────
 
@@ -139,6 +162,9 @@ class KISClient:
                  "FID_INPUT_ISCD": ticker})
             o = body.get("output", {})
             if not o or not o.get("stck_prpr"):
+                msg = body.get("msg1", "").strip()
+                if msg:
+                    print(f"  [KIS] {ticker} 시세 없음: {msg}")
                 return None
             return {
                 "price": int(o["stck_prpr"]),

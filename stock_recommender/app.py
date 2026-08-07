@@ -1280,7 +1280,9 @@ function renderScan(d) {
         msg += `<b>오후</b> 통과 종목 없음 (${f.total}개 중)<br>`
           + `<span style="font-size:.8rem;">`
           + `거래대금 미달: ${f.skip_trade_value}개 · `
-          + `낙폭 초과: ${f.skip_dip}개</span>`;
+          + `낙폭 초과: ${f.skip_dip}개`
+          + (f.skip_no_price ? ` · 시세 조회 실패: ${f.skip_no_price}개` : '')
+          + `</span>`;
       }
     } else {
       msg = '아직 스캔 결과가 없습니다. (현재: ' + (d.phase || '대기') + ')';

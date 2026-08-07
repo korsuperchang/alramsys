@@ -65,6 +65,9 @@ AFTERNOON_VOL_MULTIPLIER = 3.0
 
 POLL_INTERVAL = 60  # 폴링 간격 (초)
 
+# 탈락 종목 표본을 사유별로 몇 개까지 남길지
+REJECT_SAMPLE_PER_REASON = 6
+
 
 class DayScanner:
 
@@ -254,7 +257,10 @@ class DayScanner:
 
         def reject(stock, reason, **extra):
             """탈락 종목도 실제 수치와 함께 남긴다 — 조건이 과한지 눈으로 보려고"""
-            if len(rejected) < 20:
+            # 사유별로 고르게 표본을 남긴다. 앞에서부터 20개만 담으면
+            # 거래대금 순으로 정렬돼 있어 하위권 종목만 화면에 보인다.
+            if sum(1 for r in rejected
+                   if r["reason"] == reason) < REJECT_SAMPLE_PER_REASON:
                 rejected.append({
                     "ticker": stock["ticker"], "name": stock["name"],
                     "market": stock.get("market"),
@@ -474,10 +480,13 @@ class DayScanner:
         self._log(f"거래대금 상위 {len(ranked)}개 종목 조회됨 (ETF/ETN 제외)")
         candidates = []
         rejected: list[dict] = []
-        skip_tv, skip_dip = 0, 0
+        skip_tv, skip_dip, skip_noprice = 0, 0, 0
 
         def reject(stock, reason, **extra):
-            if len(rejected) < 20:
+            # 사유별로 고르게 표본을 남긴다. 앞에서부터 20개만 담으면
+            # 거래대금 순으로 정렬돼 있어 하위권 종목만 화면에 보인다.
+            if sum(1 for r in rejected
+                   if r["reason"] == reason) < REJECT_SAMPLE_PER_REASON:
                 rejected.append({
                     "ticker": stock["ticker"], "name": stock["name"],
                     "market": stock.get("market"),
@@ -493,14 +502,15 @@ class DayScanner:
                 continue
 
             price = self.kis.get_price(stock["ticker"])
-            if not price:
+            if not price or price.get("open", 0) <= 0:
+                # 조용히 건너뛰면 화면에서 종목이 사라진 이유를 알 수 없다
+                skip_noprice += 1
+                reject(stock, "시세 조회 실패")
                 continue
 
             # 장중 저가가 시가 대비 -2% 아래로 빠진 적 없어야 함
             open_p = price["open"]
             low_p = price["low"]
-            if open_p <= 0:
-                continue
             dip_pct = (low_p - open_p) / open_p * 100
             if dip_pct < AFTERNOON_MAX_DIP:
                 skip_dip += 1
@@ -531,10 +541,12 @@ class DayScanner:
             "passed": len(candidates),
             "skip_trade_value": skip_tv,
             "skip_dip": skip_dip,
+            "skip_no_price": skip_noprice,
             "rejected": rejected,
         }
         self._log(f"오후 후보 {len(candidates)}개 선정 "
-                  f"(탈락: 거래대금 {skip_tv}, 낙폭 {skip_dip})")
+                  f"(탈락: 거래대금 {skip_tv}, 낙폭 {skip_dip}, "
+                  f"시세실패 {skip_noprice})")
         self.state["phase"] = "오후 감시 대기"
         self._save_state()
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import requests
 
+import kst
 from paths import CACHE_DIR
 
 BASE_URL = "https://openapi.koreainvestment.com:9443"
@@ -154,11 +155,25 @@ class KISClient:
     # ── 분봉 조회 ──────────────────────────────
 
     def get_minute_candles(self, ticker: str,
-                          start_time: str = "090000") -> list[dict]:
-        """당일 1분봉 조회 (최대 30개씩, 자동 페이징)"""
-        candles = []
-        hour = start_time
-        for _ in range(10):  # 최대 300개 (09:00~14:00 충분)
+                           end_time: str | None = None,
+                           count: int = 30) -> list[dict]:
+        """
+        end_time(HHMMSS) 시각까지의 당일 1분봉을 최대 count개, 시간 오름차순 반환.
+
+        KIS 분봉 API는 FID_INPUT_HOUR_1에서 '과거 방향으로' 30개를 준다.
+        따라서 09:00~09:30 구간을 받으려면 09:00이 아니라 093000을 넘겨야
+        한다. 이전 구현은 시작 시각을 넘겨 장 시작 전 구간을 요청했고,
+        그 결과 고가=저가인 빈 데이터가 돌아와 박스폭이 전부 0%가 됐다.
+
+        30개를 넘게 요청하면 받은 것 중 가장 이른 시각을 기준으로 다시
+        호출해 앞쪽을 잇는다.
+        """
+        if end_time is None:
+            end_time = kst.now().strftime("%H%M%S")
+
+        found: dict[str, dict] = {}
+        cursor = end_time
+        for _ in range(10):                      # 최대 300개
             try:
                 body = self._get(
                     "/uapi/domestic-stock/v1/quotations/"
@@ -166,33 +181,45 @@ class KISClient:
                     "FHKST03010200",
                     {"FID_COND_MRKT_DIV_CODE": "J",
                      "FID_INPUT_ISCD": ticker,
-                     "FID_INPUT_HOUR_1": hour,
+                     "FID_INPUT_HOUR_1": cursor,
                      "FID_PW_DATA_INCU_YN": "Y",
                      "FID_ETC_CLS_CODE": ""})
-                rows = body.get("output2", [])
-                if not rows:
-                    break
-                for r in rows:
-                    t = r.get("stck_cntg_hour", "")
-                    if not t:
-                        continue
-                    candles.append({
-                        "time": t,
-                        "close": int(r.get("stck_prpr", 0)),
-                        "open": int(r.get("stck_oprc", 0)),
-                        "high": int(r.get("stck_hgpr", 0)),
-                        "low": int(r.get("stck_lwpr", 0)),
-                        "volume": int(r.get("cntg_vol", 0)),
-                    })
-                last_time = rows[-1].get("stck_cntg_hour", "")
-                if last_time <= hour or len(rows) < 30:
-                    break
-                hour = last_time
-                time.sleep(0.1)
             except Exception:
                 break
-        candles.sort(key=lambda c: c["time"])
-        return candles
+
+            rows = body.get("output2", [])
+            if not rows:
+                break
+
+            added = 0
+            for r in rows:
+                t = r.get("stck_cntg_hour", "")
+                if not t or t in found:
+                    continue
+                high = int(r.get("stck_hgpr", 0))
+                low = int(r.get("stck_lwpr", 0))
+                if high <= 0 or low <= 0:        # 거래 없는 구간
+                    continue
+                found[t] = {
+                    "time": t,
+                    "close": int(r.get("stck_prpr", 0)),
+                    "open": int(r.get("stck_oprc", 0)),
+                    "high": high,
+                    "low": low,
+                    "volume": int(r.get("cntg_vol", 0)),
+                }
+                added += 1
+
+            if added == 0 or len(found) >= count:
+                break
+            earliest = min(found)
+            if earliest <= "090100":             # 장 시작에 도달
+                break
+            cursor = earliest
+            time.sleep(0.1)
+
+        ordered = [found[t] for t in sorted(found)]
+        return ordered[-count:] if count else ordered
 
     # ── 거래대금 상위 종목 ──────────────────────
 

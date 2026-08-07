@@ -41,6 +41,7 @@ MORNING_CHANGE_HIGH = 7.0                     # 등락률 상한 %
 MORNING_MAX_BOX_WIDTH = 0.025                 # 박스폭 2.5% 이내 (아침 변동 감안)
 
 # 박스 계산 (분봉 기반)
+BOX_END_TIME = "093000"       # 박스 구간 종료 시각 — 스캔이 늦게 돌아도 고정
 BOX_SKIP_OPEN_MIN = 10        # 시초가 급변동 구간(09:00~09:10) 제외
 BOX_WINDOW_MIN = 20           # 박스로 볼 구간 길이 (09:10~09:30)
 BOX_MIN_CANDLES = 10          # 박스 판정에 필요한 최소 분봉 수
@@ -195,15 +196,16 @@ class DayScanner:
         '하루 변동폭'이 된다. 09:00~09:10 구간을 버리고 그 뒤 BOX_WINDOW_MIN
         분(기본 09:10~09:30)만 본다.
 
-        구간 상한이 없으면 09:30이 아닌 시각에 돌렸을 때 — 예를 들어
-        --test로 장 마감 후 실행하면 — 09:10~현재의 하루치 전체가 '박스'가
-        되어 폭이 무조건 기준을 넘는다. 스캔 시각과 무관하게 같은 길이의
-        구간을 보도록 잘라낸다.
+        구간을 BOX_END_TIME(09:30)에 고정해, 스캐너가 늦게 기동해 09:43에
+        스캔하더라도 09:10~09:30이라는 같은 박스를 본다.
         """
-        candles = self.kis.get_minute_candles(ticker)
+        # 09:01~09:30 30개를 받아 앞 10분(시초가 변동)을 버린다
+        candles = self.kis.get_minute_candles(
+            ticker, end_time=BOX_END_TIME,
+            count=BOX_SKIP_OPEN_MIN + BOX_WINDOW_MIN)
         if len(candles) <= BOX_SKIP_OPEN_MIN:
             return None
-        window = candles[BOX_SKIP_OPEN_MIN:BOX_SKIP_OPEN_MIN + BOX_WINDOW_MIN]
+        window = candles[BOX_SKIP_OPEN_MIN:]
         if len(window) < BOX_MIN_CANDLES:
             return None
 
@@ -617,7 +619,8 @@ class DayScanner:
         모자란지 화면에 보여줄 수 있게 한다.
         """
         try:
-            candles = self.kis.get_minute_candles(ticker)
+            # 현재 시각까지의 최근 21개 (직전 1분 + 그 앞 20분)
+            candles = self.kis.get_minute_candles(ticker, count=21)
             if len(candles) < 21:
                 return None
             recent = candles[-1]["volume"]

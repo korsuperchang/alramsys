@@ -1081,7 +1081,14 @@ function renderPaper(d) {
   h += '</div>';
   h += `<div style="font-size:.72rem;color:var(--sub);margin-top:.5rem;">`
     + `승 ${s.wins}건(평균 ${s.avg_win_pct}%) · 패 ${s.losses}건(평균 ${s.avg_loss_pct}%)`
-    + ` · 최고 ${s.best_pct}% · 최저 ${s.worst_pct}%</div></div>`;
+    + ` · 최고 ${s.best_pct}% · 최저 ${s.worst_pct}%`;
+  const br = s.by_reason || {};
+  const keys = Object.keys(br);
+  if (keys.length) {
+    h += `<br>청산 사유: ` + keys.map(k => `${k} ${br[k]}건`).join(' · ');
+    if (s.avg_hold_min) h += ` · 평균 보유 ${s.avg_hold_min}분`;
+  }
+  h += '</div></div>';
 
   if (open.length) h += paperOpenHtml(open);
 

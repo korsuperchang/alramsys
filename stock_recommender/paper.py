@@ -31,6 +31,28 @@ TAX_RATE = 0.0015    # 증권거래세+농어촌특별세: 매도 시에만 부�
 MAX_TRADES = 2000    # 보관할 최대 거래 건수 (초과 시 오래된 것부터 삭제)
 
 
+def _count_reasons(rows: list[dict]) -> dict[str, int]:
+    """청산 사유별 건수 — '11:30 청산 (-1.0%)' 처럼 손익이 붙어 오므로 앞부분만"""
+    out: dict[str, int] = {}
+    for t in rows:
+        key = t.get("reason", "").split(" (")[0] or "기타"
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+def _avg_hold_minutes(rows: list[dict]) -> int:
+    """평균 보유 시간(분) — 익절 목표가 이 시간 안에 닿을 만한지 가늠용"""
+    spans = []
+    for t in rows:
+        try:
+            h1, m1, _ = (int(x) for x in t["entry_time"].split(":"))
+            h2, m2, _ = (int(x) for x in t["exit_time"].split(":"))
+        except (KeyError, ValueError):
+            continue
+        spans.append((h2 * 60 + m2) - (h1 * 60 + m1))
+    return round(sum(spans) / len(spans)) if spans else 0
+
+
 class PaperTrader:
     """가상 포지션 관리 + 성과 집계"""
 
@@ -158,7 +180,8 @@ class PaperTrader:
             return {"trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
                     "total_pnl": 0, "avg_pnl_pct": 0.0, "avg_win_pct": 0.0,
                     "avg_loss_pct": 0.0, "profit_factor": 0.0,
-                    "total_cost": 0, "best_pct": 0.0, "worst_pct": 0.0}
+                    "total_cost": 0, "best_pct": 0.0, "worst_pct": 0.0,
+                    "by_reason": {}, "avg_hold_min": 0}
 
         wins = [t for t in rows if t["net_pnl"] > 0]
         losses = [t for t in rows if t["net_pnl"] <= 0]
@@ -184,6 +207,10 @@ class PaperTrader:
                               for t in rows),
             "best_pct": max(pcts),
             "worst_pct": min(pcts),
+            # 청산 사유 분포 — 대부분 시간 청산이면 손절/익절 폭이
+            # 보유 시간 안에 닿지 않는다는 뜻이다
+            "by_reason": _count_reasons(rows),
+            "avg_hold_min": _avg_hold_minutes(rows),
         }
 
     def summary(self) -> dict:

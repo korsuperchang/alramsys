@@ -595,6 +595,7 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
       09:30 스캔 → 10:00~11:30 감시 → 14:50 스캔 → 15:00~15:25 감시
     </div>
   </div>
+  <div id="scan-diag"></div>
   <div id="scan-paper"></div>
   <div id="scan-signals"></div>
   <div id="scan-morning"></div>
@@ -1191,11 +1192,35 @@ function funnelHtml(f) {
     h += ' · 막힘: ' + keys.map(k => `${k} ${b[k]}`).join(', ');
   return h + '</div>';
 }
+// 진단 배너 — SSH 없이 웹에서 원인을 볼 수 있어야 한다.
+// 단계가 안 돌았는지, KIS 호출이 실패 중인지가 핵심 정보.
+const STAGE_NAMES = {m_scan:'오전 스캔', m_mon:'오전 감시',
+                     a_scan:'오후 스캔', a_mon:'오후 감시'};
+function diagHtml(d) {
+  const k = d.kis || {};
+  const done = (d.done || []).map(s => STAGE_NAMES[s] || s);
+  let rows = [];
+  if (done.length) rows.push(`오늘 실행: ${done.join(' → ')}`);
+  if (k.ok || k.errors)
+    rows.push(`KIS 호출: 성공 ${k.ok || 0} · 실패 ${k.errors || 0}`);
+  if (!rows.length) return '';
+
+  const bad = k.errors > 0;
+  let h = `<div class="card" style="border-left:3px solid `
+    + `${bad ? '#ef5350' : 'var(--sub)'};">`
+    + `<div style="font-size:.75rem;color:var(--sub);">${rows.join(' · ')}</div>`;
+  if (k.last_error)
+    h += `<div style="font-size:.75rem;color:#ef5350;margin-top:.3rem;`
+      + `word-break:break-all;">최근 오류 ${k.last_error_at || ''} — `
+      + `${k.last_error}</div>`;
+  return h + '</div>';
+}
 function renderScan(d) {
   const phaseEl = document.getElementById('scan-phase');
   const auto = scanTimer ? ' · 30초마다 자동 갱신' : '';
   phaseEl.textContent = d.phase
     ? `[${d.phase}] ${d.last_update || ''}${auto}` : '';
+  document.getElementById('scan-diag').innerHTML = diagHtml(d);
 
   // 신호
   let sh = '';

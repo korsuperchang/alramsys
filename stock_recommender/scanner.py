@@ -96,6 +96,7 @@ class DayScanner:
         self.state["signals"] = self.signals
         self.state["funnel"] = self._funnel()
         self.state["done"] = sorted(getattr(self, "_done", ()))
+        self.state["kis"] = self.kis.health()
         if self.paper:
             self.state["paper"] = self.paper.stats()
         CACHE_DIR.mkdir(exist_ok=True)

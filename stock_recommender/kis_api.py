@@ -65,7 +65,23 @@ class KISClient:
         self._token_expires: float = 0
         self._last_call: float = 0.0
         self._lock = threading.Lock()
+        # 호출 성공/실패 집계 — SSH 없이 웹에서 원인을 보기 위한 진단용
+        self.ok_count = 0
+        self.error_count = 0
+        self.last_error: str | None = None
+        self.last_error_at: str | None = None
         self._load_cached_token()
+
+    def _note_error(self, msg: str):
+        self.error_count += 1
+        self.last_error = msg[:200]
+        self.last_error_at = kst.now().strftime("%H:%M:%S")
+        print(f"  [KIS] {msg}")
+
+    def health(self) -> dict:
+        return {"ok": self.ok_count, "errors": self.error_count,
+                "last_error": self.last_error,
+                "last_error_at": self.last_error_at}
 
     # ── 인증 ──────────────────────────────────
 
@@ -142,6 +158,7 @@ class KISClient:
                                  headers=self._headers(tr_id),
                                  params=params, timeout=10)
                 r.raise_for_status()
+                self.ok_count += 1
                 return r.json()
             except requests.RequestException as e:
                 if attempt >= retries:
@@ -164,7 +181,7 @@ class KISClient:
             if not o or not o.get("stck_prpr"):
                 msg = body.get("msg1", "").strip()
                 if msg:
-                    print(f"  [KIS] {ticker} 시세 없음: {msg}")
+                    self._note_error(f"{ticker} 시세 없음: {msg}")
                 return None
             return {
                 "price": int(o["stck_prpr"]),
@@ -177,7 +194,7 @@ class KISClient:
                 "change_pct": float(o.get("prdy_ctrt", 0)),
             }
         except Exception as e:
-            print(f"  [KIS] get_price({ticker}) 실패: {e}")
+            self._note_error(f"get_price({ticker}) 실패: {e}")
             return None
 
     # ── 분봉 조회 ──────────────────────────────
@@ -297,7 +314,7 @@ class KISClient:
                 })
             return results
         except Exception as e:
-            print(f"  [KIS] get_volume_rank 실패: {e}")
+            self._note_error(f"get_volume_rank 실패: {e}")
             return []
 
     def get_volume_rank_multi(self, markets: tuple[str, ...] = ("0001", "1001"),
@@ -354,5 +371,5 @@ class KISClient:
                 })
             return results
         except Exception as e:
-            print(f"  [KIS] get_institution_buy_rank 실패: {e}")
+            self._note_error(f"get_institution_buy_rank 실패: {e}")
             return []

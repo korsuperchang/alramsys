@@ -377,6 +377,10 @@ class DayScanner:
 
                 price = self.kis.get_price(c["ticker"])
                 if not price:
+                    # 조용히 넘기면 화면의 조건 열이 계속 '-'로 남아
+                    # 감시가 도는데도 왜 값이 없는지 알 수 없다
+                    c["blocked_by"] = "시세 조회 실패"
+                    c["checked_at"] = now.strftime("%H:%M")
                     continue
 
                 current = price["price"]
@@ -575,6 +579,10 @@ class DayScanner:
 
                 price = self.kis.get_price(c["ticker"])
                 if not price:
+                    # 조용히 넘기면 화면의 조건 열이 계속 '-'로 남아
+                    # 감시가 도는데도 왜 값이 없는지 알 수 없다
+                    c["blocked_by"] = "시세 조회 실패"
+                    c["checked_at"] = now.strftime("%H:%M")
                     continue
 
                 current = price["price"]

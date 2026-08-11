@@ -1149,8 +1149,12 @@ function statusCell(c) {
     : s.includes('익절') ? '#66bb6a'
     : s.includes('손절') ? '#ef5350' : 'var(--sub)';
   let h = `<span style="color:${color};font-weight:600;font-size:.82rem;">${s}</span>`;
-  if (s === '감시중' && c.blocked_by)
-    h += `<br><small style="color:var(--sub);">${c.blocked_by}</small>`;
+  if (s === '감시중' && c.blocked_by) {
+    // 조회 실패는 조건 미달이 아니라 오류이므로 눈에 띄게 구분
+    const err = c.blocked_by.includes('실패');
+    h += `<br><small style="color:${err ? '#ef5350' : 'var(--sub)'};">`
+      + `${c.blocked_by}</small>`;
+  }
   return h;
 }
 // 종목코드 옆 시장 배지 (코스피/코스닥)

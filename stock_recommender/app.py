@@ -328,6 +328,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._json(_lookup_stock(market, ticker))
                 except Exception as e:
                     self._json({"error": str(e)}, 500)
+        elif path == "/api/history":
+            try:
+                hp = (Path(__file__).resolve().parent
+                      / ".cache" / "scan_history.json")
+                self._json(json.loads(hp.read_text(encoding="utf-8"))
+                           if hp.exists() else {})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
         elif path == "/api/paper":
             try:
                 pp = (Path(__file__).resolve().parent
@@ -600,6 +608,7 @@ td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowr
   <div id="scan-signals"></div>
   <div id="scan-morning"></div>
   <div id="scan-afternoon"></div>
+  <div id="scan-history"></div>
 </div>
 
 <!-- ====== 탭3: 포트폴리오 ====== -->
@@ -1048,6 +1057,64 @@ async function loadScan() {
     const r = await api('/api/paper');
     renderPaper(await r.json());
   } catch(e) { /* 모의매매 기록 없음 — 무시 */ }
+  try {
+    const r = await api('/api/history');
+    renderHistory(await r.json());
+  } catch(e) { /* 이력 없음 — 무시 */ }
+}
+
+// ── 일자별 이력 ──
+// 상태 파일은 매일 덮어써지므로, 조건이 과한지 판단하려면 누적 기록이 필요하다.
+function renderHistory(h) {
+  const el = document.getElementById('scan-history');
+  const days = Object.keys(h || {}).sort().reverse();
+  if (!days.length) { el.innerHTML = ''; return; }
+
+  let widths = [];
+  let rows = '';
+  for (const d of days.slice(0, 20)) {
+    const m = h[d].morning || {}, a = h[d].afternoon || {};
+    (m.box_samples || []).forEach(s => widths.push(s));
+    const bm = m.by_market || {};
+    const split = Object.entries(bm)
+      .map(([k, v]) => `${k[2]} ${v.passed}/${v.total}`).join(' ');
+    rows += `<tr><td style="font-size:.76rem;">${d.slice(5)}</td>
+      <td class="r">${m.passed ?? '-'}</td>
+      <td class="r" style="font-size:.74rem;color:var(--sub);">${split || '-'}</td>
+      <td class="r">${m.breakout ?? '-'}</td>
+      <td class="r" style="font-weight:600;">${m.entered ?? 0}</td>
+      <td class="r">${a.passed ?? '-'}</td>
+      <td class="r" style="font-weight:600;">${a.entered ?? 0}</td></tr>`;
+  }
+
+  let h2 = '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">'
+    + `일자별 이력 <span style="font-size:.72rem;color:var(--sub);font-weight:400;">`
+    + `(최근 ${Math.min(days.length, 20)}일)</span></div>`
+    + '<div class="tbl-wrap"><table><thead><tr><th>날짜</th>'
+    + '<th class="r">오전<br>후보</th><th class="r">시장별</th>'
+    + '<th class="r">돌파</th><th class="r">진입</th>'
+    + '<th class="r">오후<br>후보</th><th class="r">진입</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+  h2 += boxDistHtml(widths);
+  el.innerHTML = h2 + '</div>';
+}
+// 실측 박스폭 분포 — 기준값이 분포상 어디쯤인지 보여 조정 근거가 된다
+function boxDistHtml(samples) {
+  if (samples.length < 5) return '';
+  let out = '<div style="margin-top:.6rem;font-size:.75rem;color:var(--sub);">'
+    + '박스폭 실측 분포 (기준: 코스피 2.5% · 코스닥 3.5%)<br>';
+  for (const mkt of ['코스피', '코스닥']) {
+    const w = samples.filter(s => s.market === mkt)
+      .map(s => s.width).sort((a, b) => a - b);
+    if (!w.length) continue;
+    const q = p => w[Math.min(w.length - 1, Math.floor(w.length * p))];
+    const pass = samples.filter(s => s.market === mkt && s.passed).length;
+    out += `<b>${mkt}</b> n=${w.length} · 중앙값 ${q(0.5)}% · `
+      + `상위25% ${q(0.75)}% · 최대 ${w[w.length - 1]}% · `
+      + `통과 ${pass}/${w.length}<br>`;
+  }
+  return out + '</div>';
 }
 
 // ── 모의매매 성과 ──

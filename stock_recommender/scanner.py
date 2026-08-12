@@ -28,6 +28,9 @@ from kis_api import KISClient
 from paper import PaperTrader
 
 STATE_PATH = CACHE_DIR / "scanner_state.json"
+# 일자별 스캔 요약 — 상태 파일은 매일 덮어써지므로 조건 튜닝 근거가 남지 않는다
+HISTORY_PATH = CACHE_DIR / "scan_history.json"
+HISTORY_MAX_DAYS = 90
 
 # ── 전략 파라미터 ──────────────────────────────
 
@@ -107,6 +110,50 @@ class DayScanner:
     def _log(self, msg: str):
         ts = kst.now().strftime("%H:%M:%S")
         print(f"  [{ts}] {msg}")
+
+    # ── 일자별 이력 ────────────────────────────
+
+    def _archive_day(self):
+        """
+        당일 스캔 요약을 일자별로 누적 저장.
+
+        scanner_state.json은 매일 초기화되므로 "등락률 조건이 과한가",
+        "박스폭 2.5%가 맞나" 같은 판단을 뒷받침할 기록이 남지 않는다.
+        통과·탈락 집계와 실측 박스폭 분포를 날짜별로 쌓아 둔다.
+        """
+        try:
+            hist = (json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+                    if HISTORY_PATH.exists() else {})
+        except Exception:
+            hist = {}
+
+        day = self.state.get("date") or kst.today()
+        rec = hist.get(day, {})
+        funnel = self._funnel()
+
+        for key, filt in (("morning", self.state.get("morning_filter")),
+                          ("afternoon", self.state.get("afternoon_filter"))):
+            if not filt:
+                continue
+            entry = {k: v for k, v in filt.items()
+                     if k not in ("rejected",)}   # 표본 목록은 부피만 차지
+            f = funnel.get(key) or {}
+            entry["breakout"] = f.get("breakout", 0)
+            entry["entered"] = f.get("entered", 0)
+            entry["blocked"] = f.get("blocked", {})
+            rec[key] = entry
+
+        rec["signals"] = len(self.signals)
+        if self.paper:
+            rec["paper"] = self.paper.stats()
+        hist[day] = rec
+
+        for old in sorted(hist)[:-HISTORY_MAX_DAYS]:
+            hist.pop(old, None)
+
+        CACHE_DIR.mkdir(exist_ok=True)
+        HISTORY_PATH.write_text(
+            json.dumps(hist, ensure_ascii=False, indent=1), encoding="utf-8")
 
     def _funnel(self) -> dict:
         """
@@ -242,6 +289,7 @@ class DayScanner:
 
         candidates = []
         rejected: list[dict] = []
+        box_samples: list[dict] = []
         skip_tv, skip_pct, skip_box, skip_nodata = 0, 0, 0, 0
         # 시장별 통과/탈락 — 한쪽 시장이 통째로 걸러지고 있는지 보려고
         by_market: dict[str, dict] = {}
@@ -296,6 +344,11 @@ class DayScanner:
             max_width = (MORNING_MAX_BOX_WIDTH_KOSDAQ
                          if stock.get("market") == "코스닥"
                          else MORNING_MAX_BOX_WIDTH)
+            # 통과 여부와 무관하게 실측 박스폭을 남긴다. 표본이 쌓이면
+            # 기준값(2.5%/3.5%)이 분포상 어디쯤인지 보고 조정할 수 있다.
+            box_samples.append({"market": stock.get("market"),
+                                "width": round(box_width * 100, 2),
+                                "passed": box_width <= max_width})
             if box_width > max_width:
                 skip_box += 1
                 tally(stock, "박스폭")
@@ -333,12 +386,14 @@ class DayScanner:
             "skip_no_data": skip_nodata,
             "rejected": rejected,
             "by_market": by_market,
+            "box_samples": box_samples,
         }
         self._log(f"오전 후보 {len(candidates)}개 선정 "
                   f"(탈락: 거래대금 {skip_tv}, 등락률 {skip_pct}, "
                   f"박스폭 {skip_box}, 분봉없음 {skip_nodata})")
         self.state["phase"] = "오전 감시 대기"
         self._save_state()
+        self._archive_day()
 
     # ── 10:00~11:30 오전 감시 ──────────────────
 
@@ -473,6 +528,7 @@ class DayScanner:
                 self._force_close(c, "11:30 청산")
         self.state["phase"] = "점심 휴식"
         self._save_state()
+        self._archive_day()
 
     # ── 14:50 오후 스캔 ────────────────────────
 
@@ -554,6 +610,7 @@ class DayScanner:
                   f"시세실패 {skip_noprice})")
         self.state["phase"] = "오후 감시 대기"
         self._save_state()
+        self._archive_day()
 
     # ── 15:00~15:25 오후 감시 ──────────────────
 
@@ -660,6 +717,7 @@ class DayScanner:
                 self._force_close(c, "15:25 청산")
         self.state["phase"] = "장 마감"
         self._save_state()
+        self._archive_day()
 
     # ── 거래량 급증 확인 ──────────────────────
 

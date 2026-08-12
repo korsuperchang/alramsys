@@ -1261,11 +1261,14 @@ function funnelHtml(f) {
 }
 // 진단 배너 — SSH 없이 웹에서 원인을 볼 수 있어야 한다.
 // 단계가 안 돌았는지, KIS 호출이 실패 중인지가 핵심 정보.
-const STAGE_NAMES = {m_scan:'오전 스캔', m_mon:'오전 감시',
-                     a_scan:'오후 스캔', a_mon:'오후 감시'};
+// 시간 순서대로 나열한다. 상태 파일의 done은 알파벳순(a_mon…)이라
+// 그대로 쓰면 '오후 감시 → 오전 스캔'처럼 거꾸로 보인다.
+const STAGE_ORDER = [['m_scan','오전 스캔'], ['m_mon','오전 감시'],
+                     ['a_scan','오후 스캔'], ['a_mon','오후 감시']];
 function diagHtml(d) {
   const k = d.kis || {};
-  const done = (d.done || []).map(s => STAGE_NAMES[s] || s);
+  const set = new Set(d.done || []);
+  const done = STAGE_ORDER.filter(([id]) => set.has(id)).map(([, n]) => n);
   let rows = [];
   if (done.length) rows.push(`오늘 실행: ${done.join(' → ')}`);
   if (k.ok || k.errors)

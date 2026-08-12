@@ -1,0 +1,23 @@
+[Unit]
+Description=Stock Dashboard (web)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/alramsys
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=-/home/ubuntu/alramsys/.env
+ExecStart=/usr/bin/python3 /home/ubuntu/alramsys/stock_recommender/app.py
+Restart=always
+RestartSec=10
+
+# 1GB 서버라 추천 연산 중 메모리가 몰리면 OOM Killer가 sshd 같은
+# 무관한 프로세스를 죽인다. 이 서비스가 먼저 희생되도록 우선순위를
+# 높이고 상한을 둬서 시스템 전체가 흔들리지 않게 한다.
+MemoryMax=700M
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Stock Intraday Scanner (KIS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/alramsys
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/home/ubuntu/alramsys/.env
+ExecStart=/usr/bin/python3 /home/ubuntu/alramsys/stock_recommender/scanner.py
+Restart=always
+RestartSec=30
+
+# 스캐너는 pandas를 쓰지 않아 30MB 안팎이다. 상한은 폭주 방지용.
+MemoryMax=200M
+OOMScoreAdjust=300
+
+[Install]
+WantedBy=multi-user.target

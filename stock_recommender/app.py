@@ -497,11 +497,9 @@ body{font-family:-apple-system,'Malgun Gothic','Noto Sans KR',sans-serif;
 
 /* 테이블 */
 .tbl-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
-/* min-width가 없으면 내용이 넘칠 때 테이블이 컨테이너 폭으로 찌그러진다.
-   숫자 열은 nowrap이라 폭을 지키고 종목명 열만 짓눌려 글자가 잘렸다.
-   max-content를 주면 넘칠 때는 가로 스크롤되고, 여유가 있으면 100%가 이긴다. */
-table{border-collapse:collapse; width:100%; min-width:max-content;
-      font-size:.88rem;}
+/* 화면 폭에 맞춰 접히도록 둔다. 가로 스크롤이 생기면 폰에서 오히려
+   불편해, 글자 크기를 줄여 보는 편이 낫다는 사용 피드백에 따른 것. */
+table{border-collapse:collapse; width:100%; font-size:.88rem;}
 th{text-align:left; padding:.55rem .5rem; border-bottom:2px solid var(--border);
    color:var(--sub); font-weight:600; font-size:.8rem; white-space:nowrap;}
 td{padding:.55rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap;}

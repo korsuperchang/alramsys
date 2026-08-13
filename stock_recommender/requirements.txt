@@ -4,5 +4,10 @@ numpy
 requests
 
 # 실데이터 수집 (데모 모드는 불필요)
-pykrx       # KOSPI/KOSDAQ
-yfinance    # NASDAQ
+# pykrx 1.2.5부터 KRX_ID/KRX_PW 환경변수를 요구한다. 버전을 안 박아두면
+# 서버를 새로 만들 때 최신이 깔려 "KRX 로그인 실패"로 종목 목록이 비어
+# 버린다. 로그인이 필요 없는 마지막 버전으로 고정한다.
+# KRX가 서버 쪽에서 인증을 강제하게 되면 1.2.5+ 로 올리고 .env에
+# KRX_ID / KRX_PW 를 넣으면 된다 (load_env가 읽어 pykrx에 전달됨).
+pykrx==1.2.4   # KOSPI/KOSDAQ
+yfinance       # NASDAQ

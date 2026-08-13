@@ -64,9 +64,23 @@ class KoreaAdapter(MarketAdapter):
         start = (date - pd.Timedelta(days=int(lookback_days * 1.6))).strftime("%Y%m%d")
         end = date.strftime("%Y%m%d")
 
+        tickers = self.get_tickers(as_of)
+        if not tickers:
+            # pd.concat([])의 "No objects to concatenate"는 원인을 알려주지
+            # 않는다. 종목 목록 자체를 못 받은 것인지, 받았는데 시세가 빈
+            # 것인지 구분해서 알려야 조치할 수 있다.
+            raise ValueError(
+                f"{self.market_name} 종목 목록이 비어 있습니다 ({as_of}). "
+                f"휴장일이거나 KRX 조회가 차단됐을 수 있습니다.")
+
         rows = []
-        for ticker in self.get_tickers(as_of):
-            df = krx.get_market_ohlcv(start, end, ticker, adjusted=True)
+        failed = 0
+        for ticker in tickers:
+            try:
+                df = krx.get_market_ohlcv(start, end, ticker, adjusted=True)
+            except Exception:
+                failed += 1
+                continue
             if df.empty:
                 continue
             df = df.reset_index().rename(columns={
@@ -80,6 +94,12 @@ class KoreaAdapter(MarketAdapter):
             rows.append(df[["ticker", "date", "open", "high", "low",
                             "close", "volume", "trading_value"]])
             time.sleep(self.request_interval)  # KRX 요청 제한 회피
+
+        if not rows:
+            raise ValueError(
+                f"{self.market_name} 가격 데이터를 한 건도 받지 못했습니다 "
+                f"({as_of}, 종목 {len(tickers)}개 시도, 조회 실패 {failed}개). "
+                f"KRX 요청이 차단됐거나 네트워크가 막혔을 수 있습니다.")
 
         result = self.validate_price_data(pd.concat(rows, ignore_index=True))
         if self.use_cache:

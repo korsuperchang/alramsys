@@ -1432,6 +1432,8 @@ def main():
     args = parser.parse_args()
 
     DashboardHandler.demo = args.demo
+    from paths import load_env
+    load_env()   # systemd 밖(수동 실행)에서도 .env를 쓰도록
     DashboardHandler.pin = os.environ.get("DASH_PIN") or None
     server = ThreadingHTTPServer(("0.0.0.0", args.port), DashboardHandler)
     mode = " [DEMO]" if args.demo else ""

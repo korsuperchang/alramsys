@@ -18,7 +18,7 @@ from pathlib import Path
 import requests
 
 import kst
-from paths import CACHE_DIR
+from paths import CACHE_DIR, load_env
 
 BASE_URL = "https://openapi.koreainvestment.com:9443"
 TOKEN_PATH = CACHE_DIR / "kis_token.json"
@@ -56,6 +56,7 @@ def is_etf_like(name: str) -> bool:
 class KISClient:
 
     def __init__(self, app_key: str | None = None, app_secret: str | None = None):
+        load_env()   # systemd 밖(수동 실행)에서도 .env를 쓰도록
         self.app_key = app_key or os.environ.get("KIS_APP_KEY", "")
         self.app_secret = app_secret or os.environ.get("KIS_APP_SECRET", "")
         if not self.app_key or not self.app_secret:

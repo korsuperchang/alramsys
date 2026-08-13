@@ -14,6 +14,7 @@
   공매도 금지 구간 등으로 조회가 실패하면 NaN 처리 (스코어링에서 자동 제외)
 """
 
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -21,12 +22,24 @@ import pandas as pd
 from .base import MarketAdapter
 import cache
 import dart
+from paths import load_env
 
 try:
     from pykrx import stock as krx
     PYKRX_AVAILABLE = True
 except ImportError:
     PYKRX_AVAILABLE = False
+
+
+def _krx_hint() -> str:
+    """
+    조회 실패 원인 안내 — KRX가 로그인을 요구하게 되면서 자격증명 누락이
+    가장 흔한 원인이 됐다. 화면 메시지만 보고 조치할 수 있어야 한다.
+    """
+    if not (os.environ.get("KRX_ID") and os.environ.get("KRX_PW")):
+        return ("KRX 로그인 정보가 없습니다. data.krx.co.kr 에서 가입한 뒤 "
+                ".env 에 KRX_ID / KRX_PW 를 추가하고 재시작하세요.")
+    return "휴장일이거나 KRX 조회가 차단됐을 수 있습니다 (계정/비밀번호 확인)."
 
 
 class KoreaAdapter(MarketAdapter):
@@ -41,6 +54,8 @@ class KoreaAdapter(MarketAdapter):
         self.use_cache = use_cache
         if not PYKRX_AVAILABLE:
             raise ImportError("pykrx가 설치되지 않았습니다: pip install pykrx")
+        # CLI 등 어떤 진입점으로 들어와도 .env의 KRX_ID/KRX_PW가 반영되게
+        load_env()
 
     # ──────────────────────────────────────
     def get_tickers(self, as_of: str) -> list[str]:
@@ -71,7 +86,7 @@ class KoreaAdapter(MarketAdapter):
             # 것인지 구분해서 알려야 조치할 수 있다.
             raise ValueError(
                 f"{self.market_name} 종목 목록이 비어 있습니다 ({as_of}). "
-                f"휴장일이거나 KRX 조회가 차단됐을 수 있습니다.")
+                + _krx_hint())
 
         rows = []
         failed = 0

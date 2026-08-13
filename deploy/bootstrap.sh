@@ -19,13 +19,13 @@ export NEEDRESTART_MODE=a
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-echo "==> 1/5 패키지 설치"
+echo "==> 1/6 패키지 설치"
 sudo apt-get update -qq
 sudo apt-get install -y -qq python3-pip git
 pip3 install --quiet --break-system-packages -r stock_recommender/requirements.txt \
   || pip3 install --quiet -r stock_recommender/requirements.txt
 
-echo "==> 2/5 스왑 1GB (메모리 1GB 인스턴스에서 OOM 완화)"
+echo "==> 2/6 스왑 1GB (메모리 1GB 인스턴스에서 OOM 완화)"
 if ! sudo swapon --show | grep -q /swapfile; then
   sudo fallocate -l 1G /swapfile
   sudo chmod 600 /swapfile
@@ -38,7 +38,7 @@ else
   echo "    이미 있음 — 건너뜀"
 fi
 
-echo "==> 3/5 로그 상한 (디스크가 차서 sshd가 죽는 것을 막는다)"
+echo "==> 3/6 로그 상한 (디스크가 차서 sshd가 죽는 것을 막는다)"
 sudo mkdir -p /etc/systemd/journald.conf.d
 sudo tee /etc/systemd/journald.conf.d/size.conf >/dev/null <<'EOF'
 [Journal]
@@ -47,7 +47,7 @@ SystemMaxFileSize=20M
 EOF
 sudo systemctl restart systemd-journald
 
-echo "==> 4/5 .env 확인"
+echo "==> 4/6 .env 확인"
 if [[ ! -f "$REPO/.env" ]]; then
   # 이전 서버에서 쓰던 값이 셸 환경에 있으면 그대로 옮긴다
   if [[ -n "${KIS_APP_KEY:-}" && -n "${KIS_APP_SECRET:-}" ]]; then
@@ -76,5 +76,23 @@ grep -q '^DASH_PIN=' "$REPO/.env" || {
 }
 chmod 600 "$REPO/.env"
 
-echo "==> 5/5 서비스 등록"
+echo "==> 5/6 방화벽에 대시보드 포트 개방"
+# 오라클 우분투 이미지는 iptables에서 22번만 열어두고 나머지를 REJECT한다.
+# 클라우드 보안 목록(VCN)에서 8899를 열어도 이 안쪽에서 막혀 접속이 안 된다.
+PORT="${DASH_PORT:-8899}"
+if ! sudo iptables -C INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null; then
+  sudo iptables -I INPUT -p tcp --dport "$PORT" -j ACCEPT
+  echo "    $PORT 개방"
+else
+  echo "    이미 열려 있음 — 건너뜀"
+fi
+if command -v netfilter-persistent >/dev/null; then
+  sudo netfilter-persistent save >/dev/null
+else
+  sudo apt-get install -y -qq iptables-persistent
+  sudo netfilter-persistent save >/dev/null
+fi
+echo "    규칙 저장 완료 (재부팅 후에도 유지)"
+
+echo "==> 6/6 서비스 등록"
 bash "$REPO/deploy/install.sh"

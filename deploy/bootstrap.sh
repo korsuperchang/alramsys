@@ -11,6 +11,11 @@
 #   처음부터 잡아 둔다.
 set -euo pipefail
 
+# apt가 중간에 대화형 창을 띄우면(예: "Daemons using outdated libraries")
+# 설치가 멈춘다. 폰 SSH에서는 특히 다루기 번거로워 미리 막는다.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 

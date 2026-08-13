@@ -123,7 +123,19 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
         result[key] = {"label": horizon_labels[key], "rows": rows,
                        "sector_summary": summary}
 
-    return {"market": market, "as_of": as_of,
+    # 데이터가 통째로 빠진 팩터는 화면에 '-'로만 나와 이유를 알 수 없다.
+    # 무엇이 왜 비었는지 함께 내려보내 조치할 수 있게 한다.
+    notes = []
+    quality_cols = [c for c in ("roe", "debt_ratio", "op_margin")
+                    if c in snapshot_df.columns]
+    if quality_cols and all(snapshot_df[c].isna().all() for c in quality_cols):
+        notes.append(
+            "퀄리티 점수 없음 — DART API 키가 설정되지 않았습니다. "
+            "opendart.fss.or.kr 에서 무료 발급 후 .env 에 "
+            "DART_API_KEY 를 추가하고 재시작하세요. "
+            "(나머지 팩터 가중치는 자동 재정규화되어 순위는 정상입니다)")
+
+    return {"market": market, "as_of": as_of, "notes": notes,
             "universe_count": len(scored), "recommendations": result}
 
 
@@ -816,6 +828,11 @@ function renderRec(d, cached) {
   st.textContent = `${d.market} | 기준일 ${d.as_of} | 유니버스 ${d.universe_count}개 종목`
     + (cached ? ' (저장된 결과)' : '');
   let html = '';
+  // 통째로 빠진 팩터 안내 — 점수 열의 '-'만 보고는 원인을 알 수 없다
+  for (const n of (d.notes || [])) {
+    html += `<div class="card" style="border-left:3px solid #f59e0b;`
+      + `font-size:.78rem;color:var(--sub);">${n}</div>`;
+  }
   for (const [key, sec] of Object.entries(d.recommendations)) {
     html += `<div class="card"><div style="font-weight:600;margin-bottom:.2rem;">${sec.label} 상위 5</div>`;
     if (sec.sector_summary) {

@@ -189,6 +189,30 @@ class DayScanner:
             self._log(f"  [모의] 매수 {pos['qty']}주 × {price:,}원 "
                       f"= {pos['cost']:,}원")
 
+    def _process_followups(self):
+        """
+        청산된 거래의 '이후 가격'을 기준시각이 지난 것부터 채운다.
+
+        매매 판단에는 전혀 관여하지 않는다. 손절폭이나 청산 시각을 바꿀지
+        판단할 근거를 모으는 관찰용이다. 한 번에 몇 건뿐이라 호출 부담은 없다.
+        """
+        if not self.paper:
+            return
+        due = self.paper.due_followups()
+        if not due:
+            return
+        filled = 0
+        for idx, key in due[:20]:      # 폭주 방지
+            t = self.paper.trades[idx]
+            price = self.kis.get_price(t["ticker"])
+            if not price:
+                continue
+            self.paper.record_followup(idx, key, price["price"])
+            filled += 1
+        if filled:
+            self.paper.save()
+            self._log(f"  [추적] 청산 후 가격 {filled}건 기록")
+
     def _paper_sell(self, c: dict, price: int, reason: str):
         if not self.paper:
             return
@@ -799,6 +823,9 @@ class DayScanner:
                 done.add("a_mon")
                 self.afternoon_monitor()
             else:
+                # 단계 사이 유휴 구간에서 청산 후 추적을 채운다.
+                # 감시 루프를 방해하지 않으면서 기준시각이 지난 것만 처리된다.
+                self._process_followups()
                 self.state["phase"] = self._idle_phase(hm)
                 self._save_state()
                 time.sleep(30)

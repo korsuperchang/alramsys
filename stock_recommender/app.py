@@ -1176,6 +1176,7 @@ function renderPaper(d) {
     if (s.avg_hold_min) h += ` · 평균 보유 ${s.avg_hold_min}분`;
   }
   h += '</div></div>';
+  h += followupHtml(d.followup);
 
   if (open.length) h += paperOpenHtml(open);
 
@@ -1198,6 +1199,35 @@ function renderPaper(d) {
     h += '</tbody></table></div></div>';
   }
   el.innerHTML = h;
+}
+// 청산 후 추적 — "손절이 일렀나", "11:30 청산이 이른가"를 숫자로 본다.
+// 청산가 대비 이후 가격의 평균 변동과 상승 비율을 사유별로 보여준다.
+const FU_LABELS = {'+30m':'30분 후', 'd0_1130':'당일 11:30',
+                   'd0_1520':'당일 15:20', 'd1_close':'익일 종가'};
+function followupHtml(fu) {
+  if (!fu || !Object.keys(fu).length) return '';
+  let rows = '';
+  for (const [reason, slot] of Object.entries(fu)) {
+    const cells = Object.keys(FU_LABELS).map(k => {
+      const s = slot[k];
+      if (!s || !s.n) return '<td class="r" style="color:var(--sub)">-</td>';
+      const c = s.avg > 0 ? 'var(--up)' : (s.avg < 0 ? 'var(--down)' : 'var(--sub)');
+      return `<td class="r"><span style="color:${c};font-weight:600;">`
+        + `${s.avg > 0 ? '+' : ''}${s.avg}%</span>`
+        + `<br><small style="color:var(--sub)">${s.up}/${s.n}</small></td>`;
+    }).join('');
+    rows += `<tr><td>${reason}<br><small style="color:var(--sub)">`
+      + `${slot.trades}건</small></td>${cells}</tr>`;
+  }
+  return '<div class="card"><div style="font-weight:600;margin-bottom:.3rem;">'
+    + '청산 후 추적 <span style="font-size:.72rem;color:var(--sub);font-weight:400;">'
+    + '(청산가 대비 · 아래는 상승건수/표본)</span></div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>청산 사유</th>'
+    + Object.values(FU_LABELS).map(l => `<th class="r">${l}</th>`).join('')
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+    + '<div style="font-size:.72rem;color:var(--sub);margin-top:.4rem;">'
+    + '양수면 청산 후 더 올랐다는 뜻 — 손절폭·청산 시각을 늦출 근거가 됩니다.'
+    + '</div></div>';
 }
 function paperOpenHtml(open) {
   let h = '<div class="card"><div style="font-weight:600;margin-bottom:.4rem;">'

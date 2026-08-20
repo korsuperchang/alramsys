@@ -14,7 +14,7 @@
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import kst
 from paths import CACHE_DIR
@@ -29,6 +29,40 @@ FEE_RATE = 0.00015   # 위탁수수료: 매수/매도 각각 부과 (온라인 �
 TAX_RATE = 0.0015    # 증권거래세+농어촌특별세: 매도 시에만 부과 (약 0.15%)
 
 MAX_TRADES = 2000    # 보관할 최대 거래 건수 (초과 시 오래된 것부터 삭제)
+
+# ── 청산 후 추적 ──────────────────────────────
+# 청산한 뒤 그 종목이 어떻게 됐는지를 남긴다. "손절이 너무 타이트했나",
+# "11:30 청산이 이른가" 같은 질문은 청산 시점 기록만으로는 답할 수 없고,
+# 이후 가격을 봐야 숫자로 판단할 수 있다.
+#
+# (키, 설명, 기준시각 계산)  — 기준시각은 청산 시각(naive datetime)을 받는다
+FOLLOWUP_SPECS = (
+    ("+30m",     "청산 30분 후",   lambda ex: ex + timedelta(minutes=30)),
+    ("d0_1130",  "당일 11:30",     lambda ex: ex.replace(hour=11, minute=30, second=0)),
+    ("d0_1520",  "당일 15:20",     lambda ex: ex.replace(hour=15, minute=20, second=0)),
+    ("d1_close", "익일 종가",       lambda ex: _next_weekday(ex).replace(
+        hour=15, minute=20, second=0)),
+)
+# 추적 기록 보관 기간. 1년치가 127KB 수준이라 용량 부담은 없다.
+# 표본이 많을수록 판단이 정확해지므로 넉넉하게 둔다.
+FOLLOWUP_KEEP_DAYS = 180
+
+
+def _exit_datetime(trade: dict) -> datetime | None:
+    """거래 기록의 날짜 + 청산 시각 → naive datetime (파싱 실패 시 None)"""
+    try:
+        return datetime.strptime(
+            f"{trade['date']} {trade['exit_time']}", "%Y-%m-%d %H:%M:%S")
+    except (KeyError, ValueError):
+        return None
+
+
+def _next_weekday(dt: datetime) -> datetime:
+    """다음 평일 (공휴일은 고려하지 않음 — 그 경우 직전 종가가 잡힌다)"""
+    nxt = dt + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
 
 
 def _count_reasons(rows: list[dict]) -> dict[str, int]:
@@ -82,6 +116,7 @@ class PaperTrader:
             "trades": self.trades,
             "open": self.open,
             "stats": self.stats(),
+            "followup": self.followup_summary(),
             "updated": kst.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -153,6 +188,77 @@ class PaperTrader:
 
     def has(self, ticker: str) -> bool:
         return ticker in self.open
+
+    # ── 청산 후 추적 ──────────────────────────────
+
+    def due_followups(self, now: datetime | None = None) -> list[tuple[int, str]]:
+        """
+        기준시각이 지났는데 아직 안 채운 추적 항목 → [(거래 인덱스, 키)]
+
+        매매에는 영향을 주지 않는다. 청산된 거래의 '그 이후'만 관찰한다.
+        """
+        now = (now or kst.now()).replace(tzinfo=None)
+        out = []
+        for i, t in enumerate(self.trades):
+            exit_at = _exit_datetime(t)
+            if exit_at is None:
+                continue
+            if (now - exit_at).days > FOLLOWUP_KEEP_DAYS:
+                continue
+            done = t.get("followup") or {}
+            for key, _label, at_fn in FOLLOWUP_SPECS:
+                if key in done:
+                    continue
+                try:
+                    target = at_fn(exit_at)
+                except ValueError:
+                    continue
+                # 청산보다 이른 기준시각은 의미가 없다 (예: 오후 거래의 11:30)
+                if target <= exit_at:
+                    done[key] = None
+                    t["followup"] = done
+                    continue
+                if now >= target:
+                    out.append((i, key))
+        return out
+
+    def record_followup(self, index: int, key: str, price: int):
+        """추적 시점의 가격과 청산가 대비 변동률을 기록"""
+        if not (0 <= index < len(self.trades)):
+            return
+        t = self.trades[index]
+        exit_price = t.get("exit_price") or 0
+        t.setdefault("followup", {})[key] = {
+            "price": price,
+            "pct": round((price - exit_price) / exit_price * 100, 2)
+            if exit_price else None,
+        }
+
+    def followup_summary(self) -> dict:
+        """
+        청산 사유별로 '이후에 어떻게 됐는지' 집계.
+        규칙을 바꿀지 판단하는 근거 — 인상이 아니라 숫자로 보기 위함.
+        """
+        out: dict[str, dict] = {}
+        for t in self.trades:
+            fu = t.get("followup") or {}
+            reason = (t.get("reason", "") or "기타").split(" (")[0]
+            slot = out.setdefault(reason, {"trades": 0})
+            slot["trades"] += 1
+            for key, _label, _fn in FOLLOWUP_SPECS:
+                v = fu.get(key)
+                if not v or v.get("pct") is None:
+                    continue
+                s = slot.setdefault(key, {"n": 0, "up": 0, "sum": 0.0})
+                s["n"] += 1
+                s["up"] += 1 if v["pct"] > 0 else 0
+                s["sum"] += v["pct"]
+        for slot in out.values():
+            for key, s in slot.items():
+                if isinstance(s, dict) and s.get("n"):
+                    s["avg"] = round(s["sum"] / s["n"], 2)
+                    del s["sum"]
+        return out
 
     def drop_stale(self, today: str) -> list[dict]:
         """

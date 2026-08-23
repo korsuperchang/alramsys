@@ -1,0 +1,116 @@
+:root{
+  --bg:#06080b;
+  --panel:#0e1319;
+  --line:rgba(255,255,255,.10);
+  --pro:#2fe27a;
+  --pro-dim:rgba(47,226,122,.16);
+  --am:#ff4d5f;
+  --am-dim:rgba(255,77,95,.16);
+  --gold:#ffc83d;
+  --txt:#f2f5f8;
+  --sub:#9aa6b2;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;background:#000;overflow:hidden}
+body{
+  font-family:'Pretendard',system-ui,sans-serif;
+  color:var(--txt);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:geometricPrecision;
+}
+#stage{position:relative;width:1080px;height:1920px;background:var(--bg);overflow:hidden}
+#stage::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 75% at 50% 34%,rgba(255,255,255,.045),transparent 62%);
+}
+.layer{position:absolute;inset:0;will-change:opacity,transform}
+
+/* ---------- 공통 레이아웃 ---------- */
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:center;padding:90px 56px 350px;}
+.kicker{font-size:30px;font-weight:700;letter-spacing:.14em;color:var(--sub);
+  text-transform:uppercase;margin-bottom:18px}
+.title{font-size:70px;font-weight:800;line-height:1.22;letter-spacing:-.02em}
+.title.sm{font-size:58px}
+.title .g{color:var(--gold)}
+.title .p{color:var(--pro)}
+.title .a{color:var(--am)}
+.caption{font-size:35px;font-weight:600;line-height:1.5;color:var(--sub);text-align:center}
+.spacer{flex:1}
+
+/* ---------- 비교 패널 ---------- */
+.panels{display:flex;gap:24px;justify-content:center}
+.panel{position:relative;width:472px;border-radius:26px;overflow:hidden;
+  background:linear-gradient(180deg,#111820 0%,#0a0e13 100%);
+  border:2px solid rgba(255,255,255,.09)}
+.panel.pro{border-color:rgba(47,226,122,.34);box-shadow:0 0 60px rgba(47,226,122,.10) inset}
+.panel.am{border-color:rgba(255,77,95,.34);box-shadow:0 0 60px rgba(255,77,95,.10) inset}
+.panel .tag{position:absolute;top:20px;left:50%;transform:translateX(-50%);
+  font-size:31px;font-weight:800;letter-spacing:.1em;padding:8px 26px;border-radius:999px;z-index:3;
+  backdrop-filter:blur(2px)}
+.panel.pro .tag{color:var(--pro);background:var(--pro-dim);border:2px solid rgba(47,226,122,.5)}
+.panel.am  .tag{color:var(--am); background:var(--am-dim); border:2px solid rgba(255,77,95,.5)}
+.panel svg{display:block;width:100%;height:100%}
+.panel .fld{position:absolute;left:0;right:0;bottom:0;height:34%;
+  background:linear-gradient(180deg,rgba(20,40,26,0) 0%,rgba(22,52,30,.55) 60%,rgba(14,34,20,.75) 100%)}
+
+/* ---------- 수치 배지 ---------- */
+.stat{position:absolute;z-index:3;text-align:center;line-height:1.15}
+.stat .k{font-size:26px;font-weight:600;color:#cfd8e2}
+.stat .v{font-size:46px;font-weight:800;letter-spacing:-.02em}
+.pro .stat .v{color:var(--pro)}
+.am  .stat .v{color:var(--am)}
+
+/* ---------- 리스트/순서 ---------- */
+.orderlist{position:absolute;z-index:3;left:22px;top:100px;display:flex;flex-direction:column;gap:14px;
+  padding:20px 22px;border-radius:18px;background:rgba(5,8,11,.74);border:1px solid rgba(255,255,255,.08)}
+.orderlist li{list-style:none;display:flex;align-items:center;gap:12px;
+  font-size:31px;font-weight:700;color:#8f9aa6}
+.orderlist li .n{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
+  font-size:23px;font-weight:800;border:2px solid currentColor}
+.orderlist li.on{color:#fff}
+.pro .orderlist li.on{color:var(--pro);text-shadow:0 0 26px rgba(47,226,122,.5)}
+.am  .orderlist li.on{color:var(--am); text-shadow:0 0 26px rgba(255,77,95,.5)}
+
+.callout{position:absolute;z-index:4;padding:24px 28px;border-radius:18px;
+  background:rgba(8,11,15,.88);border:2px solid rgba(255,255,255,.14);
+  font-size:32px;font-weight:700;line-height:1.45;max-width:430px}
+
+/* ---------- 체인(운동 사슬) ---------- */
+.chain{display:flex;gap:26px;justify-content:center;align-items:stretch}
+.chaincol{flex:1;border-radius:24px;padding:30px 20px 26px;border:2px solid;
+  display:flex;flex-direction:column;align-items:center;gap:0}
+.chaincol.pro{border-color:rgba(47,226,122,.4);background:rgba(47,226,122,.05)}
+.chaincol.am {border-color:rgba(255,77,95,.4);background:rgba(255,77,95,.05)}
+.chaincol .h{font-size:34px;font-weight:800;letter-spacing:.08em;margin-bottom:22px}
+.chaincol.pro .h{color:var(--pro)} .chaincol.am .h{color:var(--am)}
+.chaincol .step{font-size:40px;font-weight:800;color:#e9eef3}
+.chaincol .arw{font-size:30px;line-height:1;margin:9px 0;color:#5c6772}
+.chaincol .res{margin-top:24px;font-size:37px;font-weight:800;padding:12px 22px;border-radius:14px}
+.chaincol.pro .res{color:var(--pro);background:rgba(47,226,122,.12)}
+.chaincol.am  .res{color:var(--am); background:rgba(255,77,95,.12)}
+
+/* ---------- 체크리스트 / 요약 ---------- */
+.checks{display:flex;flex-direction:column;gap:22px}
+.check{display:flex;align-items:center;gap:20px;font-size:38px;font-weight:700}
+.check .ic{color:var(--pro);font-size:40px;font-weight:800}
+.sumrow{display:flex;align-items:center;gap:22px;padding:24px 28px;border-radius:20px;
+  background:rgba(255,255,255,.045);border:2px solid rgba(255,255,255,.09);
+  font-size:35px;font-weight:700;line-height:1.35}
+.sumrow .n{flex:none;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;
+  background:var(--pro);color:#06210f;font-size:30px;font-weight:800}
+
+/* ---------- 아웃트로 ---------- */
+.cta{display:flex;gap:74px;justify-content:center;align-items:flex-start}
+.cta .item{display:flex;flex-direction:column;align-items:center;gap:16px;
+  font-size:31px;font-weight:700;color:#cfd8e2}
+.cta .glyph{width:132px;height:132px;border-radius:34px;display:grid;place-items:center;
+  background:#141a21;border:2px solid rgba(255,255,255,.12)}
+
+/* ---------- 진행 바 ---------- */
+#bar{position:absolute;top:0;left:0;height:7px;background:linear-gradient(90deg,var(--pro),var(--gold));z-index:20}
+
+.bar-callout{display:flex;align-items:center;gap:18px;padding:24px 30px;border-radius:20px;
+  background:rgba(255,77,95,.09);border:2px solid rgba(255,77,95,.34);
+  font-size:34px;font-weight:700;line-height:1.4;text-align:left}
+.bar-callout .q{font-size:44px;font-weight:800;color:var(--am);flex:none}

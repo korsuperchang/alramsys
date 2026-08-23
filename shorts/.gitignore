@@ -1,5 +1,3 @@
 node_modules/
-out/*.png
-out/*.mp4
-out/*.html
-out/render.log
+out/*
+!out/shorts.mp4

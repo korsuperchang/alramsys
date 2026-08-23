@@ -1,3 +1,5 @@
 node_modules/
 out/*
 !out/shorts.mp4
+!out/voice/
+out/voice/*-*.mp3

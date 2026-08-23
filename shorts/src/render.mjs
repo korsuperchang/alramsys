@@ -25,7 +25,7 @@ const opt = (k, d) => {
 const FPS = +opt('fps', 30);
 const SCALE = +opt('scale', 1);
 const CRF = +opt('crf', 18);
-const OUT = P(opt('out', 'out/shorts.mp4'));
+const OUT = P(opt('out', 'out/video.mp4'));
 const AUDIO = opt('audio', null);
 const STILLS = opt('stills', null);
 const FROM = +opt('from', 0);
@@ -51,6 +51,7 @@ await page.evaluate(() => document.fonts.ready);
 
 const total = await page.evaluate(() => window.__total);
 const scenes = await page.evaluate(() => window.__scenes);
+writeFileSync(P('out/timeline.json'), JSON.stringify({ total, scenes }, null, 2));
 
 if (STILLS) {
   for (const s of STILLS.split(',')) {

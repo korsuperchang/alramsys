@@ -12,20 +12,22 @@ const COL = { pro: '#2fe27a', am: '#ff4d5f', gold: '#ffc83d' };
 const fix = (n) => (Math.round(n * 100) / 100);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
+const SP = 0.68;   // 등장 타이밍 배속(작을수록 빠르게)
+
 /* 등장 애니메이션: 지연 delay 초 후 dur 초 동안 아래에서 페이드인 */
 function rise(l, delay, dur = 0.45, dy = 26) {
-  const p = clamp01((l - delay) / dur);
+  const p = clamp01((l - delay * SP) / (dur * SP));
   const e = easeOut(p);
   return `opacity:${fix(e)};transform:translateY(${fix((1 - e) * dy)}px)`;
 }
 function pop(l, delay, dur = 0.4) {
-  const p = clamp01((l - delay) / dur);
+  const p = clamp01((l - delay * SP) / (dur * SP));
   const e = 1 - Math.pow(1 - p, 3);
   const s = 0.82 + 0.18 * e + Math.sin(p * Math.PI) * 0.05;
   return `opacity:${fix(e)};transform:scale(${fix(s)})`;
 }
 function countUp(to, l, delay, dur = 0.9) {
-  return Math.round(to * easeOut(clamp01((l - delay) / dur)));
+  return Math.round(to * easeOut(clamp01((l - delay * SP) / (dur * SP))));
 }
 
 /* viewBox → 패널 픽셀 좌표 매핑 (preserveAspectRatio="xMidYMid meet") */
@@ -143,10 +145,11 @@ const PRO = PERSONA.pro, AM = PERSONA.am;
 const loop = (l, period) => (l % period) / period;
 
 const SCENES = [];
-const S = (id, dur, build) => SCENES.push({ id, dur, build });
+const TIMING = (typeof window !== 'undefined' && window.__timing) || {};
+const S = (id, dur, build) => SCENES.push({ id, dur: TIMING[id]?.dur ?? dur, build });
 
 /* ---------- 1. 인트로 (0:00~0:06) ---------- */
-S('intro', 6, (l) => {
+S('intro', 4, (l) => {
   const t = 0.05 + 0.012 * Math.sin(l * 2.1);
   const ko = (P) => `<div class="tag">${P.ko}</div>`;
   return `<div class="scene">
@@ -163,7 +166,7 @@ S('intro', 6, (l) => {
 });
 
 /* ---------- 2. 관절 비교 (0:06~0:15) ---------- */
-S('joints', 9, (l) => {
+S('joints', 4.5, (l) => {
   const t = 0.05;
   const PW = 404, PH = 820, GAP = 160, OX = PW + GAP;
   const m = mapper(PW, PH);
@@ -206,10 +209,10 @@ S('joints', 9, (l) => {
 });
 
 /* ---------- 3. 회전의 차이 (0:15~0:28) ---------- */
-S('rotation', 13, (l) => {
-  const t = lerp(0.05, TOP, easeInOut(clamp01(l / 2.0)));
-  const rev = clamp01((l - 2.0) / 0.8);
-  const showN = clamp01((l - 2.6) / 0.5);
+S('rotation', 10, (l) => {
+  const t = lerp(0.05, TOP, easeInOut(clamp01(l / 1.4)));
+  const rev = clamp01((l - 1.4) / 0.55);
+  
 
   const post = (P) => (p, c) => {
     if (rev <= 0) return '';
@@ -238,9 +241,9 @@ S('rotation', 13, (l) => {
 });
 
 /* ---------- 4. 다운스윙 시작 순서 (0:28~0:42) ---------- */
-S('sequence', 14, (l) => {
-  const cyc = 6.4;
-  const u0 = loop(Math.max(0, l - 0.6), cyc);
+S('sequence', 7.5, (l) => {
+  const cyc = 3.4;
+  const u0 = loop(Math.max(0, l - 0.35), cyc);
   const t = u0 < 0.14 ? TOP : lerp(TOP, 0.66, easeInOut((u0 - 0.14) / 0.72));
   const items = [['골반', PRO.seq.hip], ['몸통', PRO.seq.torso], ['팔', PRO.seq.arm], ['클럽', PRO.seq.club]];
   const li = items.map((it, i) =>
@@ -266,9 +269,9 @@ S('sequence', 14, (l) => {
 });
 
 /* ---------- 5. 일반인의 흔한 움직임 (0:42~0:55) ---------- */
-S('amateur', 13, (l) => {
-  const cyc = 4.6;
-  const u0 = loop(Math.max(0, l - 0.4), cyc);
+S('amateur', 5.5, (l) => {
+  const cyc = 2.6;
+  const u0 = loop(Math.max(0, l - 0.3), cyc);
   const t = u0 < 0.12 ? 0.40 : lerp(0.40, 0.645, easeInOut((u0 - 0.12) / 0.7));
   const post = (p, c) => {
     if (t <= 0.46) return '';
@@ -296,7 +299,7 @@ S('amateur', 13, (l) => {
 });
 
 /* ---------- 6. 에너지 전달 순서 (0:55~1:08) ---------- */
-S('chain', 13, (l) => {
+S('chain', 5, (l) => {
   const col = (P, cls, res, up) => {
     let s = `<div class="chaincol ${cls}"><div class="h">${P.label}</div>`;
     P.order.forEach((k, i) => {
@@ -318,9 +321,9 @@ S('chain', 13, (l) => {
 });
 
 /* ---------- 7. 스윙 궤적 비교 (1:08~1:22) ---------- */
-S('path', 14, (l) => {
-  const cyc = 6.2;
-  const u0 = loop(Math.max(0, l - 0.5), cyc);
+S('path', 4.5, (l) => {
+  const cyc = 3.6;
+  const u0 = loop(Math.max(0, l - 0.3), cyc);
   const t = clamp01(u0 / 0.78);
   const traces = (self) => (p, c) => {
     if (t <= 0.12) return '';
@@ -349,10 +352,10 @@ S('path', 14, (l) => {
 });
 
 /* ---------- 8. 임팩트 순간 (1:22~1:35) ---------- */
-S('impact', 13, (l) => {
-  const t = lerp(0.50, IMPACT, easeInOut(clamp01(l / 1.6)));
+S('impact', 6, (l) => {
+  const t = lerp(0.50, IMPACT, easeInOut(clamp01(l / 1.1)));
   const post = (P) => (p, c) => {
-    const k = clamp01((l - 1.6) / 0.6);
+    const k = clamp01((l - 1.1) / 0.45);
     if (k <= 0) return '';
     const deg = P.openShoulderImpact;
     let s = `<line x1="${fix(p.pelvis.x - 26)}" y1="${fix(p.shL.y)}" x2="${fix(p.pelvis.x + 26)}" y2="${fix(p.shL.y)}" stroke="rgba(255,255,255,.35)" stroke-width="1" stroke-dasharray="3 3" opacity="${fix(k)}"/>`;
@@ -375,8 +378,8 @@ S('impact', 13, (l) => {
 });
 
 /* ---------- 9. 핵심 메시지 (1:35~1:48) ---------- */
-S('statement', 13, (l) => {
-  const t = lerp(0.62, 0.94, easeOut(clamp01(l / 3.2)));
+S('statement', 4.5, (l) => {
+  const t = lerp(0.62, 0.94, easeOut(clamp01(l / 2.2)));
   return `<div class="scene" style="justify-content:center;text-align:center">
     <div style="position:absolute;left:52%;top:62%;transform:translate(-50%,-50%);width:820px;height:1080px;opacity:.13">
       ${fig(PRO, t, { ball: false, joints: false, ground: false })}
@@ -393,35 +396,8 @@ S('statement', 13, (l) => {
   </div>`;
 });
 
-/* ---------- 10. 촬영 조건 (1:48~1:58) ---------- */
-S('setup', 10, (l) => {
-  const items = ['정면 각도 (Face-on)', '카메라 높이: 허리 높이', '골퍼와의 거리: 동일', '렌즈 화각: 동일'];
-  const list = items.map((s, i) =>
-    `<div class="check" style="${rise(l, 0.7 + i * 0.35)}"><span class="ic">✓</span>${s}</div>`).join('');
-  const cam = `<svg width="300" height="420" viewBox="0 0 100 140" style="${rise(l, 0.4)}">
-    <g stroke="#c9d3dd" stroke-width="2.6" fill="none" stroke-linecap="round">
-      <rect x="18" y="18" width="52" height="32" rx="5" fill="#161c23"/>
-      <path d="M70 26 L86 18 L86 50 L70 42 Z" fill="#161c23"/>
-      <circle cx="40" cy="34" r="9" stroke="#7e8b98"/>
-      <path d="M44 50 L44 78 M44 78 L22 122 M44 78 L66 122 M44 78 L44 118"/>
-      <path d="M30 100 L58 100" stroke="#5d6873"/>
-    </g>
-    <g stroke="${COL.gold}" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="${fix(clamp01((l - 1.6) / .5))}">
-      <path d="M92 30 L92 116 M88 34 L92 28 L96 34 M88 112 L92 118 L96 112"/>
-    </g></svg>`;
-  return `<div class="scene">
-    <div class="title sm" style="text-align:center;${rise(l, 0)}">같은 조건에서 촬영했습니다</div>
-    <div style="height:70px"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:30px">
-      <div class="checks">${list}</div>${cam}
-    </div>
-    <div style="height:76px"></div>
-    <div class="caption" style="${rise(l, 2.6)}">공정한 비교를 위해<br/>촬영 조건을 동일하게 맞췄습니다</div>
-  </div>`;
-});
-
 /* ---------- 11. 핵심 정리 (1:58~2:05) ---------- */
-S('summary', 7, (l) => {
+S('summary', 5, (l) => {
   const rows = [
     '상체와 하체는 다른 양으로 회전한다',
     '다운스윙은 하체 → 상체 → 팔 → 클럽 순서',
@@ -438,8 +414,8 @@ S('summary', 7, (l) => {
 });
 
 /* ---------- 12. 다음 편 예고 (2:05~2:15) ---------- */
-S('next', 10, (l) => {
-  const t = lerp(0.70, 0.95, easeOut(clamp01(l / 2.4)));
+S('next', 4.5, (l) => {
+  const t = lerp(0.70, 0.95, easeOut(clamp01(l / 1.8)));
   return `<div class="scene">
     <div style="position:absolute;right:-40px;top:150px;width:620px;height:840px;opacity:.42">
       ${fig(PRO, t, { ball: false, ground: false })}
@@ -462,7 +438,7 @@ S('next', 10, (l) => {
 });
 
 /* ---------- 13. 아웃트로 (2:15~2:22) ---------- */
-S('outro', 7, (l) => {
+S('outro', 3.5, (l) => {
   const thumb = `<svg width="76" height="76" viewBox="0 0 24 24" fill="${COL.gold}"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>`;
   const play = `<svg width="80" height="58" viewBox="0 0 40 28"><rect width="40" height="28" rx="8" fill="#ff2d34"/><polygon points="16,8 28,14 16,20" fill="#fff"/></svg>`;
   const bell = `<svg width="72" height="72" viewBox="0 0 24 24" fill="${COL.gold}"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`;
@@ -485,7 +461,7 @@ const TOTAL = acc;
 window.__total = TOTAL;
 window.__scenes = SCENES.map((s) => ({ id: s.id, start: s.start, dur: s.dur }));
 
-const XF = 0.4; // 크로스페이드 길이(초)
+const XF = 0.22; // 크로스페이드 길이(초)
 
 function renderFrame(t) {
   t = Math.max(0, Math.min(TOTAL - 0.0001, t));

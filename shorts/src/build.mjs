@@ -1,5 +1,5 @@
 /* out/page.html 생성 — 폰트/CSS/JS를 모두 인라인해 오프라인 자급자족 페이지로 만든다 */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +19,11 @@ const fonts = faces.map(([f, w]) => {
     `src:url(data:font/woff2;base64,${b64}) format('woff2')}`;
 }).join('\n');
 
+const timingFile = p('out/timing.json');
+const timing = existsSync(timingFile) ? readFileSync(timingFile, 'utf8') : '{}';
+
 const html = readFileSync(p('src/page/index.html'), 'utf8')
+  .replace('/*TIMING*/', () => `window.__timing = ${timing};`)
   .replace('/*FONTS*/', () => fonts)
   .replace('/*CSS*/', () => readFileSync(p('src/page/style.css'), 'utf8'))
   .replace('/*POSE*/', () => readFileSync(p('src/page/pose.js'), 'utf8'))

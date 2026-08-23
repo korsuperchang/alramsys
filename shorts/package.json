@@ -4,10 +4,13 @@
   "description": "프로 vs 일반인 골프 스윙 비교 숏츠(1080x1920) 렌더러",
   "main": "index.js",
   "scripts": {
+    "tts": "node src/tts.mjs",
     "build": "node src/build.mjs",
-    "render": "node src/build.mjs && node src/render.mjs",
+    "video": "node src/build.mjs && node src/render.mjs",
+    "audio": "node src/audio.mjs",
+    "all": "node src/tts.mjs && node src/build.mjs && node src/render.mjs && node src/audio.mjs",
     "preview": "node src/build.mjs && node src/render.mjs --from 0 --to 20 --out out/preview.mp4",
-    "stills": "node src/build.mjs && node src/render.mjs --stills 3,10,20,34,48,62,74,88,100,112,121,130,139"
+    "stills": "node src/build.mjs && node src/render.mjs --stills 2,6,12,22,30,36,42,48,54,58,62"
   },
   "keywords": [],
   "author": "",

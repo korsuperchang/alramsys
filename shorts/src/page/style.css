@@ -114,3 +114,26 @@ body{
   background:rgba(255,77,95,.09);border:2px solid rgba(255,77,95,.34);
   font-size:34px;font-weight:700;line-height:1.4;text-align:left}
 .bar-callout .q{font-size:44px;font-weight:800;color:var(--am);flex:none}
+
+/* ---------- 멀티 화면: 필름스트립 ---------- */
+.filmstrip{display:flex;gap:16px;justify-content:center}
+.filmcell{position:relative;border-radius:16px;overflow:hidden;
+  background:linear-gradient(180deg,#0f151c,#090d12);border:2px solid rgba(255,255,255,.08)}
+.filmcell.on{border-color:rgba(47,226,122,.55);box-shadow:0 0 34px rgba(47,226,122,.16)}
+.filmcell svg{display:block;width:100%;height:100%}
+.filmcell .cap{position:absolute;left:0;right:0;bottom:0;height:74px;display:flex;align-items:flex-end;
+  justify-content:center;gap:9px;padding-bottom:12px;font-size:24px;font-weight:800;color:#828d99;
+  background:linear-gradient(180deg,rgba(9,13,18,0),rgba(9,13,18,.93) 62%)}
+.filmcell.on .cap{color:var(--pro)}
+.filmcell .cap .n{width:29px;height:29px;border-radius:50%;display:grid;place-items:center;
+  font-size:18px;border:2px solid currentColor}
+
+/* ---------- 멀티 화면: 6분할 ---------- */
+.gridcell{position:relative;border-radius:18px;overflow:hidden;
+  background:linear-gradient(180deg,#0f151c,#090d12);border:2px solid}
+.gridcell.pro{border-color:rgba(47,226,122,.32)}
+.gridcell.am{border-color:rgba(255,77,95,.32)}
+.gridcell svg{display:block;width:100%;height:100%}
+.rowtag{font-size:27px;font-weight:800;letter-spacing:.1em;padding:6px 24px;border-radius:999px}
+.rowtag.pro{color:var(--pro);background:var(--pro-dim);border:2px solid rgba(47,226,122,.5)}
+.rowtag.am{color:var(--am);background:var(--am-dim);border:2px solid rgba(255,77,95,.5)}

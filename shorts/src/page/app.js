@@ -20,6 +20,12 @@ function rise(l, delay, dur = 0.45, dy = 26) {
   const e = easeOut(p);
   return `opacity:${fix(e)};transform:translateY(${fix((1 - e) * dy)}px)`;
 }
+/* SP 배속을 타지 않는 절대 시각용 */
+function riseAt(l, at, dur = 0.34, dy = 24) {
+  const e = easeOut(clamp01((l - at) / dur));
+  return `opacity:${fix(e)};transform:translateY(${fix((1 - e) * dy)}px)`;
+}
+
 function pop(l, delay, dur = 0.4) {
   const p = clamp01((l - delay * SP) / (dur * SP));
   const e = 1 - Math.pow(1 - p, 3);
@@ -124,6 +130,20 @@ function arc(cx, cy, r, a0, a1, color, w = 1.6, dash = '') {
   return `<path d="M ${fix(P0.x)} ${fix(P0.y)} A ${r} ${r} 0 ${big} ${sweep} ${fix(P1.x)} ${fix(P1.y)}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
 }
 
+/* 절대좌표 패널 — 멀티 화면(분할/모프)에서 사용 */
+function absPanel(P, t, r, o = {}) {
+  const tag = o.tag === false ? ''
+    : `<div class="tag" style="font-size:${o.tagSize || 31}px;padding:${o.tagSize ? 5 : 8}px ${o.tagSize ? 16 : 26}px">${o.tagText || P.label}</div>`;
+  return `<div class="panel ${P.key}" style="position:absolute;left:${fix(r.x)}px;top:${fix(r.y)}px;
+    width:${fix(r.w)}px;height:${fix(r.h)}px;opacity:${fix(o.op ?? 1)};border-radius:${o.radius || 26}px">
+    <div class="fld"></div>${tag}${fig(P, t, o)}${o.inner || ''}
+  </div>`;
+}
+const lerpRect = (a, b, k) => ({
+  x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k),
+  w: lerp(a.w, b.w, k), h: lerp(a.h, b.h, k),
+});
+
 /* 패널 래퍼 */
 function panel(P, t, w, h, o = {}, inner = '') {
   const ghost = o.ghost
@@ -148,19 +168,41 @@ const SCENES = [];
 const TIMING = (typeof window !== 'undefined' && window.__timing) || {};
 const S = (id, dur, build) => SCENES.push({ id, dur: TIMING[id]?.dur ?? dur, build });
 
-/* ---------- 1. 인트로 (0:00~0:06) ---------- */
+/* ---------- 1. 인트로 — 4분할로 열고 2패널로 합쳐진다 ---------- */
 S('intro', 4, (l) => {
-  const t = 0.05 + 0.012 * Math.sin(l * 2.1);
-  const ko = (P) => `<div class="tag">${P.ko}</div>`;
+  const H = 860, G = 18;
+  const cw = (CW - G) / 2, ch = (H - G) / 2;
+  const L = { x: 0, y: 0, w: 472, h: H };            // 합체 후 왼쪽
+  const R = { x: CW - 472, y: 0, w: 472, h: H };     // 합체 후 오른쪽
+  const cells = [
+    { P: PRO, t0: TOP,    r0: { x: 0, y: 0, w: cw, h: ch },                 to: L, d: 0.00 },
+    { P: AM,  t0: TOP,    r0: { x: cw + G, y: 0, w: cw, h: ch },            to: R, d: 0.11 },
+    { P: PRO, t0: IMPACT, r0: { x: 0, y: ch + G, w: cw, h: ch },            to: L, d: 0.22 },
+    { P: AM,  t0: IMPACT, r0: { x: cw + G, y: ch + G, w: cw, h: ch },       to: R, d: 0.33 },
+  ];
+  const k = easeInOut(clamp01((l - 1.55) / 0.6));   // 합체 진행도(절대 시각)
+  let boxes = '';
+  cells.forEach((c, i) => {
+    const app = easeOut(clamp01((l - c.d) / 0.26));
+    if (app <= 0) return;
+    const r = lerpRect(c.r0, c.to, k);
+    const back = i >= 2;                       // 아래 두 칸은 합쳐지며 사라진다
+    const op = (back ? Math.pow(clamp01(1 - k * 2.2), 2) : 1) * app;
+    const t = lerp(c.t0, 0.05 + 0.012 * Math.sin(l * 2.1), k);
+    boxes += absPanel(c.P, t, r, {
+      op, tagText: k > 0.5 ? c.P.ko : null, tagSize: k > 0.5 ? 31 : 24,
+      tag: !back || k < 0.5,
+      inner: `<div style="position:absolute;left:0;right:0;bottom:14px;text-align:center;
+        font-size:24px;font-weight:800;letter-spacing:.06em;color:#9aa6b2;opacity:${fix(clamp01(1 - k * 2.6))}">
+        ${c.t0 === TOP ? 'TOP' : 'IMPACT'}</div>`,
+    });
+  });
   return `<div class="scene">
-    <div class="panels" style="${rise(l, 0)}">
-      ${panel(PRO, t, 472, 860).replace(/<div class="tag">PRO<\/div>/, ko(PRO))}
-      ${panel(AM, t, 472, 860).replace(/<div class="tag">AMATEUR<\/div>/, ko(AM))}
-    </div>
+    <div style="position:relative;width:${CW}px;height:${H}px">${boxes}</div>
     <div style="height:92px"></div>
     <div style="text-align:center">
-      <div class="title" style="${rise(l, 0.7)}">프로의 스윙과 일반인의 스윙은</div>
-      <div class="title" style="font-size:92px;margin-top:20px;${rise(l, 1.25)}"><span class="g">왜 다를까?</span></div>
+      <div class="title" style="${riseAt(l, 2.15)}">프로의 스윙과 일반인의 스윙은</div>
+      <div class="title" style="font-size:92px;margin-top:20px;${riseAt(l, 2.55)}"><span class="g">왜 다를까?</span></div>
     </div>
   </div>`;
 });
@@ -240,31 +282,43 @@ S('rotation', 10, (l) => {
   </div>`;
 });
 
-/* ---------- 4. 다운스윙 시작 순서 (0:28~0:42) ---------- */
+/* ---------- 4. 다운스윙 시작 순서 — 큰 화면 2 + 필름스트립 4컷 ---------- */
 S('sequence', 7.5, (l) => {
   const cyc = 3.4;
   const u0 = loop(Math.max(0, l - 0.35), cyc);
   const t = u0 < 0.14 ? TOP : lerp(TOP, 0.66, easeInOut((u0 - 0.14) / 0.72));
-  const items = [['골반', PRO.seq.hip], ['몸통', PRO.seq.torso], ['팔', PRO.seq.arm], ['클럽', PRO.seq.club]];
+  const items = [['골반', PRO.seq.hip, 0.47], ['몸통', PRO.seq.torso, 0.51],
+                 ['팔', PRO.seq.arm, 0.55], ['클럽', PRO.seq.club, 0.62]];
   const li = items.map((it, i) =>
     `<li class="${t >= it[1] ? 'on' : ''}"><span class="n">${i + 1}</span>${it[0]}</li>`).join('');
 
   const amArrow = (p, c) => {
-    const on = t >= AM.seq.arm ? 1 : 0;
-    if (!on) return '';
+    if (t < AM.seq.arm) return '';
     return arc(p.chest.x + 6, p.chest.y + 2, 20, 20, 150, COL.am, 2.2) +
       `<circle cx="${fix(p.hands.x)}" cy="${fix(p.hands.y)}" r="4.6" fill="none" stroke="${COL.am}" stroke-width="1.8"/>`;
   };
 
+  /* 필름스트립 — 다운스윙 네 시점을 한 줄에 */
+  const FW = 230, FH = 300;
+  const strip = items.map((it, i) => {
+    const on = t >= it[1];
+    return `<div class="filmcell ${on ? 'on' : ''}" style="width:${FW}px;height:${FH}px;${pop(l, 0.5 + i * 0.18, .32)}">
+      ${fig(PRO, it[2], { ball: false, joints: false, ground: false })}
+      <div class="cap"><span class="n">${i + 1}</span>${it[0]}</div>
+    </div>`;
+  }).join('');
+
   return `<div class="scene">
     <div class="title sm" style="text-align:center;${rise(l, 0)}"><span class="g">2.</span> 다운스윙의 시작 순서</div>
-    <div style="height:44px"></div>
+    <div style="height:34px"></div>
     <div class="panels" style="${rise(l, 0.15)}">
-      ${panel(PRO, t, 472, 860, { vb: VB_WIDE }, `<ol class="orderlist">${li}</ol>`)}
-      ${panel(AM, t, 472, 860, { post: amArrow, vb: VB_WIDE }, `<div class="callout" style="left:20px;bottom:26px;max-width:300px;font-size:30px;color:${COL.am};${rise(l, 1.1)}">팔과 클럽이<br/>먼저 움직입니다</div>`)}
+      ${panel(PRO, t, 472, 620, { vb: VB_WIDE }, `<ol class="orderlist" style="top:88px;gap:10px;padding:16px 18px">${li}</ol>`)}
+      ${panel(AM, t, 472, 620, { post: amArrow, vb: VB_WIDE }, `<div class="callout" style="left:18px;bottom:20px;max-width:280px;font-size:27px;color:${COL.am};${rise(l, 1.1)}">팔과 클럽이<br/>먼저 움직입니다</div>`)}
     </div>
-    <div style="height:76px"></div>
-    <div class="caption" style="${rise(l, 2.2)}">프로는 하체에서 시작해 상체와 클럽으로<br/>순차적으로 움직임이 전달됩니다</div>
+    <div style="height:26px"></div>
+    <div class="filmstrip">${strip}</div>
+    <div style="height:34px"></div>
+    <div class="caption" style="${rise(l, 2.2)}">프로는 하체에서 시작해<br/>상체와 클럽으로 순차적으로 전달됩니다</div>
   </div>`;
 });
 
@@ -377,6 +431,31 @@ S('impact', 6, (l) => {
   </div>`;
 });
 
+/* ---------- 8.5 멀티 화면 — 톱·임팩트·피니시 6분할 ---------- */
+S('grid', 5, (l) => {
+  const cols = [['톱', TOP], ['임팩트', IMPACT], ['피니시', 0.90]];
+  const CWD = 310, CHT = 458, G = 14;
+  const head = cols.map((c, i) =>
+    `<div style="width:${CWD}px;text-align:center;font-size:29px;font-weight:800;color:#cfd8e2;${rise(l, 0.35 + i * 0.3, .3, 12)}">${c[0]}</div>`).join('');
+  const row = (P) => cols.map((c, i) =>
+    `<div class="gridcell ${P.key}" style="width:${CWD}px;height:${CHT}px;${pop(l, 0.4 + i * 0.3, .34)}">
+       ${fig(P, c[1], { ball: false, ground: false })}
+     </div>`).join('');
+  const tag = (P) => `<div class="rowtag ${P.key}">${P.label}</div>`;
+  return `<div class="scene">
+    <div class="title sm" style="text-align:center;${rise(l, 0)}">한 화면에서 다시 보기</div>
+    <div style="height:30px"></div>
+    <div style="display:flex;gap:${G}px;justify-content:center;margin-bottom:10px">${head}</div>
+    <div style="display:flex;gap:${G}px;justify-content:center">${row(PRO)}</div>
+    <div style="height:${G}px"></div>
+    <div style="display:flex;gap:${G}px;justify-content:center">${row(AM)}</div>
+    <div style="height:24px"></div>
+    <div style="display:flex;gap:26px;justify-content:center;${rise(l, 1.4)}">${tag(PRO)}${tag(AM)}</div>
+    <div style="height:30px"></div>
+    <div class="caption" style="${rise(l, 1.7)}">같은 구간, 다른 움직임</div>
+  </div>`;
+});
+
 /* ---------- 9. 핵심 메시지 (1:35~1:48) ---------- */
 S('statement', 4.5, (l) => {
   const t = lerp(0.62, 0.94, easeOut(clamp01(l / 2.2)));
@@ -468,13 +547,14 @@ function renderFrame(t) {
   let i = 0;
   while (i < SCENES.length - 1 && t >= SCENES[i].start + SCENES[i].dur) i++;
   const cur = SCENES[i], l = t - cur.start;
+  const zoom = (sc, lt) => 1 + 0.018 * clamp01(lt / sc.dur);   // 씬마다 아주 느린 줌인
   let html = '';
   if (i > 0 && l < XF) {
     const prev = SCENES[i - 1];
-    html += `<div class="layer" style="opacity:1">${prev.build(prev.dur + l)}</div>`;
+    html += `<div class="layer" style="opacity:1;transform:scale(${fix(zoom(prev, prev.dur + l))})">${prev.build(prev.dur + l)}</div>`;
   }
   const k = clamp01(l / XF), e = easeOut(k);
-  html += `<div class="layer" style="opacity:${fix(e)};transform:translateY(${fix((1 - e) * 22)}px) scale(${fix(0.995 + 0.005 * e)})">${cur.build(l)}</div>`;
+  html += `<div class="layer" style="opacity:${fix(e)};transform:translateY(${fix((1 - e) * 22)}px) scale(${fix((0.995 + 0.005 * e) * zoom(cur, l))})">${cur.build(l)}</div>`;
   html += `<div id="bar" style="width:${fix((t / TOTAL) * W)}px"></div>`;
   document.getElementById('stage').innerHTML = html;
 }

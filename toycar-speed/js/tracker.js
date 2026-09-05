@@ -170,17 +170,22 @@ export class MotionTracker {
     this.box = usable ? { min: min / (axisLen - 1), max: max / (axisLen - 1) } : null;
 
     let pass = null;
+    let rejected = null;
     if (usable) {
       if (!this.track) this.track = { samples: [], gap: 0 };
       this.track.gap = 0;
       this.track.samples.push({ t: timeMs / 1000, p: this.centroid });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
-        this.track = null; // 너무 오래 끄는 움직임은 통과가 아니다
+        // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
+        rejected = { reason: 'tooLong', samples: this.track.samples.length };
+        this.track = null;
       }
     } else if (this.track) {
       this.track.gap++;
       if (this.track.gap >= o.gapFrames) {
-        pass = this._finishTrack();
+        const outcome = this._finishTrack();
+        if (outcome && outcome.reason) rejected = outcome;
+        else pass = outcome;
       }
     }
 
@@ -196,23 +201,34 @@ export class MotionTracker {
       tracking: !!this.track,
       warmingUp: this.isWarmingUp,
       pass,
+      rejected,
     };
   }
 
-  /** 진행 중인 통과를 마감하고, 조건을 만족하면 결과를 돌려준다. */
+  /**
+   * 진행 중인 통과를 마감한다.
+   * 조건을 만족하면 결과를, 아니면 왜 인정하지 않았는지({reason})를 돌려준다.
+   * 이유를 남기지 않으면 사용자는 "왜 측정이 안 되는지" 알 방법이 없다.
+   */
   _finishTrack() {
     const o = this.opts;
     const samples = this.track.samples;
     this.track = null;
-    if (samples.length < o.minSamples) return null;
+    if (samples.length < 2) return null; // 스쳐 지나간 잡음, 알릴 것도 없다
 
     const travel = samples[samples.length - 1].p - samples[0].p;
-    if (Math.abs(travel) < o.minTravelRatio) return null;
-
-    const { slope, r2 } = fitLine(samples);
-    if (r2 < o.minR2) return null;
-
     const durationMs = (samples[samples.length - 1].t - samples[0].t) * 1000;
+    const { slope, r2 } = fitLine(samples);
+
+    if (samples.length < o.minSamples) {
+      return { reason: 'tooFast', samples: samples.length, travel: Math.abs(travel), durationMs };
+    }
+    if (Math.abs(travel) < o.minTravelRatio) {
+      return { reason: 'tooShort', samples: samples.length, travel: Math.abs(travel), durationMs };
+    }
+    if (r2 < o.minR2) {
+      return { reason: 'notSteady', samples: samples.length, travel: Math.abs(travel), r2, durationMs };
+    }
     if (durationMs <= 0) return null;
 
     return {

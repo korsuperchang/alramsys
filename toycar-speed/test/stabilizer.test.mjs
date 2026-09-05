@@ -4,8 +4,8 @@ import { Stabilizer, bestShift, STABILIZER_DEFAULTS } from '../js/stabilizer.js'
 import { MotionTracker } from '../js/tracker.js';
 import { GateSpeedDetector } from '../js/detector.js';
 
-const { maxShift, confidenceRatio, trimRatio } = STABILIZER_DEFAULTS;
-const shiftOf = (cur, prev) => bestShift(cur, prev, maxShift, confidenceRatio, trimRatio);
+const { maxShift, confidenceRatio, trimRatio, zeroBias } = STABILIZER_DEFAULTS;
+const shiftOf = (cur, prev) => bestShift(cur, prev, maxShift, confidenceRatio, trimRatio, null, zeroBias);
 
 /** 무늬가 있는 1차원 신호 */
 function textured(n, seed = 3) {
@@ -54,6 +54,20 @@ test('무늬가 있으면 물체가 지나가도 화면 이동량을 찾아낸�
   for (let i = 40; i < 60; i++) prev[i] = 60;   // 지나가는 물체
   for (let i = 60; i < 80; i++) cur[i] = 60;
   assert.equal(shiftOf(cur, prev), 3);
+});
+
+test('타일처럼 같은 무늬가 반복돼도 가만히 있는 화면을 흔들렸다고 하지 않는다', () => {
+  const n = 200;
+  const tile = new Float32Array(n);
+  for (let i = 0; i < n; i++) tile[i] = i % 16 < 8 ? 200 : 110; // 반복 격자
+  assert.equal(shiftOf(tile, tile), 0);
+
+  // 같은 격자 위로 물체만 지나가는 경우도 0이어야 한다
+  const prev = Float32Array.from(tile);
+  const cur = Float32Array.from(tile);
+  for (let i = 60; i < 78; i++) prev[i] = 50;
+  for (let i = 66; i < 84; i++) cur[i] = 50;
+  assert.equal(shiftOf(cur, prev), 0);
 });
 
 test('Stabilizer는 프레임마다 누적된 어긋남을 들고 있다', () => {

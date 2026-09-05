@@ -496,20 +496,32 @@ const STABILIZER_DEFAULTS = {
    * 화면이 아니라 자동차를 따라가 버린다. 큰 값들을 버리면 남는 것은 배경이다.
    */
   trimRatio: 0.3,
+  /**
+   * "안 움직였다"에 유리하게 두는 정도. 0 이동일 때의 오차에 이 값을 곱한 것보다
+   * 확실히 작아야 이동했다고 인정한다. 타일 바닥처럼 같은 무늬가 반복되면 어느
+   * 이동량이든 그럴듯하게 맞아서, 가만히 있는 화면을 흔들린다고 보기 쉽다.
+   */
+  zeroBias: 0.85,
 };
 
 /**
  * 1차원 투영 두 개를 비교해 가장 잘 겹치는 이동량을 찾는다.
  * 오차는 큰 쪽부터 trimRatio만큼 버리고 합친다(움직이는 물체의 영향 제거).
  */
-function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratch = null) {
+function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratch = null,
+                          zeroBias = 0.85) {
   const n = cur.length;
   const buf = scratch && scratch.length >= n ? scratch : new Float32Array(n);
   let best = 0;
   let bestErr = Infinity;
+  let zeroErr = Infinity;
   let sum = 0;
   let tried = 0;
-  for (let s = -maxShift; s <= maxShift; s++) {
+  // 0에 가까운 이동량부터 살펴본다. 반복 무늬에서는 여러 이동량의 오차가 똑같이
+  // 0이 되는데, 그때는 "가장 덜 움직인" 쪽을 답으로 삼아야 한다.
+  const order = [0];
+  for (let k = 1; k <= maxShift; k++) order.push(k, -k);
+  for (const s of order) {
     const from = Math.max(0, -s);
     const to = Math.min(n, n - s);
     const len = to - from;
@@ -522,11 +534,13 @@ function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratc
     err /= keep;
     sum += err;
     tried++;
+    if (s === 0) zeroErr = err;
     if (err < bestErr) { bestErr = err; best = s; }
   }
   if (!tried) return 0;
   const mean = sum / tried;
   if (mean === 0 || bestErr / mean > confidenceRatio) return 0; // 판단 근거가 약하다
+  if (best !== 0 && bestErr > zeroErr * zeroBias) return 0;     // 가만히 있는 쪽이 그럴듯하다
   return best;
 }
 
@@ -586,8 +600,8 @@ class Stabilizer {
     for (let x = 0; x < width; x++) cols[x] /= height;
 
     if (this.prevCols) {
-      this.dx = bestShift(cols, this.prevCols, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchX);
-      this.dy = bestShift(rows, this.prevRows, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchY);
+      this.dx = bestShift(cols, this.prevCols, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchX, o.zeroBias);
+      this.dy = bestShift(rows, this.prevRows, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchY, o.zeroBias);
       this.magnitude = Math.hypot(this.dx, this.dy);
       const clamp = (v) => Math.max(-o.maxOffset, Math.min(o.maxOffset, v));
       this.offX = clamp(this.offX + this.dx);
@@ -1179,17 +1193,22 @@ class MotionTracker {
     this.box = usable ? { min: min / (axisLen - 1), max: max / (axisLen - 1) } : null;
 
     let pass = null;
+    let rejected = null;
     if (usable) {
       if (!this.track) this.track = { samples: [], gap: 0 };
       this.track.gap = 0;
       this.track.samples.push({ t: timeMs / 1000, p: this.centroid });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
-        this.track = null; // 너무 오래 끄는 움직임은 통과가 아니다
+        // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
+        rejected = { reason: 'tooLong', samples: this.track.samples.length };
+        this.track = null;
       }
     } else if (this.track) {
       this.track.gap++;
       if (this.track.gap >= o.gapFrames) {
-        pass = this._finishTrack();
+        const outcome = this._finishTrack();
+        if (outcome && outcome.reason) rejected = outcome;
+        else pass = outcome;
       }
     }
 
@@ -1205,23 +1224,34 @@ class MotionTracker {
       tracking: !!this.track,
       warmingUp: this.isWarmingUp,
       pass,
+      rejected,
     };
   }
 
-  /** 진행 중인 통과를 마감하고, 조건을 만족하면 결과를 돌려준다. */
+  /**
+   * 진행 중인 통과를 마감한다.
+   * 조건을 만족하면 결과를, 아니면 왜 인정하지 않았는지({reason})를 돌려준다.
+   * 이유를 남기지 않으면 사용자는 "왜 측정이 안 되는지" 알 방법이 없다.
+   */
   _finishTrack() {
     const o = this.opts;
     const samples = this.track.samples;
     this.track = null;
-    if (samples.length < o.minSamples) return null;
+    if (samples.length < 2) return null; // 스쳐 지나간 잡음, 알릴 것도 없다
 
     const travel = samples[samples.length - 1].p - samples[0].p;
-    if (Math.abs(travel) < o.minTravelRatio) return null;
-
-    const { slope, r2 } = fitLine(samples);
-    if (r2 < o.minR2) return null;
-
     const durationMs = (samples[samples.length - 1].t - samples[0].t) * 1000;
+    const { slope, r2 } = fitLine(samples);
+
+    if (samples.length < o.minSamples) {
+      return { reason: 'tooFast', samples: samples.length, travel: Math.abs(travel), durationMs };
+    }
+    if (Math.abs(travel) < o.minTravelRatio) {
+      return { reason: 'tooShort', samples: samples.length, travel: Math.abs(travel), durationMs };
+    }
+    if (r2 < o.minR2) {
+      return { reason: 'notSteady', samples: samples.length, travel: Math.abs(travel), r2, durationMs };
+    }
     if (durationMs <= 0) return null;
 
     return {
@@ -1340,7 +1370,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v5 · 손떨림 보정';
+const APP_VERSION = 'v6 · 실패 이유 표시';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1667,6 +1697,29 @@ function trackAutoSignal(result) {
   el.signalHint.className = warn ? 'signal-hint warn' : 'signal-hint';
 }
 
+/**
+ * 움직임은 잡았는데 측정으로 인정하지 않은 경우, 무엇이 모자랐는지 그대로 알려 준다.
+ * 아무 말 없이 넘어가면 사용자는 "왜 측정이 안 되지"만 반복하게 된다.
+ */
+function explainRejection(r) {
+  const messages = {
+    tooFast: `너무 빨리 지나갔습니다 — 위치 표본이 <b>${r.samples}개</b>뿐입니다(최소 5개 필요).
+      카메라를 뒤로 빼서 자동차가 화면에 더 오래 보이게 하세요.`,
+    tooShort: `움직인 거리가 화면의 <b>${(r.travel * 100).toFixed(0)}%</b>뿐입니다(최소 10% 필요).
+      자동차가 화면을 가로지르도록 찍어 주세요.`,
+    notSteady: `움직임이 한 방향으로 꾸준하지 않습니다 (R²=${(r.r2 ?? 0).toFixed(2)}).
+      손·그림자가 함께 잡혔거나, 갔다가 되돌아왔을 수 있습니다.`,
+    tooLong: `화면 안에 계속 움직이는 것이 있어 <b>한 번의 통과를 구분하지 못했습니다.</b>
+      자동차 말고 움직이는 것을 화면에서 치워 주세요.`,
+  };
+  const text = messages[r.reason];
+  if (!text) return;
+  el.signalHint.innerHTML = text;
+  el.signalHint.className = 'signal-hint warn';
+  signal.holdUntil = performance.now() + 6000;
+  setStatus('움직임은 잡았지만 측정 조건에 못 미쳤습니다', 'warn');
+}
+
 /** 자동 추적 화면: 지금 잡고 있는 덩어리와 지나온 자취를 보여 준다. */
 function drawAutoOverlay(result) {
   resizeOverlay();
@@ -1981,6 +2034,7 @@ function processFrame(timeMs) {
       handlePass(result.pass);
       flashUntil = performance.now() + 180;
     }
+    if (result.rejected) explainRejection(result.rejected);
     drawAutoOverlay(result);
     return;
   }

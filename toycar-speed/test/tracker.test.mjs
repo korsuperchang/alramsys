@@ -140,6 +140,60 @@ test('연달아 두 번 지나가면 통과도 두 건', () => {
   assert.ok(passes[0].fwps > passes[1].fwps, '첫 번째가 더 빨라야 한다');
 });
 
+test('인정하지 않은 통과는 이유를 함께 알려 준다', () => {
+  const reasons = (frames) => {
+    const tr = new MotionTracker();
+    const out = [];
+    let t = 0;
+    for (const f of frames) {
+      const r = tr.update(f, W, H, t);
+      if (r.rejected) out.push(r.rejected);
+      t += FRAME_MS;
+    }
+    return out;
+  };
+  const idle = (n) => Array.from({ length: n }, () => frame());
+
+  // 표본이 모자랄 만큼 빠르게 지나간 경우
+  const fast = reasons([...idle(20), ...[-20, 30, 80, 130].map((x) => frame({ carX: x })), ...idle(6)]);
+  assert.equal(fast.length, 1);
+  assert.equal(fast[0].reason, 'tooFast');
+  assert.ok(fast[0].samples < 5);
+
+  // 제자리에서 조금만 움직인 경우
+  const short = reasons([
+    ...idle(20),
+    ...Array.from({ length: 12 }, (_, i) => frame({ carX: 70 + i * 0.4 })),
+    ...idle(6),
+  ]);
+  assert.equal(short[0].reason, 'tooShort');
+
+  // 한 방향으로 꾸준하지 않은 경우 (앞으로 갔다가 절반쯤 되돌아옴)
+  const wobbly = reasons([
+    ...idle(20),
+    ...Array.from({ length: 14 }, (_, i) => frame({ carX: 10 + i * 8 })),
+    ...Array.from({ length: 8 }, (_, i) => frame({ carX: 122 - i * 8 })),
+    ...idle(6),
+  ]);
+  assert.ok(['notSteady', 'tooShort'].includes(wobbly[0].reason), `이유=${wobbly[0].reason}`);
+});
+
+test('정상 통과에는 거절 이유가 붙지 않는다', () => {
+  const tr = new MotionTracker();
+  let rejected = 0;
+  let passed = 0;
+  let t = 0;
+  const frames = [...Array.from({ length: 20 }, () => frame()), ...lap(5), ...Array.from({ length: 10 }, () => frame())];
+  for (const f of frames) {
+    const r = tr.update(f, W, H, t);
+    if (r.rejected) rejected++;
+    if (r.pass) passed++;
+    t += FRAME_MS;
+  }
+  assert.equal(passed, 1);
+  assert.equal(rejected, 0);
+});
+
 test('fitLine: 기울기와 R²를 정확히 낸다', () => {
   const samples = [0, 1, 2, 3, 4].map((t) => ({ t, p: 0.1 + 0.25 * t }));
   const { slope, intercept, r2 } = fitLine(samples);

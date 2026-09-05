@@ -25,20 +25,32 @@ export const STABILIZER_DEFAULTS = {
    * 화면이 아니라 자동차를 따라가 버린다. 큰 값들을 버리면 남는 것은 배경이다.
    */
   trimRatio: 0.3,
+  /**
+   * "안 움직였다"에 유리하게 두는 정도. 0 이동일 때의 오차에 이 값을 곱한 것보다
+   * 확실히 작아야 이동했다고 인정한다. 타일 바닥처럼 같은 무늬가 반복되면 어느
+   * 이동량이든 그럴듯하게 맞아서, 가만히 있는 화면을 흔들린다고 보기 쉽다.
+   */
+  zeroBias: 0.85,
 };
 
 /**
  * 1차원 투영 두 개를 비교해 가장 잘 겹치는 이동량을 찾는다.
  * 오차는 큰 쪽부터 trimRatio만큼 버리고 합친다(움직이는 물체의 영향 제거).
  */
-export function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratch = null) {
+export function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratch = null,
+                          zeroBias = 0.85) {
   const n = cur.length;
   const buf = scratch && scratch.length >= n ? scratch : new Float32Array(n);
   let best = 0;
   let bestErr = Infinity;
+  let zeroErr = Infinity;
   let sum = 0;
   let tried = 0;
-  for (let s = -maxShift; s <= maxShift; s++) {
+  // 0에 가까운 이동량부터 살펴본다. 반복 무늬에서는 여러 이동량의 오차가 똑같이
+  // 0이 되는데, 그때는 "가장 덜 움직인" 쪽을 답으로 삼아야 한다.
+  const order = [0];
+  for (let k = 1; k <= maxShift; k++) order.push(k, -k);
+  for (const s of order) {
     const from = Math.max(0, -s);
     const to = Math.min(n, n - s);
     const len = to - from;
@@ -51,11 +63,13 @@ export function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3,
     err /= keep;
     sum += err;
     tried++;
+    if (s === 0) zeroErr = err;
     if (err < bestErr) { bestErr = err; best = s; }
   }
   if (!tried) return 0;
   const mean = sum / tried;
   if (mean === 0 || bestErr / mean > confidenceRatio) return 0; // 판단 근거가 약하다
+  if (best !== 0 && bestErr > zeroErr * zeroBias) return 0;     // 가만히 있는 쪽이 그럴듯하다
   return best;
 }
 
@@ -115,8 +129,8 @@ export class Stabilizer {
     for (let x = 0; x < width; x++) cols[x] /= height;
 
     if (this.prevCols) {
-      this.dx = bestShift(cols, this.prevCols, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchX);
-      this.dy = bestShift(rows, this.prevRows, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchY);
+      this.dx = bestShift(cols, this.prevCols, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchX, o.zeroBias);
+      this.dy = bestShift(rows, this.prevRows, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchY, o.zeroBias);
       this.magnitude = Math.hypot(this.dx, this.dy);
       const clamp = (v) => Math.max(-o.maxOffset, Math.min(o.maxOffset, v));
       this.offX = clamp(this.offX + this.dx);

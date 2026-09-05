@@ -59,6 +59,15 @@ cd toycar-speed
 npm run serve          # http://localhost:8000
 ```
 
+### 파일 하나로 쓰기
+
+`standalone.html` 은 CSS·JS가 전부 인라인된 단일 파일이라, 그 파일 하나만 어디에 올려도 그대로 돕니다.
+소스는 `index.html` / `css` / `js` 쪽 하나뿐이고, 아래 명령으로 다시 만듭니다.
+
+```bash
+npm run build          # standalone.html + dist/artifact.html 생성
+```
+
 핸드폰에서 쓰려면 HTTPS로 올려야 합니다. GitHub Pages가 가장 간단합니다:
 저장소 **Settings → Pages → Source: Deploy from a branch** 에서 브랜치를 고르면
 `https://<사용자>.github.io/<저장소>/toycar-speed/` 로 접속할 수 있고,
@@ -84,6 +93,8 @@ toycar-speed/
 ├── js/detector.js          감지 엔진 (DOM 비의존, 테스트 대상)
 ├── js/app.js               카메라·오버레이·기록·설정
 ├── test/detector.test.mjs  합성 프레임 기반 테스트
+├── build-standalone.mjs    단일 파일 빌드 (인라인만 수행)
+├── standalone.html         빌드 결과 — 이 파일 하나로 실행 가능
 ├── sw.js                   오프라인 캐시
 └── manifest.webmanifest    홈 화면 추가용 PWA 설정
 ```

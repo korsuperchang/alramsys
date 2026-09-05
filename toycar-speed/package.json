@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "test": "node --test test/detector.test.mjs",
+    "build": "node build-standalone.mjs",
     "serve": "python3 -m http.server 8000"
   },
   "license": "MIT"

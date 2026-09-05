@@ -9,6 +9,10 @@
   --accent-2: #4aa8ff;
   --danger: #ff6b6b;
   --radius: 14px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", system-ui, sans-serif;
+  /* 계측기 느낌의 숫자 전용 서체 */
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -17,8 +21,7 @@ html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR",
-    "Malgun Gothic", system-ui, sans-serif;
+  font-family: var(--font-ui);
   -webkit-text-size-adjust: 100%;
 }
 
@@ -37,6 +40,9 @@ html, body {
 }
 .topbar h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
 .status { font-size: 12px; color: var(--muted); text-align: right; }
+.speed-main, .speed-sub, .summary .v, .records .spd, .records .meta, .field .val {
+  font-family: var(--font-data);
+}
 .status.warn { color: #ffc857; }
 .status.err { color: var(--danger); }
 .status.ok { color: var(--accent); }
@@ -100,7 +106,7 @@ html, body {
   gap: 8px;
   font-variant-numeric: tabular-nums;
 }
-#speedValue { font-size: 52px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+#speedValue { font-size: 54px; font-weight: 600; letter-spacing: -0.04em; line-height: 1.02; }
 .speed-main .unit { font-size: 16px; color: var(--muted); }
 .speed-sub {
   margin-top: 4px;
@@ -147,11 +153,12 @@ html, body {
   margin: 12px 0;
 }
 .panel h2 {
-  font-size: 14px;
-  margin: 0 0 12px;
+  font-size: 12px;
+  margin: 0 0 14px;
   color: var(--muted);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .count {
   background: var(--panel-2);

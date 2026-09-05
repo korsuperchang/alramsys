@@ -1,4 +1,664 @@
-import { GateSpeedDetector, rgbaToGray, computeSpeed, scaleSpeed } from './detector.js';
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>장난감 자동차 속도 측정기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">
+<style>
+:root {
+  --bg: #0b0f14;
+  --panel: #141b24;
+  --panel-2: #1b2532;
+  --line: #24303f;
+  --text: #e8eef6;
+  --muted: #8fa3b8;
+  --accent: #35d07f;
+  --accent-2: #4aa8ff;
+  --danger: #ff6b6b;
+  --radius: 14px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", system-ui, sans-serif;
+  /* 계측기 느낌의 숫자 전용 서체 */
+  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-text-size-adjust: 100%;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: env(safe-area-inset-top) 12px calc(24px + env(safe-area-inset-bottom));
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 2px 10px;
+}
+.topbar h1 { font-size: 18px; margin: 0; letter-spacing: -0.02em; }
+.status { font-size: 12px; color: var(--muted); text-align: right; }
+.speed-main, .speed-sub, .summary .v, .records .spd, .records .meta, .field .val {
+  font-family: var(--font-data);
+}
+.status.warn { color: #ffc857; }
+.status.err { color: var(--danger); }
+.status.ok { color: var(--accent); }
+
+/* ---------- 카메라 화면 ---------- */
+.stage-wrap { display: grid; gap: 10px; }
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  touch-action: none;
+}
+.stage video,
+.stage .demo-source {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.stage .demo-source[hidden] { display: none; }
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.stage-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  background: linear-gradient(180deg, #0d131a, #0b0f14);
+}
+.stage-hint[hidden] { display: none; }
+
+/* ---------- 속도 표시 ---------- */
+.readout {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  text-align: center;
+}
+.readout.flash { animation: flash 0.45s ease-out; }
+@keyframes flash {
+  0% { background: #1d3b2c; border-color: var(--accent); }
+  100% { background: var(--panel); border-color: var(--line); }
+}
+.speed-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+#speedValue { font-size: 54px; font-weight: 600; letter-spacing: -0.04em; line-height: 1.02; }
+.speed-main .unit { font-size: 16px; color: var(--muted); }
+.speed-sub {
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.speed-scale {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--accent-2);
+}
+.speed-scale[hidden] { display: none; }
+
+/* ---------- 버튼 ---------- */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.btn {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #06120c; }
+.btn.danger { color: var(--danger); }
+.btn.on { background: var(--accent-2); border-color: var(--accent-2); color: #04121f; }
+
+/* ---------- 패널 ---------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.panel h2 {
+  font-size: 12px;
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.count {
+  background: var(--panel-2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.field { margin-bottom: 16px; }
+.field:last-child { margin-bottom: 0; }
+.field > label { display: block; font-size: 13px; margin-bottom: 6px; }
+.field .val { color: var(--accent); font-variant-numeric: tabular-nums; }
+.hint { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+.row.wrap { flex-wrap: wrap; gap: 14px; }
+input[type="number"], select {
+  flex: 1;
+  min-height: 42px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 16px;
+}
+select { flex: 0 0 84px; }
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  margin: 2px 0 10px;
+}
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+.segmented { display: flex; gap: 6px; }
+.segmented button {
+  flex: 1;
+  min-height: 42px;
+  padding: 8px;
+  font-size: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.segmented button.on { background: var(--accent); border-color: var(--accent); color: #06120c; font-weight: 700; }
+
+/* ---------- 기록 ---------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.summary > div {
+  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 8px;
+  text-align: center;
+}
+.summary .k { display: block; font-size: 11px; color: var(--muted); }
+.summary .v { display: block; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.records { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.records li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.records li:last-child { border-bottom: none; }
+.records .idx { color: var(--muted); width: 26px; font-variant-numeric: tabular-nums; }
+.records .spd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.records .meta { margin-left: auto; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.records .empty { color: var(--muted); justify-content: center; }
+
+.howto { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.85; color: #cfdcea; }
+.howto b { color: var(--text); }
+
+.foot { text-align: center; font-size: 11px; color: var(--muted); padding: 8px 0 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <h1>🏎️ 속도 측정기</h1>
+    <div class="status" id="status">카메라 준비 중…</div>
+  </header>
+
+  <main class="stage-wrap">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="demo" class="demo-source" width="640" height="480" hidden></canvas>
+      <canvas id="overlay" class="overlay"></canvas>
+      <div class="stage-hint" id="stageHint">
+        <p>카메라 권한을 허용하면 화면에 <b>기준선 A·B</b>가 나타납니다.<br>
+        선을 드래그해서 자동차가 지나갈 위치에 맞춰 주세요.</p>
+      </div>
+    </div>
+
+    <div class="readout" id="readout">
+      <div class="speed-main"><span id="speedValue">--</span><span class="unit">km/h</span></div>
+      <div class="speed-sub">
+        <span id="speedMps">-- m/s</span>
+        <span id="speedTolerance"></span>
+        <span id="speedDt"></span>
+      </div>
+      <div class="speed-scale" id="speedScale" hidden></div>
+    </div>
+  </main>
+
+  <div class="actions">
+    <button id="btnCamera" class="btn primary">카메라 시작</button>
+    <button id="btnFlip" class="btn">카메라 전환</button>
+    <button id="btnDemo" class="btn">데모 모드</button>
+    <button id="btnReset" class="btn">배경 재학습</button>
+  </div>
+
+  <section class="panel">
+    <h2>측정 설정</h2>
+
+    <div class="field">
+      <label for="distance">기준선 A ↔ B 실제 거리</label>
+      <div class="row">
+        <input type="number" id="distance" min="0.1" step="0.1" value="50" inputmode="decimal">
+        <select id="distanceUnit">
+          <option value="0.01" selected>cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
+      <p class="hint">바닥에 자로 재서 표시한 두 지점 사이의 실제 거리입니다. 이 값이 정확해야 속도도 정확합니다.</p>
+    </div>
+
+    <div class="field">
+      <label>기준선 방향</label>
+      <div class="segmented" id="orientation">
+        <button type="button" data-value="vertical" class="on">세로선 (차가 좌우로 이동)</button>
+        <button type="button" data-value="horizontal">가로선 (차가 위아래로 이동)</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="gateA">기준선 A 위치 <span class="val" id="gateAVal">30%</span></label>
+      <input type="range" id="gateA" min="2" max="98" value="30">
+      <label for="gateB">기준선 B 위치 <span class="val" id="gateBVal">70%</span></label>
+      <input type="range" id="gateB" min="2" max="98" value="70">
+    </div>
+
+    <div class="field">
+      <label for="roiStart">감지 구간 시작 <span class="val" id="roiStartVal">15%</span></label>
+      <input type="range" id="roiStart" min="0" max="100" value="15">
+      <label for="roiEnd">감지 구간 끝 <span class="val" id="roiEndVal">85%</span></label>
+      <input type="range" id="roiEnd" min="0" max="100" value="85">
+      <p class="hint">기준선 중 실제로 차가 지나가는 부분만 남기면 오검출이 줄어듭니다.</p>
+    </div>
+
+    <div class="field">
+      <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">5</span></label>
+      <input type="range" id="sensitivity" min="1" max="10" value="5">
+      <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.</p>
+    </div>
+
+    <div class="field">
+      <label for="scale">축척 환산 (1 : <span class="val" id="scaleVal">1</span>)</label>
+      <input type="range" id="scale" min="1" max="87" value="1">
+      <p class="hint">핫휠·토미카는 보통 1:64입니다. 1보다 크게 두면 "실제 차라면 몇 km/h인지"를 같이 보여줍니다.</p>
+    </div>
+
+    <div class="field row wrap">
+      <label class="check"><input type="checkbox" id="sound" checked> 측정음</label>
+      <label class="check"><input type="checkbox" id="vibrate" checked> 진동</label>
+      <label class="check"><input type="checkbox" id="showMask"> 감지 픽셀 표시</label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>측정 기록 <span class="count" id="recordCount">0</span></h2>
+    <div class="summary">
+      <div><span class="k">최고</span><span class="v" id="bestSpeed">--</span></div>
+      <div><span class="k">평균</span><span class="v" id="avgSpeed">--</span></div>
+      <div><span class="k">최근</span><span class="v" id="lastSpeed">--</span></div>
+    </div>
+    <ol class="records" id="records"></ol>
+    <div class="actions">
+      <button id="btnCopy" class="btn">CSV 복사</button>
+      <button id="btnClear" class="btn danger">기록 삭제</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>사용법</h2>
+    <ol class="howto">
+      <li>바닥에 자동차가 지나갈 직선 구간을 정하고, <b>두 지점 사이 거리를 자로 재서</b> 위에 입력합니다. (30~100cm 권장)</li>
+      <li>핸드폰을 삼각대·컵 등에 <b>고정</b>하고, 주행 경로를 <b>옆에서 정면으로</b> 바라보게 둡니다.</li>
+      <li>화면의 기준선 A·B를 바닥에 표시한 두 지점에 맞춥니다.</li>
+      <li>화면이 조용해지면(배경 학습 완료) 자동차를 굴립니다. 두 선을 지나는 순간 자동으로 속도가 뜹니다.</li>
+    </ol>
+    <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
+  </section>
+
+  <footer class="foot">카메라 영상은 기기 안에서만 처리되며 어디로도 전송되지 않습니다.</footer>
+</div>
+<script type="module">
+/**
+ * 장난감 자동차 속도 측정 - 감지 엔진
+ *
+ * 화면에 두 개의 "게이트(트립 라인)"를 두고, 배경 차분(background subtraction)으로
+ * 각 게이트를 물체가 가리는 순간을 잡아낸다. 두 게이트 통과 시각의 차이(dt)와
+ * 사용자가 입력한 실제 게이트 간격(d)으로 속도 v = d / dt 를 구한다.
+ *
+ * 이 파일은 DOM/캔버스에 의존하지 않는다. 입력은 8비트 그레이스케일 배열뿐이라
+ * Node에서 그대로 테스트할 수 있다.
+ */
+
+const DEFAULT_OPTIONS = {
+  /** 게이트 방향: 'vertical'이면 세로선(차가 좌우로 이동), 'horizontal'이면 가로선(차가 상하로 이동) */
+  orientation: 'vertical',
+  /** 게이트 위치 (0~1 정규화). gateA가 항상 작은 값일 필요는 없다. */
+  gateA: 0.3,
+  gateB: 0.7,
+  /** 게이트 선의 두께(정규화). 화면 폭(또는 높이) 대비 비율 */
+  bandWidth: 0.02,
+  /** 감지 영역(ROI): 게이트 선에서 실제로 살펴볼 구간 (0~1) */
+  roiStart: 0.15,
+  roiEnd: 0.85,
+  /** 배경과 이만큼(0~255) 이상 밝기가 달라지면 "움직임 있는 픽셀"로 본다 */
+  pixelThreshold: 28,
+  /** 게이트가 켜지는/꺼지는 움직임 픽셀 비율 (히스테리시스) */
+  onRatio: 0.08,
+  offRatio: 0.04,
+  /** 비율과 별개로 요구하는 최소 움직임 픽셀 수 (센서 노이즈 방지) */
+  minMovedPixels: 10,
+  /** 배경 학습률 (0~1). 클수록 조명 변화에 빨리 적응하지만 느린 물체를 배경에 흡수한다 */
+  learnRate: 0.06,
+  /** 전경(움직임)으로 분류된 픽셀의 학습률 배수. 0에 가까울수록 지나가는 물체를 배경에 덜 섞는다 */
+  foregroundLearnFactor: 0.05,
+  /** 배경이 안정될 때까지 무시할 프레임 수 */
+  warmupFrames: 12,
+  /** 같은 게이트가 다시 트리거되기까지의 최소 간격(ms) */
+  refractoryMs: 120,
+  /** 두 게이트 통과 간격이 이 범위를 벗어나면 측정으로 인정하지 않는다 */
+  minDtMs: 8,
+  maxDtMs: 4000,
+};
+
+class GateState {
+  constructor() {
+    this.active = false;
+    this.prevRatio = 0;
+    this.prevTime = 0;
+    this.lastTriggerTime = -Infinity;
+    this.hasPrev = false;
+  }
+  reset() {
+    this.active = false;
+    this.prevRatio = 0;
+    this.prevTime = 0;
+    this.lastTriggerTime = -Infinity;
+    this.hasPrev = false;
+  }
+}
+
+/** RGBA 픽셀 버퍼를 그레이스케일로 변환한다. out을 재사용하면 할당이 없다. */
+function rgbaToGray(rgba, out) {
+  const n = rgba.length >> 2;
+  const dst = out && out.length === n ? out : new Uint8Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    // 정수 근사: (77R + 150G + 29B) >> 8
+    dst[i] = (77 * rgba[j] + 150 * rgba[j + 1] + 29 * rgba[j + 2]) >> 8;
+  }
+  return dst;
+}
+
+class GateSpeedDetector {
+  constructor(options = {}) {
+    this.opts = { ...DEFAULT_OPTIONS, ...options };
+    this.width = 0;
+    this.height = 0;
+    this.bg = null;
+    this.frames = 0;
+    this.gates = [new GateState(), new GateState()];
+    this.ratios = [0, 0];
+    this.movedPixels = [0, 0];
+    /** 먼저 통과한 게이트 정보 {index, time} */
+    this.pending = null;
+  }
+
+  configure(partial) {
+    Object.assign(this.opts, partial);
+  }
+
+  /** 배경 모델과 게이트 상태를 모두 초기화한다 (카메라 전환, 설정 변경 후 호출). */
+  reset() {
+    this.bg = null;
+    this.frames = 0;
+    this.ratios = [0, 0];
+    this.movedPixels = [0, 0];
+    this.pending = null;
+    for (const g of this.gates) g.reset();
+  }
+
+  get isWarmingUp() {
+    return this.frames < this.opts.warmupFrames;
+  }
+
+  /** 게이트 선이 지나는 픽셀 인덱스 범위를 계산한다. */
+  _bandRange(position) {
+    const o = this.opts;
+    const axisLen = o.orientation === 'vertical' ? this.width : this.height;
+    const half = Math.max(1, Math.round((o.bandWidth * axisLen) / 2));
+    const center = Math.round(position * (axisLen - 1));
+    const start = Math.max(0, center - half);
+    const end = Math.min(axisLen - 1, center + half);
+    return { start, end };
+  }
+
+  /** 한 게이트에서 움직임 픽셀 수와 비율을 센다. */
+  _sampleRatio(gray, position) {
+    const o = this.opts;
+    const { start, end } = this._bandRange(position);
+    const crossLen = o.orientation === 'vertical' ? this.height : this.width;
+    const roiFrom = Math.max(0, Math.round(Math.min(o.roiStart, o.roiEnd) * (crossLen - 1)));
+    const roiTo = Math.min(crossLen - 1, Math.round(Math.max(o.roiStart, o.roiEnd) * (crossLen - 1)));
+    const thr = o.pixelThreshold;
+    let moved = 0;
+    let total = 0;
+
+    if (o.orientation === 'vertical') {
+      for (let y = roiFrom; y <= roiTo; y++) {
+        const row = y * this.width;
+        for (let x = start; x <= end; x++) {
+          const i = row + x;
+          const diff = gray[i] - this.bg[i];
+          if (diff > thr || diff < -thr) moved++;
+          total++;
+        }
+      }
+    } else {
+      for (let y = start; y <= end; y++) {
+        const row = y * this.width;
+        for (let x = roiFrom; x <= roiTo; x++) {
+          const i = row + x;
+          const diff = gray[i] - this.bg[i];
+          if (diff > thr || diff < -thr) moved++;
+          total++;
+        }
+      }
+    }
+    return { ratio: total === 0 ? 0 : moved / total, moved };
+  }
+
+  /**
+   * 프레임 한 장을 처리한다.
+   * @param {Uint8Array|Uint8ClampedArray} gray 그레이스케일 픽셀 (width*height)
+   * @param {number} width
+   * @param {number} height
+   * @param {number} timeMs 프레임 표시 시각(ms). 단조 증가해야 한다.
+   * @returns {{ratios:number[], triggers:Array<{gate:number,time:number}>, measurement:?object, warmingUp:boolean}}
+   */
+  update(gray, width, height, timeMs) {
+    const o = this.opts;
+    if (!this.bg || width !== this.width || height !== this.height) {
+      this.width = width;
+      this.height = height;
+      this.bg = new Float32Array(gray.length);
+      this.bg.set(gray);
+      this.frames = 0;
+      this.pending = null;
+      for (const g of this.gates) g.reset();
+    }
+
+    const sampleA = this._sampleRatio(gray, o.gateA);
+    const sampleB = this._sampleRatio(gray, o.gateB);
+    const ratios = [sampleA.ratio, sampleB.ratio];
+    const moved = [sampleA.moved, sampleB.moved];
+    this.ratios = ratios;
+    this.movedPixels = moved;
+    this.frames++;
+
+    const triggers = [];
+    let measurement = null;
+
+    if (!this.isWarmingUp) {
+      for (let i = 0; i < 2; i++) {
+        const gate = this.gates[i];
+        const r = ratios[i];
+        if (!gate.active && r >= o.onRatio && moved[i] >= o.minMovedPixels) {
+          // 프레임 사이를 선형 보간해서 실제 통과 시각을 추정한다 (프레임 양자화 오차 감소).
+          let tCross = timeMs;
+          if (gate.hasPrev && r > gate.prevRatio) {
+            const f = (o.onRatio - gate.prevRatio) / (r - gate.prevRatio);
+            const clamped = Math.min(1, Math.max(0, f));
+            tCross = gate.prevTime + clamped * (timeMs - gate.prevTime);
+          }
+          if (tCross - gate.lastTriggerTime >= o.refractoryMs) {
+            gate.active = true;
+            gate.lastTriggerTime = tCross;
+            triggers.push({ gate: i, time: tCross });
+            measurement = this._onTrigger(i, tCross) || measurement;
+          } else {
+            gate.active = true;
+          }
+        } else if (gate.active && r <= o.offRatio) {
+          gate.active = false;
+        }
+        gate.prevRatio = r;
+        gate.prevTime = timeMs;
+        gate.hasPrev = true;
+      }
+    } else {
+      for (let i = 0; i < 2; i++) {
+        this.gates[i].prevRatio = ratios[i];
+        this.gates[i].prevTime = timeMs;
+        this.gates[i].hasPrev = true;
+      }
+    }
+
+    // 배경 갱신 (선택적 업데이트)
+    // 움직이는 물체 위의 픽셀까지 빠르게 학습하면, 물체가 배경에 흡수됐다가
+    // 지나간 뒤 "유령"이 남아 같은 게이트가 한 번 더 트리거된다. 전경으로 분류된
+    // 픽셀은 아주 천천히만 갱신해서 그 현상을 막는다.
+    const a = o.learnRate;
+    const aFg = a * o.foregroundLearnFactor;
+    const thr = o.pixelThreshold;
+    const bg = this.bg;
+    for (let i = 0; i < bg.length; i++) {
+      const diff = gray[i] - bg[i];
+      bg[i] += (diff > thr || diff < -thr ? aFg : a) * diff;
+    }
+
+    return { ratios, triggers, measurement, warmingUp: this.isWarmingUp };
+  }
+
+  _onTrigger(index, time) {
+    const o = this.opts;
+    if (this.pending && time - this.pending.time > o.maxDtMs) {
+      this.pending = null; // 너무 오래된 대기 상태는 버린다
+    }
+    if (!this.pending) {
+      this.pending = { index, time };
+      return null;
+    }
+    if (this.pending.index === index) {
+      this.pending = { index, time }; // 같은 게이트 재트리거 → 시작 시각 갱신
+      return null;
+    }
+    const dtMs = time - this.pending.time;
+    const first = this.pending.index;
+    this.pending = null;
+    if (dtMs < o.minDtMs || dtMs > o.maxDtMs) return null;
+    return {
+      dtMs,
+      firstGate: first,
+      /** 진행 방향: 'AB'는 A→B, 'BA'는 B→A */
+      direction: first === 0 ? 'AB' : 'BA',
+      time,
+    };
+  }
+}
+
+/**
+ * 통과 시간(dt)과 게이트 간 실제 거리로 속도를 계산한다.
+ * framePeriodMs를 주면 프레임 양자화에 따른 오차 범위도 함께 돌려준다.
+ */
+function computeSpeed(distanceMeters, dtMs, framePeriodMs = 0) {
+  const seconds = dtMs / 1000;
+  const mps = distanceMeters / seconds;
+  const kmh = mps * 3.6;
+  let uncertaintyKmh = 0;
+  if (framePeriodMs > 0 && dtMs > framePeriodMs) {
+    // dt 오차를 ±(프레임 주기의 절반 × 게이트 2개) = ±framePeriodMs 로 보수적으로 잡는다.
+    const rel = framePeriodMs / dtMs;
+    uncertaintyKmh = kmh * rel;
+  }
+  return { mps, kmh, cmps: mps * 100, uncertaintyKmh };
+}
+
+/** 축척 모형 속도를 실차 환산 속도로 바꾼다 (1:scale 모형). */
+function scaleSpeed(kmh, scale) {
+  return kmh * (scale > 0 ? scale : 1);
+}
+
 
 const $ = (id) => document.getElementById(id);
 
@@ -758,8 +1418,6 @@ if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복
 drawOverlay();
 setStatus('‘카메라 시작’을 눌러 주세요');
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* 오프라인 캐시는 선택 사항 */ });
-  });
-}
+</script>
+</body>
+</html>

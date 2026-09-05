@@ -1462,7 +1462,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v8 · 실제 영상 대응';
+const APP_VERSION = 'v9 · 잡음 안내 정리';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1794,6 +1794,12 @@ function trackAutoSignal(result) {
  * 아무 말 없이 넘어가면 사용자는 "왜 측정이 안 되지"만 반복하게 된다.
  */
 function explainRejection(r) {
+  // 표본 두엇에 이동도 거의 없는 것은 자동차가 아니라 그림자·잔떨림이다.
+  // 그걸 "너무 빨리 지나갔다"고 알리면, 자동차를 놓친 것처럼 읽혀 오해만 만든다.
+  const noiseBlip = r.reason === 'tooFast' && r.samples <= 2
+    && (r.travel ?? 0) < tracker.opts.minTravelRatio;
+  if (noiseBlip) return;
+
   const messages = {
     tooFast: `너무 빨리 지나갔습니다 — 화면에 보인 시간이 <b>${r.durationMs.toFixed(0)}ms</b>,
       위치 표본은 <b>${r.samples}개</b>뿐입니다(최소 ${tracker.opts.minSamples}개, 지금 ${Math.round(1000 / framePeriodMs)}fps).

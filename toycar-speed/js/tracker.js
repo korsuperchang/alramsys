@@ -33,8 +33,8 @@ export const TRACKER_DEFAULTS = {
   warmupFrames: 12,
   /** 움직임이 이 프레임 수만큼 끊기면 한 번의 통과가 끝난 것으로 본다 */
   gapFrames: 3,
-  /** 통과로 인정할 최소 표본 수 */
-  minSamples: 5,
+  /** 통과로 인정할 최소 표본 수 (직선을 믿을 수 있는 최소한) */
+  minSamples: 4,
   /** 화면 폭의 이 비율 이상 이동해야 통과로 인정한다 */
   minTravelRatio: 0.1,
   /** 직선 적합도(R²) 하한 — 흔들림·그림자처럼 제멋대로 움직이는 것을 걸러낸다 */

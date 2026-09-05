@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v6 · 실패 이유 표시';
+const APP_VERSION = 'v7 · 조건 안내';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -401,7 +401,8 @@ function trackAutoSignal(result) {
  */
 function explainRejection(r) {
   const messages = {
-    tooFast: `너무 빨리 지나갔습니다 — 위치 표본이 <b>${r.samples}개</b>뿐입니다(최소 5개 필요).
+    tooFast: `너무 빨리 지나갔습니다 — 화면에 보인 시간이 <b>${r.durationMs.toFixed(0)}ms</b>,
+      위치 표본은 <b>${r.samples}개</b>뿐입니다(최소 ${tracker.opts.minSamples}개, 지금 ${Math.round(1000 / framePeriodMs)}fps).
       카메라를 뒤로 빼서 자동차가 화면에 더 오래 보이게 하세요.`,
     tooShort: `움직인 거리가 화면의 <b>${(r.travel * 100).toFixed(0)}%</b>뿐입니다(최소 10% 필요).
       자동차가 화면을 가로지르도록 찍어 주세요.`,
@@ -410,12 +411,18 @@ function explainRejection(r) {
     tooLong: `화면 안에 계속 움직이는 것이 있어 <b>한 번의 통과를 구분하지 못했습니다.</b>
       자동차 말고 움직이는 것을 화면에서 치워 주세요.`,
   };
+  const short = {
+    tooFast: `너무 빠름 — 표본 ${r.samples}개 (최소 ${tracker.opts.minSamples}개)`,
+    tooShort: `이동 ${(r.travel * 100).toFixed(0)}% — 화면의 10% 이상 지나가야 합니다`,
+    notSteady: `움직임이 불규칙 — R² ${(r.r2 ?? 0).toFixed(2)} (최소 0.80)`,
+    tooLong: '한 번의 통과를 구분하지 못했습니다',
+  };
   const text = messages[r.reason];
   if (!text) return;
   el.signalHint.innerHTML = text;
   el.signalHint.className = 'signal-hint warn';
   signal.holdUntil = performance.now() + 6000;
-  setStatus('움직임은 잡았지만 측정 조건에 못 미쳤습니다', 'warn');
+  setStatus(short[r.reason] || '측정 조건에 못 미쳤습니다', 'warn');
 }
 
 /** 자동 추적 화면: 지금 잡고 있는 덩어리와 지나온 자취를 보여 준다. */

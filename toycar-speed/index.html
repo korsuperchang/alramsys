@@ -36,10 +36,10 @@
     </div>
 
     <div class="signal" id="signal">
-      <div class="sig"><span class="k">A</span><span class="v" id="sigA">0.0%</span><i class="meter"><b id="barA"></b></i></div>
-      <div class="sig"><span class="k">B</span><span class="v" id="sigB">0.0%</span><i class="meter"><b id="barB"></b></i></div>
-      <div class="sig"><span class="k">기준</span><span class="v" id="sigThr">--</span></div>
-      <div class="sig"><span class="k">최근 최대</span><span class="v" id="sigPeak">0.0%</span></div>
+      <div class="sig"><span class="k" id="labA">움직임</span><span class="v" id="sigA">0.0%</span><i class="meter"><b id="barA"></b></i></div>
+      <div class="sig"><span class="k" id="labB">위치</span><span class="v" id="sigB">--</span><i class="meter"><b id="barB"></b></i></div>
+      <div class="sig"><span class="k" id="labThr">기준</span><span class="v" id="sigThr">--</span></div>
+      <div class="sig"><span class="k" id="labPeak">최근 최대</span><span class="v" id="sigPeak">0.0%</span></div>
     </div>
     <p class="signal-hint" id="signalHint">자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.</p>
 
@@ -66,6 +66,28 @@
     <h2>측정 설정</h2>
 
     <div class="field">
+      <label>측정 방식</label>
+      <div class="segmented" id="mode">
+        <button type="button" data-value="auto" class="on">자동 추적 (간편)</button>
+        <button type="button" data-value="gates">기준선 2개 (정밀)</button>
+      </div>
+      <p class="hint" id="modeHint">움직이는 것을 찾아 따라가며 속도를 냅니다. 맞출 것도, 넘어야 할 문턱도 없습니다.</p>
+    </div>
+
+    <div class="field auto-only" id="fieldView">
+      <label for="viewWidth">화면에 담긴 실제 가로 길이 <span class="val">선택</span></label>
+      <div class="row">
+        <input type="number" id="viewWidth" min="0" step="1" value="0" inputmode="decimal" placeholder="모르면 비워 두세요">
+        <select id="viewWidthUnit">
+          <option value="0.01" selected>cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
+      <p class="hint">화면 왼쪽 끝에서 오른쪽 끝까지가 바닥에서 몇 cm인지 재서 넣으면 km/h로 바꿔 줍니다.
+      <b>비워 두면 상대 속도</b>(초당 화면폭 배수)로만 나오고, 그것만으로도 어느 쪽이 빠른지는 비교됩니다.</p>
+    </div>
+
+    <div class="field gate-only">
       <label for="distance">기준선 A ↔ B 실제 거리</label>
       <div class="row">
         <input type="number" id="distance" min="0.1" step="0.1" value="50" inputmode="decimal">
@@ -78,21 +100,21 @@
     </div>
 
     <div class="field">
-      <label>기준선 방향</label>
+      <label>자동차 진행 방향</label>
       <div class="segmented" id="orientation">
-        <button type="button" data-value="vertical" class="on">세로선 (차가 좌우로 이동)</button>
-        <button type="button" data-value="horizontal">가로선 (차가 위아래로 이동)</button>
+        <button type="button" data-value="vertical" class="on">좌우로 이동</button>
+        <button type="button" data-value="horizontal">위아래로 이동</button>
       </div>
     </div>
 
-    <div class="field">
+    <div class="field gate-only">
       <label for="gateA">기준선 A 위치 <span class="val" id="gateAVal">30%</span></label>
       <input type="range" id="gateA" min="2" max="98" value="30">
       <label for="gateB">기준선 B 위치 <span class="val" id="gateBVal">70%</span></label>
       <input type="range" id="gateB" min="2" max="98" value="70">
     </div>
 
-    <div class="field">
+    <div class="field gate-only">
       <label for="roiStart">감지 구간 시작 <span class="val" id="roiStartVal">15%</span></label>
       <input type="range" id="roiStart" min="0" max="100" value="15">
       <label for="roiEnd">감지 구간 끝 <span class="val" id="roiEndVal">85%</span></label>
@@ -104,8 +126,10 @@
       <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">12</span></label>
       <input type="range" id="sensitivity" min="1" max="20" value="12">
       <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.
-      <b>자동 맞춤</b>을 누르고 자동차를 두세 번 지나가게 하면 알아서 맞춰 줍니다.</p>
+      <b>자동 맞춤</b>은 기준선 방식에서 문턱을 잡아 줍니다.</p>
+    </div>
 
+    <div class="field gate-only">
       <label for="bandWidth">기준선 두께 <span class="val" id="bandWidthVal">3%</span></label>
       <input type="range" id="bandWidth" min="1" max="12" value="3">
       <p class="hint">아주 빠른 차는 얇은 선을 프레임 사이에 건너뛸 수 있습니다. 그럴 때 두껍게 하세요.
@@ -142,11 +166,12 @@
   <section class="panel">
     <h2>사용법</h2>
     <ol class="howto">
-      <li>바닥에 자동차가 지나갈 직선 구간을 정하고, <b>두 지점 사이 거리를 자로 재서</b> 위에 입력합니다. (30~100cm 권장)</li>
-      <li>핸드폰을 삼각대·컵 등에 <b>고정</b>하고, 주행 경로를 <b>옆에서 정면으로</b> 바라보게 둡니다.</li>
-      <li>화면의 기준선 A·B를 바닥에 표시한 두 지점에 맞춥니다.</li>
-      <li>화면이 조용해지면(배경 학습 완료) 자동차를 굴립니다. 두 선을 지나는 순간 자동으로 속도가 뜹니다.</li>
+      <li>핸드폰을 <b>고정</b>하고(삼각대·컵·책 무엇이든), 주행 경로를 <b>옆에서</b> 바라보게 둡니다.</li>
+      <li><b>자동 추적</b> 방식이면 이것으로 준비 끝입니다. 자동차를 굴리면 화면을 가로지르는 동안 위치를 따라가 속도를 냅니다.</li>
+      <li>km/h로 보고 싶으면 화면에 담긴 바닥의 <b>가로 길이</b>만 재서 넣으세요. 비워 두면 상대 속도로 나옵니다.</li>
+      <li>더 정확한 값이 필요하면 <b>기준선 2개</b> 방식으로 바꾸고, 바닥 두 지점의 실제 거리를 입력한 뒤 A·B 선을 그 지점에 맞춥니다.</li>
     </ol>
+    <p class="hint">손이나 그림자가 화면에 같이 들어오면 그것도 움직임으로 잡힙니다. 되도록 <b>화면 밖에서 굴려</b> 주세요.</p>
     <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
   </section>
 

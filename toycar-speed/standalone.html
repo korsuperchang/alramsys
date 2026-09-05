@@ -327,10 +327,10 @@ input[type="range"] {
     </div>
 
     <div class="signal" id="signal">
-      <div class="sig"><span class="k">A</span><span class="v" id="sigA">0.0%</span><i class="meter"><b id="barA"></b></i></div>
-      <div class="sig"><span class="k">B</span><span class="v" id="sigB">0.0%</span><i class="meter"><b id="barB"></b></i></div>
-      <div class="sig"><span class="k">기준</span><span class="v" id="sigThr">--</span></div>
-      <div class="sig"><span class="k">최근 최대</span><span class="v" id="sigPeak">0.0%</span></div>
+      <div class="sig"><span class="k" id="labA">움직임</span><span class="v" id="sigA">0.0%</span><i class="meter"><b id="barA"></b></i></div>
+      <div class="sig"><span class="k" id="labB">위치</span><span class="v" id="sigB">--</span><i class="meter"><b id="barB"></b></i></div>
+      <div class="sig"><span class="k" id="labThr">기준</span><span class="v" id="sigThr">--</span></div>
+      <div class="sig"><span class="k" id="labPeak">최근 최대</span><span class="v" id="sigPeak">0.0%</span></div>
     </div>
     <p class="signal-hint" id="signalHint">자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.</p>
 
@@ -357,6 +357,28 @@ input[type="range"] {
     <h2>측정 설정</h2>
 
     <div class="field">
+      <label>측정 방식</label>
+      <div class="segmented" id="mode">
+        <button type="button" data-value="auto" class="on">자동 추적 (간편)</button>
+        <button type="button" data-value="gates">기준선 2개 (정밀)</button>
+      </div>
+      <p class="hint" id="modeHint">움직이는 것을 찾아 따라가며 속도를 냅니다. 맞출 것도, 넘어야 할 문턱도 없습니다.</p>
+    </div>
+
+    <div class="field auto-only" id="fieldView">
+      <label for="viewWidth">화면에 담긴 실제 가로 길이 <span class="val">선택</span></label>
+      <div class="row">
+        <input type="number" id="viewWidth" min="0" step="1" value="0" inputmode="decimal" placeholder="모르면 비워 두세요">
+        <select id="viewWidthUnit">
+          <option value="0.01" selected>cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
+      <p class="hint">화면 왼쪽 끝에서 오른쪽 끝까지가 바닥에서 몇 cm인지 재서 넣으면 km/h로 바꿔 줍니다.
+      <b>비워 두면 상대 속도</b>(초당 화면폭 배수)로만 나오고, 그것만으로도 어느 쪽이 빠른지는 비교됩니다.</p>
+    </div>
+
+    <div class="field gate-only">
       <label for="distance">기준선 A ↔ B 실제 거리</label>
       <div class="row">
         <input type="number" id="distance" min="0.1" step="0.1" value="50" inputmode="decimal">
@@ -369,21 +391,21 @@ input[type="range"] {
     </div>
 
     <div class="field">
-      <label>기준선 방향</label>
+      <label>자동차 진행 방향</label>
       <div class="segmented" id="orientation">
-        <button type="button" data-value="vertical" class="on">세로선 (차가 좌우로 이동)</button>
-        <button type="button" data-value="horizontal">가로선 (차가 위아래로 이동)</button>
+        <button type="button" data-value="vertical" class="on">좌우로 이동</button>
+        <button type="button" data-value="horizontal">위아래로 이동</button>
       </div>
     </div>
 
-    <div class="field">
+    <div class="field gate-only">
       <label for="gateA">기준선 A 위치 <span class="val" id="gateAVal">30%</span></label>
       <input type="range" id="gateA" min="2" max="98" value="30">
       <label for="gateB">기준선 B 위치 <span class="val" id="gateBVal">70%</span></label>
       <input type="range" id="gateB" min="2" max="98" value="70">
     </div>
 
-    <div class="field">
+    <div class="field gate-only">
       <label for="roiStart">감지 구간 시작 <span class="val" id="roiStartVal">15%</span></label>
       <input type="range" id="roiStart" min="0" max="100" value="15">
       <label for="roiEnd">감지 구간 끝 <span class="val" id="roiEndVal">85%</span></label>
@@ -395,8 +417,10 @@ input[type="range"] {
       <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">12</span></label>
       <input type="range" id="sensitivity" min="1" max="20" value="12">
       <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.
-      <b>자동 맞춤</b>을 누르고 자동차를 두세 번 지나가게 하면 알아서 맞춰 줍니다.</p>
+      <b>자동 맞춤</b>은 기준선 방식에서 문턱을 잡아 줍니다.</p>
+    </div>
 
+    <div class="field gate-only">
       <label for="bandWidth">기준선 두께 <span class="val" id="bandWidthVal">3%</span></label>
       <input type="range" id="bandWidth" min="1" max="12" value="3">
       <p class="hint">아주 빠른 차는 얇은 선을 프레임 사이에 건너뛸 수 있습니다. 그럴 때 두껍게 하세요.
@@ -433,11 +457,12 @@ input[type="range"] {
   <section class="panel">
     <h2>사용법</h2>
     <ol class="howto">
-      <li>바닥에 자동차가 지나갈 직선 구간을 정하고, <b>두 지점 사이 거리를 자로 재서</b> 위에 입력합니다. (30~100cm 권장)</li>
-      <li>핸드폰을 삼각대·컵 등에 <b>고정</b>하고, 주행 경로를 <b>옆에서 정면으로</b> 바라보게 둡니다.</li>
-      <li>화면의 기준선 A·B를 바닥에 표시한 두 지점에 맞춥니다.</li>
-      <li>화면이 조용해지면(배경 학습 완료) 자동차를 굴립니다. 두 선을 지나는 순간 자동으로 속도가 뜹니다.</li>
+      <li>핸드폰을 <b>고정</b>하고(삼각대·컵·책 무엇이든), 주행 경로를 <b>옆에서</b> 바라보게 둡니다.</li>
+      <li><b>자동 추적</b> 방식이면 이것으로 준비 끝입니다. 자동차를 굴리면 화면을 가로지르는 동안 위치를 따라가 속도를 냅니다.</li>
+      <li>km/h로 보고 싶으면 화면에 담긴 바닥의 <b>가로 길이</b>만 재서 넣으세요. 비워 두면 상대 속도로 나옵니다.</li>
+      <li>더 정확한 값이 필요하면 <b>기준선 2개</b> 방식으로 바꾸고, 바닥 두 지점의 실제 거리를 입력한 뒤 A·B 선을 그 지점에 맞춥니다.</li>
     </ol>
+    <p class="hint">손이나 그림자가 화면에 같이 들어오면 그것도 움직임으로 잡힙니다. 되도록 <b>화면 밖에서 굴려</b> 주세요.</p>
     <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
   </section>
 
@@ -810,6 +835,235 @@ function scaleSpeed(kmh, scale) {
   return kmh * (scale > 0 ? scale : 1);
 }
 
+/**
+ * 자동 추적 엔진 — 기준선 없이 "움직이는 것"을 따라가며 속도를 낸다.
+ *
+ * 기준선(게이트) 방식은 물체가 얇은 선 위에서 정해진 면적 이상을 가려야 하는데,
+ * 멀리서 찍은 작은 자동차는 그 문턱을 못 넘는 일이 잦다. 이 엔진은 화면 전체에서
+ * 움직이는 픽셀 덩어리의 중심을 매 프레임 기록하고, 한 번의 통과가 끝나면
+ * 위치-시간 표본에 직선을 맞춰(최소제곱) 속도를 구한다.
+ *
+ * 속도는 "초당 화면 폭의 몇 배"(fwps)로 낸다. 카메라를 고정해 두면 이 값끼리는
+ * 그대로 비교할 수 있고, 화면에 담긴 실제 가로 길이를 알려 주면 m/s로 환산된다.
+ *
+ * DOM에 의존하지 않는다. 입력은 8비트 그레이스케일 배열뿐이다.
+ */
+
+const TRACKER_DEFAULTS = {
+  /** 진행 축: 'horizontal'이면 좌우 이동, 'vertical'이면 상하 이동 */
+  axis: 'horizontal',
+  /** 배경과 이만큼 이상 밝기가 다르면 움직임 픽셀로 본다 */
+  pixelThreshold: 26,
+  /** 움직임으로 인정할 최소 면적 (전체 픽셀 대비) */
+  minPixelRatio: 0.0015,
+  /** 이보다 크면 화면 전체가 움직인 것 — 흔들림으로 보고 버린다 */
+  maxPixelRatio: 0.5,
+  learnRate: 0.06,
+  foregroundLearnFactor: 0.05,
+  staleForegroundFrames: 120,
+  warmupFrames: 12,
+  /** 움직임이 이 프레임 수만큼 끊기면 한 번의 통과가 끝난 것으로 본다 */
+  gapFrames: 3,
+  /** 통과로 인정할 최소 표본 수 */
+  minSamples: 5,
+  /** 화면 폭의 이 비율 이상 이동해야 통과로 인정한다 */
+  minTravelRatio: 0.1,
+  /** 직선 적합도(R²) 하한 — 흔들림·그림자처럼 제멋대로 움직이는 것을 걸러낸다 */
+  minR2: 0.8,
+  /** 한 번의 통과가 이보다 길면 버린다 */
+  maxDurationMs: 8000,
+};
+
+/** 표본 (t초, 위치 0~1)에 직선을 맞춘다. 기울기가 곧 속도(화면폭/초). */
+function fitLine(samples) {
+  const n = samples.length;
+  let st = 0;
+  let sp = 0;
+  for (const s of samples) { st += s.t; sp += s.p; }
+  const mt = st / n;
+  const mp = sp / n;
+  let num = 0;
+  let den = 0;
+  for (const s of samples) {
+    const dt = s.t - mt;
+    num += dt * (s.p - mp);
+    den += dt * dt;
+  }
+  if (den === 0) return { slope: 0, intercept: mp, r2: 0 };
+  const slope = num / den;
+  const intercept = mp - slope * mt;
+  let ssRes = 0;
+  let ssTot = 0;
+  for (const s of samples) {
+    const pred = slope * s.t + intercept;
+    ssRes += (s.p - pred) ** 2;
+    ssTot += (s.p - mp) ** 2;
+  }
+  return { slope, intercept, r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot };
+}
+
+class MotionTracker {
+  constructor(options = {}) {
+    this.opts = { ...TRACKER_DEFAULTS, ...options };
+    this.width = 0;
+    this.height = 0;
+    this.bg = null;
+    this.fgFrames = null;
+    this.frames = 0;
+    this.track = null;   // 진행 중인 통과 {samples, lastSeen, gap}
+    this.coverage = 0;
+    this.centroid = null;
+    this.box = null;
+  }
+
+  configure(partial) { Object.assign(this.opts, partial); }
+
+  reset() {
+    this.bg = null;
+    this.fgFrames = null;
+    this.frames = 0;
+    this.track = null;
+    this.coverage = 0;
+    this.centroid = null;
+    this.box = null;
+  }
+
+  get isWarmingUp() { return this.frames < this.opts.warmupFrames; }
+
+  /**
+   * 프레임 한 장을 처리한다.
+   * @returns {{coverage:number, centroid:?number, box:?{min:number,max:number},
+   *            shaking:boolean, tracking:boolean, warmingUp:boolean, pass:?object}}
+   */
+  update(gray, width, height, timeMs) {
+    const o = this.opts;
+    if (!this.bg || width !== this.width || height !== this.height) {
+      this.width = width;
+      this.height = height;
+      this.bg = new Float32Array(gray.length);
+      this.bg.set(gray);
+      this.fgFrames = new Uint16Array(gray.length);
+      this.frames = 0;
+      this.track = null;
+    }
+
+    const thr = o.pixelThreshold;
+    const horizontal = o.axis === 'horizontal';
+    const axisLen = horizontal ? width : height;
+    let count = 0;
+    let sum = 0;
+    let min = axisLen;
+    let max = -1;
+
+    for (let y = 0; y < height; y++) {
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
+        const i = row + x;
+        const diff = gray[i] - this.bg[i];
+        if (diff > thr || diff < -thr) {
+          const a = horizontal ? x : y;
+          count++;
+          sum += a;
+          if (a < min) min = a;
+          if (a > max) max = a;
+        }
+      }
+    }
+
+    const total = width * height;
+    const coverage = count / total;
+    this.coverage = coverage;
+
+    const enough = coverage >= o.minPixelRatio;
+    const shaking = coverage > o.maxPixelRatio;
+    const usable = enough && !shaking && !this.isWarmingUp;
+
+    this.centroid = usable ? sum / count / (axisLen - 1) : null;
+    this.box = usable ? { min: min / (axisLen - 1), max: max / (axisLen - 1) } : null;
+
+    let pass = null;
+    if (usable) {
+      if (!this.track) this.track = { samples: [], gap: 0 };
+      this.track.gap = 0;
+      this.track.samples.push({ t: timeMs / 1000, p: this.centroid });
+      if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
+        this.track = null; // 너무 오래 끄는 움직임은 통과가 아니다
+      }
+    } else if (this.track) {
+      this.track.gap++;
+      if (this.track.gap >= o.gapFrames) {
+        pass = this._finishTrack();
+      }
+    }
+
+    this.frames++;
+    this._updateBackground(gray);
+
+    return {
+      coverage,
+      centroid: this.centroid,
+      box: this.box,
+      shaking,
+      tracking: !!this.track,
+      warmingUp: this.isWarmingUp,
+      pass,
+    };
+  }
+
+  /** 진행 중인 통과를 마감하고, 조건을 만족하면 결과를 돌려준다. */
+  _finishTrack() {
+    const o = this.opts;
+    const samples = this.track.samples;
+    this.track = null;
+    if (samples.length < o.minSamples) return null;
+
+    const travel = samples[samples.length - 1].p - samples[0].p;
+    if (Math.abs(travel) < o.minTravelRatio) return null;
+
+    const { slope, r2 } = fitLine(samples);
+    if (r2 < o.minR2) return null;
+
+    const durationMs = (samples[samples.length - 1].t - samples[0].t) * 1000;
+    if (durationMs <= 0) return null;
+
+    return {
+      /** 초당 화면 폭의 몇 배로 움직였는가 (부호는 방향) */
+      fwps: Math.abs(slope),
+      direction: slope >= 0 ? 'LR' : 'RL',
+      travel: Math.abs(travel),
+      durationMs,
+      r2,
+      samples: samples.length,
+    };
+  }
+
+  _updateBackground(gray) {
+    const o = this.opts;
+    const a = o.learnRate;
+    const aFg = a * o.foregroundLearnFactor;
+    const thr = o.pixelThreshold;
+    const stale = o.staleForegroundFrames;
+    const bg = this.bg;
+    const fg = this.fgFrames;
+    for (let i = 0; i < bg.length; i++) {
+      const diff = gray[i] - bg[i];
+      if (diff > thr || diff < -thr) {
+        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+      } else {
+        fg[i] = 0;
+        bg[i] += a * diff;
+      }
+    }
+  }
+}
+
+/** 화면 폭 기준 속도(fwps)를 실제 속도로 바꾼다. viewWidthMeters를 모르면 null. */
+function passToSpeed(fwps, viewWidthMeters) {
+  if (!(viewWidthMeters > 0)) return null;
+  const mps = fwps * viewWidthMeters;
+  return { mps, kmh: mps * 3.6, cmps: mps * 100 };
+}
+
 
 const $ = (id) => document.getElementById(id);
 
@@ -834,6 +1088,15 @@ const el = {
   distance: $('distance'),
   distanceUnit: $('distanceUnit'),
   orientation: $('orientation'),
+  mode: $('mode'),
+  modeHint: $('modeHint'),
+  viewWidth: $('viewWidth'),
+  viewWidthUnit: $('viewWidthUnit'),
+  labA: $('labA'),
+  labB: $('labB'),
+  labThr: $('labThr'),
+  labPeak: $('labPeak'),
+  unit: document.querySelector('.speed-main .unit'),
   gateA: $('gateA'),
   gateB: $('gateB'),
   gateAVal: $('gateAVal'),
@@ -873,6 +1136,9 @@ const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
 const MAX_RECORDS = 50;
 
 const defaultSettings = {
+  mode: 'auto',
+  viewWidth: 0,
+  viewWidthUnit: 0.01,
   distance: 50,
   distanceUnit: 0.01,
   orientation: 'vertical',
@@ -895,6 +1161,7 @@ let records = loadJSON(RECORDS_KEY, []);
 let lastRecord = records[0] || null;
 
 const detector = new GateSpeedDetector();
+const tracker = new MotionTracker();
 const procCanvas = document.createElement('canvas');
 const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
 const octx = el.overlay.getContext('2d');
@@ -930,6 +1197,12 @@ function saveJSON(key, value) {
 }
 
 /* ---------------- 설정 ---------------- */
+/** 화면 가로 실제 길이(m). 0이면 상대 속도만 낸다. */
+function viewWidthMeters() {
+  const v = parseFloat(el.viewWidth.value);
+  return Number.isFinite(v) && v > 0 ? v * parseFloat(el.viewWidthUnit.value) : 0;
+}
+
 function distanceMeters() {
   const v = parseFloat(el.distance.value);
   return (Number.isFinite(v) && v > 0 ? v : 50) * parseFloat(el.distanceUnit.value);
@@ -954,6 +1227,15 @@ function sensitivityToOptions(level) {
   };
 }
 
+/** 민감도 1~20 → 자동 추적에서 "움직임"으로 인정할 최소 면적 비율 */
+function sensitivityToTrackerOptions(level) {
+  const t = (level - 1) / (SENSITIVITY_MAX - 1);
+  return {
+    pixelThreshold: Math.round(46 - t * 32),
+    minPixelRatio: 0.008 * Math.pow(0.0004 / 0.008, t), // 0.8% → 0.04%
+  };
+}
+
 /** 목표 임계 비율에 가장 가까운 민감도 단계를 찾는다 (자동 맞춤용). */
 function ratioToSensitivity(targetRatio) {
   let best = 1;
@@ -966,6 +1248,8 @@ function ratioToSensitivity(targetRatio) {
 }
 
 function applySettingsToUI() {
+  el.viewWidth.value = settings.viewWidth || '';
+  el.viewWidthUnit.value = String(settings.viewWidthUnit);
   el.distance.value = settings.distance;
   el.distanceUnit.value = String(settings.distanceUnit);
   el.gateA.value = settings.gateA;
@@ -981,6 +1265,10 @@ function applySettingsToUI() {
   for (const b of el.orientation.querySelectorAll('button')) {
     b.classList.toggle('on', b.dataset.value === settings.orientation);
   }
+  for (const b of el.mode.querySelectorAll('button')) {
+    b.classList.toggle('on', b.dataset.value === settings.mode);
+  }
+  applyModeToUI();
   syncLabels();
 }
 
@@ -994,21 +1282,41 @@ function syncLabels() {
   el.scaleVal.textContent = el.scale.value;
   el.sigThr.textContent = pct(sensitivityToOptions(Number(el.sensitivity.value)).onRatio);
   updateScaleLine();
+  if (!lastRecord) {
+    el.unit.textContent = settings.mode === 'auto' && !viewWidthMeters() ? '화면폭/초' : 'km/h';
+  }
 }
 
 /** 축척 환산 줄은 마지막 측정값 기준으로 다시 그린다 (설정만 바꿔도 즉시 반영). */
 function updateScaleLine() {
   const scale = Number(el.scale.value);
-  const show = scale > 1 && !!lastRecord;
+  const show = scale > 1 && !!lastRecord && lastRecord.kmh != null;
   el.speedScale.hidden = !show;
   if (show) {
     el.speedScale.textContent = `1:${scale} 실차 환산 ${scaleSpeed(lastRecord.kmh, scale).toFixed(0)} km/h`;
   }
 }
 
+/** 방식에 따라 필요 없는 설정과 계기판 라벨을 정리한다. */
+function applyModeToUI() {
+  const auto = settings.mode === 'auto';
+  for (const node of document.querySelectorAll('.gate-only')) node.hidden = auto;
+  for (const node of document.querySelectorAll('.auto-only')) node.hidden = !auto;
+  el.btnCalibrate.hidden = auto;
+  el.modeHint.textContent = auto
+    ? '움직이는 것을 찾아 따라가며 속도를 냅니다. 맞출 것도, 넘어야 할 문턱도 없습니다.'
+    : '두 기준선을 지나는 시간을 잽니다. 거리를 정확히 재면 가장 정확합니다.';
+  el.labA.textContent = auto ? '움직임' : 'A';
+  el.labB.textContent = auto ? '위치' : 'B';
+  el.labThr.textContent = auto ? '필요' : '기준';
+  el.labPeak.textContent = auto ? '최근 최대' : '최근 최대';
+}
+
 function collectSettings() {
   settings = {
     ...settings,
+    viewWidth: parseFloat(el.viewWidth.value) || 0,
+    viewWidthUnit: parseFloat(el.viewWidthUnit.value),
     distance: parseFloat(el.distance.value) || defaultSettings.distance,
     distanceUnit: parseFloat(el.distanceUnit.value),
     gateA: Number(el.gateA.value),
@@ -1026,6 +1334,12 @@ function collectSettings() {
 }
 
 function applySettingsToDetector({ reset = false } = {}) {
+  tracker.configure({
+    // 게이트의 '세로선'은 자동차가 좌우로 움직인다는 뜻이다.
+    axis: settings.orientation === 'vertical' ? 'horizontal' : 'vertical',
+    ...sensitivityToTrackerOptions(settings.sensitivity),
+  });
+  if (reset) tracker.reset();
   detector.configure({
     orientation: settings.orientation,
     gateA: settings.gateA / 100,
@@ -1095,6 +1409,112 @@ function renderSignal(ratios, peak, onRatio, shaking) {
   }
   el.signalHint.innerHTML = hint;
   el.signalHint.className = warn ? 'signal-hint warn' : 'signal-hint';
+}
+
+/** 자동 추적 모드의 계기판 — 얼마나 움직였고, 지금 어디를 보고 있는지 */
+function trackAutoSignal(result) {
+  const needed = tracker.opts.minPixelRatio;
+  signal.peaks.push({ t: performance.now(), r: result.coverage });
+  while (signal.peaks.length && performance.now() - signal.peaks[0].t > 3000) signal.peaks.shift();
+
+  const now = performance.now();
+  if (now - signal.lastRender < 120) return;
+  signal.lastRender = now;
+  const peak = signal.peaks.reduce((a, p) => Math.max(a, p.r), 0);
+
+  el.sigA.textContent = pct(result.coverage);
+  el.sigA.parentElement.classList.toggle('hot', result.coverage >= needed && !result.shaking);
+  el.barA.style.width = `${Math.min(100, (result.coverage / needed) * 100)}%`;
+  el.sigB.textContent = result.centroid == null ? '--' : pct(result.centroid);
+  el.sigB.parentElement.classList.toggle('hot', result.tracking);
+  el.barB.style.width = `${result.centroid == null ? 0 : result.centroid * 100}%`;
+  el.sigThr.textContent = pct(needed);
+  el.sigPeak.textContent = pct(peak);
+
+  if (performance.now() < signal.holdUntil) return;
+  let hint = '자동차를 굴리면 알아서 따라갑니다. 폰만 고정해 두세요.';
+  let warn = false;
+  if (result.warmingUp) {
+    hint = '배경을 학습하는 중입니다 — 잠시 그대로 두세요.';
+  } else if (result.shaking) {
+    hint = '화면 전체가 움직이고 있습니다 — <b>폰을 고정하세요.</b>';
+    warn = true;
+  } else if (result.tracking) {
+    hint = '움직임을 따라가는 중…';
+  } else if (peak > 0.0002 && peak < needed) {
+    hint = `가장 큰 움직임이 <b>${pct(peak)}</b>로 기준 <b>${pct(needed)}</b>에 못 미칩니다 — 민감도를 올리거나 카메라를 더 가까이 두세요.`;
+    warn = true;
+  }
+  el.signalHint.innerHTML = hint;
+  el.signalHint.className = warn ? 'signal-hint warn' : 'signal-hint';
+}
+
+/** 자동 추적 화면: 지금 잡고 있는 덩어리와 지나온 자취를 보여 준다. */
+function drawAutoOverlay(result) {
+  resizeOverlay();
+  const W = el.overlay.width;
+  const H = el.overlay.height;
+  octx.clearRect(0, 0, W, H);
+  if (mode === 'idle') return;
+
+  const horizontal = tracker.opts.axis === 'horizontal';
+  const axisLen = horizontal ? W : H;
+
+  // 지나온 자취
+  const samples = tracker.track?.samples;
+  if (samples && samples.length > 1) {
+    octx.strokeStyle = 'rgba(74, 168, 255, 0.8)';
+    octx.lineWidth = 3;
+    octx.beginPath();
+    samples.forEach((sample, i) => {
+      const a = sample.p * axisLen;
+      const x = horizontal ? a : W / 2;
+      const y = horizontal ? H / 2 : a;
+      if (i === 0) octx.moveTo(x, y);
+      else octx.lineTo(x, y);
+    });
+    octx.stroke();
+  }
+
+  if (result.box) {
+    const from = result.box.min * axisLen;
+    const to = result.box.max * axisLen;
+    octx.fillStyle = 'rgba(53, 208, 127, 0.18)';
+    octx.strokeStyle = '#35d07f';
+    octx.lineWidth = 3;
+    if (horizontal) {
+      octx.fillRect(from, 0, to - from, H);
+      octx.strokeRect(from, 2, to - from, H - 4);
+    } else {
+      octx.fillRect(0, from, W, to - from);
+      octx.strokeRect(2, from, W - 4, to - from);
+    }
+  }
+
+  if (result.centroid != null) {
+    const a = result.centroid * axisLen;
+    octx.strokeStyle = '#fff';
+    octx.lineWidth = 2;
+    octx.beginPath();
+    if (horizontal) { octx.moveTo(a, 0); octx.lineTo(a, H); }
+    else { octx.moveTo(0, a); octx.lineTo(W, a); }
+    octx.stroke();
+  }
+
+  if (result.warmingUp) {
+    octx.fillStyle = 'rgba(0,0,0,0.55)';
+    octx.fillRect(0, H / 2 - 26, W, 52);
+    octx.fillStyle = '#fff';
+    octx.font = `${Math.round(W / 26)}px system-ui, sans-serif`;
+    octx.textAlign = 'center';
+    octx.fillText('배경 학습 중… 잠시 그대로 두세요', W / 2, H / 2 + 8);
+  }
+
+  if (performance.now() < flashUntil) {
+    octx.strokeStyle = '#35d07f';
+    octx.lineWidth = 8;
+    octx.strokeRect(4, 4, W - 8, H - 8);
+  }
 }
 
 /* ---------------- 자동 맞춤 ---------------- */
@@ -1335,6 +1755,18 @@ function processFrame(timeMs) {
   lastGray = grayBuf;
 
   trackFramePeriod(timeMs);
+
+  if (settings.mode === 'auto') {
+    const result = tracker.update(grayBuf, pw, ph, timeMs);
+    trackAutoSignal(result);
+    if (result.pass) {
+      handlePass(result.pass);
+      flashUntil = performance.now() + 180;
+    }
+    drawAutoOverlay(result);
+    return;
+  }
+
   const result = detector.update(grayBuf, pw, ph, timeMs);
 
   if (calib) updateCalibration(result.ratios);
@@ -1344,6 +1776,32 @@ function processFrame(timeMs) {
   if (result.triggers.length) flashUntil = performance.now() + 180;
 
   drawOverlay(result);
+}
+
+/** 자동 추적 한 건을 기록한다. 화면 가로 길이를 모르면 상대 속도만 남는다. */
+function handlePass(p) {
+  const viewW = viewWidthMeters();
+  const abs = passToSpeed(p.fwps, viewW);
+  const record = {
+    kmh: abs ? abs.kmh : null,
+    mps: abs ? abs.mps : null,
+    fwps: p.fwps,
+    dtMs: p.durationMs,
+    tolerance: 0,
+    direction: p.direction,
+    distance: viewW,
+    r2: p.r2,
+    at: Date.now(),
+  };
+  lastRecord = record;
+  records.unshift(record);
+  if (records.length > MAX_RECORDS) records.length = MAX_RECORDS;
+  saveJSON(RECORDS_KEY, records);
+
+  showSpeed(record);
+  renderRecords();
+  feedback();
+  setStatus(`측정됨 — 화면의 ${(p.travel * 100).toFixed(0)}% 구간, 표본 ${p.samples}개`, 'ok');
 }
 
 function trackFramePeriod(timeMs) {
@@ -1385,11 +1843,29 @@ function handleMeasurement(m) {
   }
 }
 
+/** 기록 한 건을 어떻게 읽어 줄지 (절대 속도를 알면 km/h, 모르면 상대 속도) */
+function speedLabel(r) {
+  if (r.kmh != null) {
+    return { value: r.kmh.toFixed(r.kmh < 10 ? 2 : 1), unit: 'km/h', text: `${r.kmh.toFixed(2)} km/h` };
+  }
+  const v = r.fwps ?? 0;
+  return { value: v.toFixed(2), unit: '화면폭/초', text: `${v.toFixed(2)} 화면폭/초` };
+}
+
+function directionText(r) {
+  if (r.direction === 'AB' || r.direction === 'LR') return '→';
+  return '←';
+}
+
 function showSpeed(r, { flash = true } = {}) {
-  el.speedValue.textContent = r.kmh.toFixed(r.kmh < 10 ? 2 : 1);
-  el.speedMps.textContent = `${r.mps.toFixed(2)} m/s · ${(r.mps * 100).toFixed(0)} cm/s`;
+  const label = speedLabel(r);
+  el.speedValue.textContent = label.value;
+  el.unit.textContent = label.unit;
+  el.speedMps.textContent = r.mps != null
+    ? `${r.mps.toFixed(2)} m/s · ${(r.mps * 100).toFixed(0)} cm/s`
+    : `상대 속도 — 화면 가로 길이를 넣으면 km/h로 바뀝니다`;
   el.speedTolerance.textContent = r.tolerance > 0 ? `± ${r.tolerance.toFixed(2)} km/h` : '';
-  el.speedDt.textContent = `${r.dtMs.toFixed(1)} ms · ${r.direction === 'AB' ? 'A→B' : 'B→A'}`;
+  el.speedDt.textContent = `${r.dtMs.toFixed(0)} ms · ${directionText(r)}`;
   updateScaleLine();
   if (!flash) return;
   el.readout.classList.remove('flash');
@@ -1425,29 +1901,44 @@ function renderRecords() {
     el.lastSpeed.textContent = '--';
     return;
   }
-  const best = Math.max(...records.map((r) => r.kmh));
-  const avg = records.reduce((a, r) => a + r.kmh, 0) / records.length;
-  el.bestSpeed.textContent = `${best.toFixed(1)}`;
-  el.avgSpeed.textContent = `${avg.toFixed(1)}`;
-  el.lastSpeed.textContent = `${records[0].kmh.toFixed(1)}`;
+  // km/h 기록과 상대 속도 기록이 섞여 있으면 최근 기록과 같은 단위끼리만 요약한다.
+  const absolute = records[0].kmh != null;
+  const same = records.filter((r) => (r.kmh != null) === absolute);
+  const valueOf = (r) => (absolute ? r.kmh : r.fwps ?? 0);
+  const best = Math.max(...same.map(valueOf));
+  const avg = same.reduce((a, r) => a + valueOf(r), 0) / same.length;
+  const fmt = (v) => (absolute ? v.toFixed(1) : v.toFixed(2));
+  el.bestSpeed.textContent = fmt(best);
+  el.avgSpeed.textContent = fmt(avg);
+  el.lastSpeed.textContent = fmt(valueOf(records[0]));
 
   el.records.innerHTML = records
     .map((r, i) => {
       const time = new Date(r.at).toLocaleTimeString('ko-KR', { hour12: false });
+      const label = speedLabel(r);
+      const second = r.mps != null ? `${r.mps.toFixed(2)} m/s` : `${(r.fwps ?? 0).toFixed(2)} 화면폭/초`;
       return `<li>
         <span class="idx">${i + 1}</span>
-        <span class="spd">${r.kmh.toFixed(2)} km/h</span>
-        <span>${r.mps.toFixed(2)} m/s</span>
-        <span class="meta">${r.dtMs.toFixed(0)}ms · ${r.direction === 'AB' ? 'A→B' : 'B→A'} · ${time}</span>
+        <span class="spd">${label.value} ${label.unit}</span>
+        <span>${r.kmh != null ? second : ''}</span>
+        <span class="meta">${r.dtMs.toFixed(0)}ms · ${directionText(r)} · ${time}</span>
       </li>`;
     })
     .join('');
 }
 
 function recordsToCsv() {
-  const header = '측정시각,속도(km/h),속도(m/s),통과시간(ms),거리(m),방향';
+  const header = '측정시각,속도(km/h),속도(m/s),상대속도(화면폭/초),통과시간(ms),기준길이(m),방향';
   const rows = records.map((r) =>
-    [new Date(r.at).toISOString(), r.kmh.toFixed(3), r.mps.toFixed(3), r.dtMs.toFixed(1), r.distance, r.direction].join(','),
+    [
+      new Date(r.at).toISOString(),
+      r.kmh != null ? r.kmh.toFixed(3) : '',
+      r.mps != null ? r.mps.toFixed(3) : '',
+      (r.fwps ?? '') === '' ? '' : r.fwps.toFixed(4),
+      r.dtMs.toFixed(1),
+      r.distance,
+      r.direction,
+    ].join(','),
   );
   return [header, ...rows].join('\n');
 }
@@ -1673,9 +2164,20 @@ for (const input of [el.gateA, el.gateB, el.roiStart, el.roiEnd, el.sensitivity,
   input.addEventListener('input', () =>
     onSettingChanged({ resetDetector: input === el.sensitivity || input === el.bandWidth }));
 }
-for (const input of [el.distance, el.distanceUnit, el.sound, el.vibrate, el.showMask]) {
+for (const input of [el.distance, el.distanceUnit, el.viewWidth, el.viewWidthUnit, el.sound, el.vibrate, el.showMask]) {
   input.addEventListener('change', () => onSettingChanged());
 }
+
+el.mode.addEventListener('click', (evt) => {
+  const btn = evt.target.closest('button[data-value]');
+  if (!btn) return;
+  settings.mode = btn.dataset.value;
+  for (const b of el.mode.querySelectorAll('button')) b.classList.toggle('on', b === btn);
+  applyModeToUI();
+  onSettingChanged({ resetDetector: true });
+  signal.peaks = [];
+  if (mode !== 'idle') setStatus(settings.mode === 'auto' ? '자동 추적으로 측정합니다' : '기준선 2개로 측정합니다', 'ok');
+});
 
 el.orientation.addEventListener('click', (evt) => {
   const btn = evt.target.closest('button[data-value]');

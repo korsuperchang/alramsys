@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v10 · 손·차 구분';
+const APP_VERSION = 'v11 · 방향 무관 추적';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -243,7 +243,7 @@ function applyModeToUI() {
   for (const node of document.querySelectorAll('.auto-only')) node.hidden = !auto;
   el.btnCalibrate.hidden = auto;
   el.modeHint.textContent = auto
-    ? '움직이는 것을 찾아 따라가며 속도를 냅니다. 맞출 것도, 넘어야 할 문턱도 없습니다.'
+    ? '움직이는 것을 찾아 따라가며 속도를 냅니다. 좌우·상하·대각선 어느 방향이든 그대로 잽니다.'
     : '두 기준선을 지나는 시간을 잽니다. 거리를 정확히 재면 가장 정확합니다.';
   el.labA.textContent = auto ? '움직임' : 'A';
   el.labB.textContent = auto ? '위치' : 'B';
@@ -273,11 +273,8 @@ function collectSettings() {
 }
 
 function applySettingsToDetector({ reset = false } = {}) {
-  tracker.configure({
-    // 게이트의 '세로선'은 자동차가 좌우로 움직인다는 뜻이다.
-    axis: settings.orientation === 'vertical' ? 'horizontal' : 'vertical',
-    ...sensitivityToTrackerOptions(settings.sensitivity),
-  });
+  // 자동 추적은 가로·세로를 함께 보므로 진행 방향을 고를 필요가 없다.
+  tracker.configure(sensitivityToTrackerOptions(settings.sensitivity));
   if (reset) tracker.reset();
   detector.configure({
     orientation: settings.orientation,
@@ -369,9 +366,11 @@ function trackAutoSignal(result) {
   el.sigA.textContent = pct(result.coverage);
   el.sigA.parentElement.classList.toggle('hot', result.coverage >= needed && !result.shaking);
   el.barA.style.width = `${Math.min(100, (result.coverage / needed) * 100)}%`;
-  el.sigB.textContent = result.centroid == null ? '--' : pct(result.centroid);
+  el.sigB.textContent = result.centroid
+    ? `${Math.round(result.centroid.x * 100)},${Math.round(result.centroid.y * 100)}`
+    : '--';
   el.sigB.parentElement.classList.toggle('hot', result.tracking);
-  el.barB.style.width = `${result.centroid == null ? 0 : result.centroid * 100}%`;
+  el.barB.style.width = `${result.centroid ? result.centroid.x * 100 : 0}%`;
   el.sigThr.textContent = pct(needed);
   el.sigPeak.textContent = pct(peak);
 
@@ -442,19 +441,17 @@ function drawAutoOverlay(result) {
   octx.clearRect(0, 0, W, H);
   if (mode === 'idle') return;
 
-  const horizontal = tracker.opts.axis === 'horizontal';
-  const axisLen = horizontal ? W : H;
+  const aspect = H / W;
 
-  // 지나온 자취
+  // 지나온 자취 (가로·세로 모두)
   const samples = tracker.track?.samples;
   if (samples && samples.length > 1) {
-    octx.strokeStyle = 'rgba(74, 168, 255, 0.8)';
+    octx.strokeStyle = 'rgba(74, 168, 255, 0.85)';
     octx.lineWidth = 3;
     octx.beginPath();
     samples.forEach((sample, i) => {
-      const a = sample.p * axisLen;
-      const x = horizontal ? a : W / 2;
-      const y = horizontal ? H / 2 : a;
+      const x = sample.x * W;
+      const y = (sample.y / aspect) * H;
       if (i === 0) octx.moveTo(x, y);
       else octx.lineTo(x, y);
     });
@@ -462,27 +459,24 @@ function drawAutoOverlay(result) {
   }
 
   if (result.box) {
-    const from = result.box.min * axisLen;
-    const to = result.box.max * axisLen;
+    const bx = result.box.x0 * W;
+    const by = result.box.y0 * H;
+    const bw = (result.box.x1 - result.box.x0) * W;
+    const bh = (result.box.y1 - result.box.y0) * H;
     octx.fillStyle = 'rgba(53, 208, 127, 0.18)';
     octx.strokeStyle = '#35d07f';
     octx.lineWidth = 3;
-    if (horizontal) {
-      octx.fillRect(from, 0, to - from, H);
-      octx.strokeRect(from, 2, to - from, H - 4);
-    } else {
-      octx.fillRect(0, from, W, to - from);
-      octx.strokeRect(2, from, W - 4, to - from);
-    }
+    octx.fillRect(bx, by, bw, bh);
+    octx.strokeRect(bx, by, bw, bh);
   }
 
-  if (result.centroid != null) {
-    const a = result.centroid * axisLen;
+  if (result.centroid) {
+    const cx = result.centroid.x * W;
+    const cy = (result.centroid.y / aspect) * H;
     octx.strokeStyle = '#fff';
     octx.lineWidth = 2;
     octx.beginPath();
-    if (horizontal) { octx.moveTo(a, 0); octx.lineTo(a, H); }
-    else { octx.moveTo(0, a); octx.lineTo(W, a); }
+    octx.arc(cx, cy, Math.max(6, W / 40), 0, Math.PI * 2);
     octx.stroke();
   }
 
@@ -846,8 +840,12 @@ function speedLabel(r) {
 }
 
 function directionText(r) {
-  if (r.direction === 'AB' || r.direction === 'LR') return '→';
-  return '←';
+  switch (r.direction) {
+    case 'AB': case 'LR': return '→';
+    case 'TB': return '↓';
+    case 'BT': return '↑';
+    default: return '←';
+  }
 }
 
 function showSpeed(r, { flash = true } = {}) {

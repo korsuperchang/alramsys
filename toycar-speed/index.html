@@ -71,7 +71,7 @@
         <button type="button" data-value="auto" class="on">자동 추적 (간편)</button>
         <button type="button" data-value="gates">기준선 2개 (정밀)</button>
       </div>
-      <p class="hint" id="modeHint">움직이는 것을 찾아 따라가며 속도를 냅니다. 맞출 것도, 넘어야 할 문턱도 없습니다.</p>
+      <p class="hint" id="modeHint">움직이는 것을 찾아 따라가며 속도를 냅니다. 좌우·상하·대각선 어느 방향이든 그대로 잽니다.</p>
     </div>
 
     <div class="field auto-only" id="fieldView">
@@ -83,7 +83,7 @@
           <option value="1">m</option>
         </select>
       </div>
-      <p class="hint">화면 왼쪽 끝에서 오른쪽 끝까지가 바닥에서 몇 cm인지 재서 넣으면 km/h로 바꿔 줍니다.
+      <p class="hint">화면 왼쪽 끝에서 오른쪽 끝까지가 바닥에서 몇 cm인지 재서 넣으면 km/h로 바꿔 줍니다. (위아래로 움직여도 가로 길이를 넣으면 됩니다)
       <b>비워 두면 상대 속도</b>(초당 화면폭 배수)로만 나오고, 그것만으로도 어느 쪽이 빠른지는 비교됩니다.</p>
     </div>
 
@@ -99,7 +99,7 @@
       <p class="hint">바닥에 자로 재서 표시한 두 지점 사이의 실제 거리입니다. 이 값이 정확해야 속도도 정확합니다.</p>
     </div>
 
-    <div class="field">
+    <div class="field gate-only">
       <label>자동차 진행 방향</label>
       <div class="segmented" id="orientation">
         <button type="button" data-value="vertical" class="on">좌우로 이동</button>
@@ -167,7 +167,8 @@
     <h2>사용법</h2>
     <ol class="howto">
       <li>핸드폰을 <b>고정</b>하고(삼각대·컵·책 무엇이든), 주행 경로를 <b>옆에서</b> 바라보게 둡니다.</li>
-      <li><b>자동 추적</b> 방식이면 이것으로 준비 끝입니다. 자동차를 굴리면 화면을 가로지르는 동안 위치를 따라가 속도를 냅니다.</li>
+      <li><b>자동 추적</b> 방식이면 이것으로 준비 끝입니다. 자동차를 굴리면 화면을 지나는 동안 위치를 따라가 속도를 냅니다.
+      좌우로 가든 위아래로 내려오든 비스듬하든 <b>방향은 신경 쓰지 않아도 됩니다.</b></li>
       <li>km/h로 보고 싶으면 화면에 담긴 바닥의 <b>가로 길이</b>만 재서 넣으세요. 비워 두면 상대 속도로 나옵니다.</li>
       <li>더 정확한 값이 필요하면 <b>기준선 2개</b> 방식으로 바꾸고, 바닥 두 지점의 실제 거리를 입력한 뒤 A·B 선을 그 지점에 맞춥니다.</li>
     </ol>

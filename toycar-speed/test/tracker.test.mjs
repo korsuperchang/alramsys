@@ -72,6 +72,42 @@ test('두 배 빠른 자동차는 두 배의 속도로 나온다', () => {
   assert.ok(Math.abs(ratio - 2) < 0.2, `배율 ${ratio.toFixed(2)}`);
 });
 
+test('위에서 아래로 내려오는 자동차도 설정 없이 잡는다', () => {
+  // 경사로를 내려오는 것처럼 찍으면 화면에서 위→아래로 움직인다.
+  // 진행 방향을 따로 고르지 않아도 같은 자로 재야 한다.
+  const tr = new MotionTracker();
+  const speed = 4; // px/frame
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    ...Array.from({ length: 26 }, (_, i) => frame({ carX: 70, carW: 20, carTop: 5 + i * speed, carH: 10 })),
+    ...Array.from({ length: 10 }, () => frame()),
+  ];
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].direction, 'TB');
+  // 세로도 가로와 같은 자(화면 폭)로 재므로 기대값 공식은 같다
+  const expected = (speed / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
+});
+
+test('비스듬히 내려오는 자동차는 두 방향을 합친 속도로 잰다', () => {
+  // 가로 4px + 세로 3px = 실제로는 5px씩 움직이는 셈이다.
+  const tr = new MotionTracker();
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    ...Array.from({ length: 26 }, (_, i) => frame({ carX: 10 + i * 4, carW: 16, carTop: 10 + i * 3, carH: 10 })),
+    ...Array.from({ length: 10 }, () => frame()),
+  ];
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1);
+  const expected = (5 / (W - 1)) * FPS;   // √(4² + 3²)
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
+  // 한 축만 봤다면 4/5 = 80%로 과소평가된다
+  assert.ok(passes[0].fwps > (4.4 / (W - 1)) * FPS, '한 축만 보고 있다');
+});
+
 test('반대 방향으로 지나가면 방향이 RL로 나온다', () => {
   const tr = new MotionTracker();
   const frames = [...Array.from({ length: 20 }, () => frame())];

@@ -24,8 +24,6 @@ export const TRACKER_DEFAULTS = {
   stabilize: true,
   /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 측정을 멈춘다 */
   maxShakeMagnitude: 5,
-  /** 진행 축: 'horizontal'이면 좌우 이동, 'vertical'이면 상하 이동 */
-  axis: 'horizontal',
   /** 이만큼 이상 밝기가 달라지면 움직임 픽셀로 본다 */
   pixelThreshold: 26,
   /**
@@ -73,19 +71,19 @@ export const TRACKER_DEFAULTS = {
   maxJumpRatio: 0.3,
 };
 
-/** 표본 (t초, 위치 0~1)에 직선을 맞춘다. 기울기가 곧 속도(화면폭/초). */
-export function fitLine(samples) {
+/** 표본 (t초, 위치)에 직선을 맞춘다. 기울기가 곧 속도(화면폭/초). */
+export function fitLine(samples, key = 'p') {
   const n = samples.length;
   let st = 0;
   let sp = 0;
-  for (const s of samples) { st += s.t; sp += s.p; }
+  for (const s of samples) { st += s.t; sp += s[key]; }
   const mt = st / n;
   const mp = sp / n;
   let num = 0;
   let den = 0;
   for (const s of samples) {
     const dt = s.t - mt;
-    num += dt * (s.p - mp);
+    num += dt * (s[key] - mp);
     den += dt * dt;
   }
   if (den === 0) return { slope: 0, intercept: mp, r2: 0 };
@@ -95,8 +93,8 @@ export function fitLine(samples) {
   let ssTot = 0;
   for (const s of samples) {
     const pred = slope * s.t + intercept;
-    ssRes += (s.p - pred) ** 2;
-    ssTot += (s.p - mp) ** 2;
+    ssRes += (s[key] - pred) ** 2;
+    ssTot += (s[key] - mp) ** 2;
   }
   return { slope, intercept, r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot };
 }
@@ -106,20 +104,41 @@ export function fitLine(samples) {
  * 통과 앞뒤에 잔 움직임 한두 개가 끼면 그것만으로 적합도가 무너지는데,
  * 실제 통과는 대다수 표본이 만드는 직선 쪽이다.
  */
-export function fitLineRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
+export function fitPathRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
   let kept = samples;
-  let fit = fitLine(kept);
+  let fx = fitLine(kept, 'x');
+  let fy = fitLine(kept, 'y');
   for (let r = 0; r < rounds; r++) {
     if (kept.length < 6) break;
-    const residuals = kept.map((s) => Math.abs(s.p - (fit.slope * s.t + fit.intercept)));
+    // 두 축을 함께 본 거리로 벗어난 정도를 잰다
+    const residuals = kept.map((s) => Math.hypot(
+      s.x - (fx.slope * s.t + fx.intercept),
+      s.y - (fy.slope * s.t + fy.intercept),
+    ));
     const sorted = [...residuals].sort((a, b) => a - b);
     const cut = sorted[Math.max(0, Math.floor(sorted.length * keepRatio) - 1)];
     const next = kept.filter((_, i) => residuals[i] <= cut + 1e-9);
     if (next.length < 4 || next.length === kept.length) break;
     kept = next;
-    fit = fitLine(kept);
+    fx = fitLine(kept, 'x');
+    fy = fitLine(kept, 'y');
   }
-  return { ...fit, kept };
+  // 적합도는 두 축을 합쳐서 본다 (움직이지 않는 축은 분모가 작아 R²가 무의미해진다)
+  let ssRes = 0;
+  let ssTot = 0;
+  const mx = kept.reduce((a, s) => a + s.x, 0) / kept.length;
+  const my = kept.reduce((a, s) => a + s.y, 0) / kept.length;
+  for (const s of kept) {
+    ssRes += (s.x - (fx.slope * s.t + fx.intercept)) ** 2 + (s.y - (fy.slope * s.t + fy.intercept)) ** 2;
+    ssTot += (s.x - mx) ** 2 + (s.y - my) ** 2;
+  }
+  return {
+    vx: fx.slope,
+    vy: fy.slope,
+    speed: Math.hypot(fx.slope, fy.slope),
+    r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot,
+    kept,
+  };
 }
 
 export class MotionTracker {
@@ -157,19 +176,26 @@ export class MotionTracker {
   _isJump(centroid, timeMs) {
     const samples = this.track.samples;
     const last = samples[samples.length - 1];
-    let expected = last.p;
+    const t = timeMs / 1000;
+    let ex = last.x;
+    let ey = last.y;
     if (samples.length >= 2) {
       const prev = samples[samples.length - 2];
       const dt = last.t - prev.t;
-      if (dt > 0) expected = last.p + ((last.p - prev.p) / dt) * (timeMs / 1000 - last.t);
+      if (dt > 0) {
+        ex = last.x + ((last.x - prev.x) / dt) * (t - last.t);
+        ey = last.y + ((last.y - prev.y) / dt) * (t - last.t);
+      }
     }
-    return Math.abs(centroid - expected) > this.opts.maxJumpRatio;
+    return Math.hypot(centroid.x - ex, centroid.y - ey) > this.opts.maxJumpRatio;
   }
 
-  _profileFor(axisLen) {
-    if (!this._profile || this._profile.length !== axisLen) this._profile = new Int32Array(axisLen);
-    else this._profile.fill(0);
-    return this._profile;
+  _profileFor(key, axisLen) {
+    if (!this._profiles) this._profiles = {};
+    const cur = this._profiles[key];
+    if (!cur || cur.length !== axisLen) this._profiles[key] = new Int32Array(axisLen);
+    else cur.fill(0);
+    return this._profiles[key];
   }
 
   /**
@@ -240,11 +266,10 @@ export class MotionTracker {
     const offY = shift.offY;
 
     const thr = o.pixelThreshold;
-    const horizontal = o.axis === 'horizontal';
-    const axisLen = horizontal ? width : height;
-    // 진행 축 위치별 움직임 픽셀 수. 바닥 무늬에서 오는 잡음은 화면 전체에 얇게
+    // 가로·세로 위치별 움직임 픽셀 수. 바닥 무늬에서 오는 잡음은 화면 전체에 얇게
     // 퍼지지만 자동차는 한곳에 뭉치므로, 가장 두꺼운 덩어리만 골라내면 구분된다.
-    const profile = this._profileFor(axisLen);
+    const profileX = this._profileFor('x', width);
+    const profileY = this._profileFor('y', height);
     let total0 = 0;
 
     // 어긋난 만큼은 비교할 짝이 없으므로 아예 보지 않는다.
@@ -259,7 +284,8 @@ export class MotionTracker {
         for (let x = x0; x < x1; x++) {
           const diff = gray[row + x] - ref[refRow + x];
           if (diff > thr || diff < -thr) {
-            profile[horizontal ? x : y]++;
+            profileX[x]++;
+            profileY[y]++;
             total0++;
           }
         }
@@ -267,7 +293,9 @@ export class MotionTracker {
     }
 
     const total = Math.max(1, (y1 - y0) * (x1 - x0));
-    const blob = this._dominantBlob(profile, axisLen);
+    const blobX = this._dominantBlob(profileX, width);
+    const blobY = this._dominantBlob(profileY, height);
+    const blob = blobX && blobY ? { mass: Math.min(blobX.mass, blobY.mass) } : null;
     const coverage = blob ? blob.mass / total : 0;
     this.coverage = coverage;
 
@@ -283,8 +311,16 @@ export class MotionTracker {
     const shaking = total0 / total > o.maxPixelRatio || saturated;
     const usable = enough && !shaking && !this.isWarmingUp;
 
-    this.centroid = usable ? blob.centroid / (axisLen - 1) : null;
-    this.box = usable ? { min: blob.lo / (axisLen - 1), max: blob.hi / (axisLen - 1) } : null;
+    // 위치는 화면 가로 폭을 1로 놓고 잰다. 세로도 같은 자로 재야 비스듬한 움직임의
+    // 속도가 제대로 나온다 (세로 1픽셀과 가로 1픽셀은 실제로 같은 길이다).
+    const aspect = (height - 1) / (width - 1);
+    this.centroid = usable ? { x: blobX.centroid / (width - 1), y: (blobY.centroid / (height - 1)) * aspect } : null;
+    this.box = usable
+      ? {
+        x0: blobX.lo / (width - 1), x1: blobX.hi / (width - 1),
+        y0: blobY.lo / (height - 1), y1: blobY.hi / (height - 1),
+      }
+      : null;
 
     let pass = null;
     let rejected = null;
@@ -298,7 +334,7 @@ export class MotionTracker {
       }
       if (!this.track) this.track = { samples: [], gap: 0, cameraMoved: false };
       this.track.gap = 0;
-      this.track.samples.push({ t: timeMs / 1000, p: this.centroid });
+      this.track.samples.push({ t: timeMs / 1000, x: this.centroid.x, y: this.centroid.y });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
         // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
         rejected = { reason: 'tooLong', samples: this.track.samples.length };
@@ -346,28 +382,33 @@ export class MotionTracker {
     this.track = null;
     if (samples.length < 2) return null; // 스쳐 지나간 잡음, 알릴 것도 없다
 
-    const { slope, r2, kept } = fitLineRobust(samples);
+    const { vx, vy, speed, r2, kept } = fitPathRobust(samples);
     const durationMs = (kept[kept.length - 1].t - kept[0].t) * 1000;
     // 이동 거리는 양 끝 표본이 아니라 맞춘 직선으로 잰다. 통과 앞뒤에 잔 움직임이
     // 하나 끼면 양 끝만 보는 방식은 실제로 가로지른 거리를 통째로 놓친다.
-    const travel = slope * (durationMs / 1000);
+    const travel = speed * (durationMs / 1000);
 
     if (kept.length < o.minSamples) {
-      return { reason: 'tooFast', samples: kept.length, travel: Math.abs(travel), durationMs };
+      return { reason: 'tooFast', samples: kept.length, travel, durationMs };
     }
-    if (Math.abs(travel) < o.minTravelRatio) {
-      return { reason: 'tooShort', samples: kept.length, travel: Math.abs(travel), durationMs };
+    if (travel < o.minTravelRatio) {
+      return { reason: 'tooShort', samples: kept.length, travel, durationMs };
     }
     if (r2 < o.minR2) {
-      return { reason: 'notSteady', samples: kept.length, travel: Math.abs(travel), r2, durationMs };
+      return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
     }
     if (durationMs <= 0) return null;
 
     return {
-      /** 초당 화면 폭의 몇 배로 움직였는가 (부호는 방향) */
-      fwps: Math.abs(slope),
-      direction: slope >= 0 ? 'LR' : 'RL',
-      travel: Math.abs(travel),
+      /** 초당 화면 폭의 몇 배로 움직였는가 */
+      fwps: speed,
+      vx,
+      vy,
+      /** 주된 진행 방향 */
+      direction: Math.abs(vx) >= Math.abs(vy)
+        ? (vx >= 0 ? 'LR' : 'RL')
+        : (vy >= 0 ? 'TB' : 'BT'),
+      travel,
       durationMs,
       r2,
       samples: kept.length,

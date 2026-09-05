@@ -1113,6 +1113,15 @@ const TRACKER_DEFAULTS = {
   /** 한 번의 통과가 이보다 길면 버린다 */
   maxDurationMs: 8000,
   /**
+   * 지나가는 동안 물체의 크기가 이 배수 넘게 커지거나(1/배수 아래로 작아지면)
+   * 카메라 쪽으로 다가오는(멀어지는) 것으로 본다.
+   * 이 방향은 화면에서 위치가 거의 변하지 않고 크기만 변해서, 화면상의 이동으로는
+   * 속도를 낼 수 없다. 잘못된 값을 내놓는 대신 왜 안 되는지 알려 준다.
+   */
+  depthGrowthRatio: 2,
+  /** 크기 변화를 판단하기 위해 필요한, 화면 안에 온전히 들어온 표본 수 */
+  minDepthSamples: 6,
+  /**
    * 다음 프레임에서 물체가 이만큼(축 길이 대비) 넘게 튀면 다른 물체로 본다.
    * 자동차를 굴려 주는 손이 화면 한쪽에서 움직이다가 자동차가 반대쪽에 나타나면,
    * 이 둘을 한 통과로 묶어 버려서 아무것도 측정하지 못한다.
@@ -1188,6 +1197,24 @@ function fitPathRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
     r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot,
     kept,
   };
+}
+
+/**
+ * 통과하는 동안 물체가 얼마나 커졌는지(작아졌는지) 잰다.
+ * 옆에서 본 통과는 크기가 거의 그대로지만, 다가오는 물체는 몇 배로 커진다.
+ * 화면 가장자리에 걸쳐 잘려 보이는 프레임은 빼고 본다.
+ */
+function measureGrowth(samples, minSamples = 6) {
+  const sizes = samples.map((s) => s.size).filter((v) => typeof v === 'number' && v > 0);
+  if (sizes.length < minSamples) return null;
+  const third = Math.max(1, Math.floor(sizes.length / 3));
+  const median = (arr) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    return sorted[sorted.length >> 1];
+  };
+  const first = median(sizes.slice(0, third));
+  const last = median(sizes.slice(-third));
+  return first > 0 ? last / first : null;
 }
 
 class MotionTracker {
@@ -1383,7 +1410,15 @@ class MotionTracker {
       }
       if (!this.track) this.track = { samples: [], gap: 0, cameraMoved: false };
       this.track.gap = 0;
-      this.track.samples.push({ t: timeMs / 1000, x: this.centroid.x, y: this.centroid.y });
+      // 화면 가장자리에 걸친 프레임은 크기 판단에서 뺀다 (들어오고 나가는 중이라 잘려 보인다).
+      const b = this.box;
+      const whole = b.x0 > 0.02 && b.x1 < 0.98 && b.y0 > 0.02 && b.y1 < 0.98;
+      this.track.samples.push({
+        t: timeMs / 1000,
+        x: this.centroid.x,
+        y: this.centroid.y,
+        size: whole ? coverage : null,
+      });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
         // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
         rejected = { reason: 'tooLong', samples: this.track.samples.length };
@@ -1445,6 +1480,10 @@ class MotionTracker {
     }
     if (r2 < o.minR2) {
       return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
+    }
+    const growth = measureGrowth(kept, o.minDepthSamples);
+    if (growth !== null && (growth > o.depthGrowthRatio || growth < 1 / o.depthGrowthRatio)) {
+      return { reason: 'towardCamera', samples: kept.length, travel, growth, durationMs };
     }
     if (durationMs <= 0) return null;
 
@@ -1543,7 +1582,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v11 · 방향 무관 추적';
+const APP_VERSION = 'v12 · 정면 구도 안내';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1880,7 +1919,7 @@ function explainRejection(r) {
   // 표본 두엇에 이동도 거의 없는 것은 자동차가 아니라 그림자·잔떨림이다.
   // 그걸 "너무 빨리 지나갔다"고 알리면, 자동차를 놓친 것처럼 읽혀 오해만 만든다.
   // 이동이 화면의 5%도 안 되는 것은 자동차가 지나간 시도가 아니라 잔 움직임이다.
-  const noiseBlip = (r.travel ?? 0) < 0.05;
+  const noiseBlip = (r.travel ?? 0) < 0.05 && r.reason !== 'towardCamera';
   if (noiseBlip) return;
 
   const messages = {
@@ -1893,12 +1932,17 @@ function explainRejection(r) {
       손·그림자가 함께 잡혔거나, 갔다가 되돌아왔을 수 있습니다.`,
     tooLong: `화면 안에 계속 움직이는 것이 있어 <b>한 번의 통과를 구분하지 못했습니다.</b>
       자동차 말고 움직이는 것을 화면에서 치워 주세요.`,
+    towardCamera: `자동차가 <b>카메라 쪽으로 다가오고(멀어지고) 있습니다.</b>
+      지나가는 동안 크기가 ${(r.growth ?? 0).toFixed(1)}배로 변했습니다.
+      이 방향은 화면에서 위치가 거의 변하지 않아 속도를 낼 수 없습니다 —
+      <b>주행 경로를 옆에서 보도록</b> 폰을 옮겨 주세요.`,
   };
   const short = {
     tooFast: `너무 빠름 — 표본 ${r.samples}개 (최소 ${tracker.opts.minSamples}개)`,
     tooShort: `이동 ${(r.travel * 100).toFixed(0)}% — 화면의 10% 이상 지나가야 합니다`,
     notSteady: `움직임이 불규칙 — R² ${(r.r2 ?? 0).toFixed(2)} (최소 0.80)`,
     tooLong: '한 번의 통과를 구분하지 못했습니다',
+    towardCamera: '카메라 쪽으로 다가오는 방향입니다 — 옆에서 찍어 주세요',
   };
   const text = messages[r.reason];
   if (!text) return;

@@ -256,6 +256,52 @@ test('정상 통과에는 거절 이유가 붙지 않는다', () => {
   assert.equal(rejected, 0);
 });
 
+test('카메라를 향해 다가오는 구도는 재지 않고 이유를 알려 준다', () => {
+  // 경사로를 내려와 카메라 쪽으로 오는 장면. 화면에서 위치는 거의 그대로인데
+  // 크기만 몇 배로 커진다. 이때 화면상의 이동으로 낸 속도는 의미가 없다.
+  const tr = new MotionTracker();
+  // 실제 영상과 같은 모양새: 화면 아래로 내려오면서 크기가 몇 배로 커진다
+  const frames = [...Array.from({ length: 20 }, () => frame())];
+  const steps = 14;
+  for (let i = 0; i < steps; i++) {
+    const u = i / (steps - 1);
+    const size = 8 + 56 * u;              // 8px → 64px (다가오는 중)
+    const top = 12 + 60 * u;
+    frames.push(frame({
+      carX: Math.round(78 - size / 2),
+      carW: Math.round(size),
+      carTop: Math.round(top),
+      carH: Math.round(size * 0.7),
+    }));
+  }
+  frames.push(...Array.from({ length: 8 }, () => frame()));
+
+  const rejected = [];
+  const passes = [];
+  let t = 0;
+  for (const f of frames) {
+    const r = tr.update(f, W, H, t);
+    if (r.pass) passes.push(r.pass);
+    if (r.rejected) rejected.push(r.rejected);
+    t += FRAME_MS;
+  }
+  assert.equal(passes.length, 0, '다가오는 구도에서 속도를 내놓으면 안 된다');
+  assert.ok(rejected.some((r) => r.reason === 'towardCamera'),
+    `이유=${rejected.map((r) => r.reason).join(',') || '없음'}`);
+});
+
+test('옆에서 지나가는 통과는 크기가 그대로라 정상 측정된다', () => {
+  // 위 판정이 옆에서 찍은 정상 통과를 막지 않는지 확인한다.
+  const tr = new MotionTracker();
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    ...Array.from({ length: 24 }, (_, i) => frame({ carX: 10 + i * 6, carW: 16, carTop: 50, carH: 12 })),
+    ...Array.from({ length: 8 }, () => frame()),
+  ];
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1, '옆에서 지나가는 통과까지 막으면 안 된다');
+});
+
 test('굴려 주는 손과 자동차를 다른 것으로 구분한다', () => {
   // 실제 촬영에서 측정이 실패하던 또 다른 상황:
   // 화면 왼쪽에서 손이 20프레임쯤 꼼지락거린 뒤, 자동차가 오른쪽에서 나타나 가로지른다.

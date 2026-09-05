@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v11 · 방향 무관 추적';
+const APP_VERSION = 'v12 · 정면 구도 안내';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -405,7 +405,7 @@ function explainRejection(r) {
   // 표본 두엇에 이동도 거의 없는 것은 자동차가 아니라 그림자·잔떨림이다.
   // 그걸 "너무 빨리 지나갔다"고 알리면, 자동차를 놓친 것처럼 읽혀 오해만 만든다.
   // 이동이 화면의 5%도 안 되는 것은 자동차가 지나간 시도가 아니라 잔 움직임이다.
-  const noiseBlip = (r.travel ?? 0) < 0.05;
+  const noiseBlip = (r.travel ?? 0) < 0.05 && r.reason !== 'towardCamera';
   if (noiseBlip) return;
 
   const messages = {
@@ -418,12 +418,17 @@ function explainRejection(r) {
       손·그림자가 함께 잡혔거나, 갔다가 되돌아왔을 수 있습니다.`,
     tooLong: `화면 안에 계속 움직이는 것이 있어 <b>한 번의 통과를 구분하지 못했습니다.</b>
       자동차 말고 움직이는 것을 화면에서 치워 주세요.`,
+    towardCamera: `자동차가 <b>카메라 쪽으로 다가오고(멀어지고) 있습니다.</b>
+      지나가는 동안 크기가 ${(r.growth ?? 0).toFixed(1)}배로 변했습니다.
+      이 방향은 화면에서 위치가 거의 변하지 않아 속도를 낼 수 없습니다 —
+      <b>주행 경로를 옆에서 보도록</b> 폰을 옮겨 주세요.`,
   };
   const short = {
     tooFast: `너무 빠름 — 표본 ${r.samples}개 (최소 ${tracker.opts.minSamples}개)`,
     tooShort: `이동 ${(r.travel * 100).toFixed(0)}% — 화면의 10% 이상 지나가야 합니다`,
     notSteady: `움직임이 불규칙 — R² ${(r.r2 ?? 0).toFixed(2)} (최소 0.80)`,
     tooLong: '한 번의 통과를 구분하지 못했습니다',
+    towardCamera: '카메라 쪽으로 다가오는 방향입니다 — 옆에서 찍어 주세요',
   };
   const text = messages[r.reason];
   if (!text) return;

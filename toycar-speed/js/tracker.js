@@ -64,6 +64,15 @@ export const TRACKER_DEFAULTS = {
   /** 한 번의 통과가 이보다 길면 버린다 */
   maxDurationMs: 8000,
   /**
+   * 지나가는 동안 물체의 크기가 이 배수 넘게 커지거나(1/배수 아래로 작아지면)
+   * 카메라 쪽으로 다가오는(멀어지는) 것으로 본다.
+   * 이 방향은 화면에서 위치가 거의 변하지 않고 크기만 변해서, 화면상의 이동으로는
+   * 속도를 낼 수 없다. 잘못된 값을 내놓는 대신 왜 안 되는지 알려 준다.
+   */
+  depthGrowthRatio: 2,
+  /** 크기 변화를 판단하기 위해 필요한, 화면 안에 온전히 들어온 표본 수 */
+  minDepthSamples: 6,
+  /**
    * 다음 프레임에서 물체가 이만큼(축 길이 대비) 넘게 튀면 다른 물체로 본다.
    * 자동차를 굴려 주는 손이 화면 한쪽에서 움직이다가 자동차가 반대쪽에 나타나면,
    * 이 둘을 한 통과로 묶어 버려서 아무것도 측정하지 못한다.
@@ -139,6 +148,24 @@ export function fitPathRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
     r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot,
     kept,
   };
+}
+
+/**
+ * 통과하는 동안 물체가 얼마나 커졌는지(작아졌는지) 잰다.
+ * 옆에서 본 통과는 크기가 거의 그대로지만, 다가오는 물체는 몇 배로 커진다.
+ * 화면 가장자리에 걸쳐 잘려 보이는 프레임은 빼고 본다.
+ */
+export function measureGrowth(samples, minSamples = 6) {
+  const sizes = samples.map((s) => s.size).filter((v) => typeof v === 'number' && v > 0);
+  if (sizes.length < minSamples) return null;
+  const third = Math.max(1, Math.floor(sizes.length / 3));
+  const median = (arr) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    return sorted[sorted.length >> 1];
+  };
+  const first = median(sizes.slice(0, third));
+  const last = median(sizes.slice(-third));
+  return first > 0 ? last / first : null;
 }
 
 export class MotionTracker {
@@ -334,7 +361,15 @@ export class MotionTracker {
       }
       if (!this.track) this.track = { samples: [], gap: 0, cameraMoved: false };
       this.track.gap = 0;
-      this.track.samples.push({ t: timeMs / 1000, x: this.centroid.x, y: this.centroid.y });
+      // 화면 가장자리에 걸친 프레임은 크기 판단에서 뺀다 (들어오고 나가는 중이라 잘려 보인다).
+      const b = this.box;
+      const whole = b.x0 > 0.02 && b.x1 < 0.98 && b.y0 > 0.02 && b.y1 < 0.98;
+      this.track.samples.push({
+        t: timeMs / 1000,
+        x: this.centroid.x,
+        y: this.centroid.y,
+        size: whole ? coverage : null,
+      });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
         // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
         rejected = { reason: 'tooLong', samples: this.track.samples.length };
@@ -396,6 +431,10 @@ export class MotionTracker {
     }
     if (r2 < o.minR2) {
       return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
+    }
+    const growth = measureGrowth(kept, o.minDepthSamples);
+    if (growth !== null && (growth > o.depthGrowthRatio || growth < 1 / o.depthGrowthRatio)) {
+      return { reason: 'towardCamera', samples: kept.length, travel, growth, durationMs };
     }
     if (durationMs <= 0) return null;
 

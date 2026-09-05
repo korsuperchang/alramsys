@@ -35,6 +35,14 @@
       </div>
     </div>
 
+    <div class="signal" id="signal">
+      <div class="sig"><span class="k">A</span><span class="v" id="sigA">0.0%</span><i class="meter"><b id="barA"></b></i></div>
+      <div class="sig"><span class="k">B</span><span class="v" id="sigB">0.0%</span><i class="meter"><b id="barB"></b></i></div>
+      <div class="sig"><span class="k">기준</span><span class="v" id="sigThr">--</span></div>
+      <div class="sig"><span class="k">최근 최대</span><span class="v" id="sigPeak">0.0%</span></div>
+    </div>
+    <p class="signal-hint" id="signalHint">자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.</p>
+
     <div class="readout" id="readout">
       <div class="speed-main"><span id="speedValue">--</span><span class="unit">km/h</span></div>
       <div class="speed-sub">
@@ -49,6 +57,7 @@
   <div class="actions">
     <button id="btnCamera" class="btn primary">카메라 시작</button>
     <button id="btnFlip" class="btn">카메라 전환</button>
+    <button id="btnCalibrate" class="btn">자동 맞춤</button>
     <button id="btnDemo" class="btn">데모 모드</button>
     <button id="btnReset" class="btn">배경 재학습</button>
   </div>
@@ -92,9 +101,15 @@
     </div>
 
     <div class="field">
-      <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">5</span></label>
-      <input type="range" id="sensitivity" min="1" max="10" value="5">
-      <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.</p>
+      <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">12</span></label>
+      <input type="range" id="sensitivity" min="1" max="20" value="12">
+      <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.
+      <b>자동 맞춤</b>을 누르고 자동차를 두세 번 지나가게 하면 알아서 맞춰 줍니다.</p>
+
+      <label for="bandWidth">기준선 두께 <span class="val" id="bandWidthVal">3%</span></label>
+      <input type="range" id="bandWidth" min="1" max="12" value="3">
+      <p class="hint">아주 빠른 차는 얇은 선을 프레임 사이에 건너뛸 수 있습니다. 그럴 때 두껍게 하세요.
+      두께를 바꿔도 측정 거리는 선 중심 기준이라 값이 틀어지지 않습니다.</p>
     </div>
 
     <div class="field">

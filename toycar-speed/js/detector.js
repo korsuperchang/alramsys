@@ -38,6 +38,17 @@ export const DEFAULT_OPTIONS = {
   /** 두 게이트 통과 간격이 이 범위를 벗어나면 측정으로 인정하지 않는다 */
   minDtMs: 8,
   maxDtMs: 4000,
+  /**
+   * 두 게이트 사이(가운데 구간)를 실제로 지나갔는지 확인할 때 쓰는 문턱.
+   * 게이트가 요구하는 움직임 픽셀 수에 이 배수를 곱한 값 이상이면 "지나갔다"로 본다.
+   */
+  midConfirmFactor: 0.25,
+  /**
+   * 전경으로 계속 남아 있는 픽셀을 배경으로 흡수하기까지의 프레임 수.
+   * 배경 학습 시점에 화면에 있던 물체가 빠져나가면 그 자리가 오래 "다름"으로 남는데,
+   * 이 값이 그 잔상의 수명을 정한다.
+   */
+  staleForegroundFrames: 120,
 };
 
 class GateState {
@@ -74,12 +85,16 @@ export class GateSpeedDetector {
     this.width = 0;
     this.height = 0;
     this.bg = null;
+    this.prev = null;
+    this.fgFrames = null;
     this.frames = 0;
     this.gates = [new GateState(), new GateState()];
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
     /** 먼저 통과한 게이트 정보 {index, time} */
     this.pending = null;
+    /** 대기 중인 짝에 대해, 두 게이트 사이를 실제로 지나갔는지 확인했는가 */
+    this.midSeen = false;
   }
 
   configure(partial) {
@@ -89,10 +104,13 @@ export class GateSpeedDetector {
   /** 배경 모델과 게이트 상태를 모두 초기화한다 (카메라 전환, 설정 변경 후 호출). */
   reset() {
     this.bg = null;
+    this.prev = null;
+    this.fgFrames = null;
     this.frames = 0;
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
     this.pending = null;
+    this.midSeen = false;
     for (const g of this.gates) g.reset();
   }
 
@@ -101,10 +119,10 @@ export class GateSpeedDetector {
   }
 
   /** 게이트 선이 지나는 픽셀 인덱스 범위를 계산한다. */
-  _bandRange(position) {
+  _bandRange(position, bandWidth = this.opts.bandWidth) {
     const o = this.opts;
     const axisLen = o.orientation === 'vertical' ? this.width : this.height;
-    const half = Math.max(1, Math.round((o.bandWidth * axisLen) / 2));
+    const half = Math.max(1, Math.round((bandWidth * axisLen) / 2));
     const center = Math.round(position * (axisLen - 1));
     const start = Math.max(0, center - half);
     const end = Math.min(axisLen - 1, center + half);
@@ -112,9 +130,9 @@ export class GateSpeedDetector {
   }
 
   /** 한 게이트에서 움직임 픽셀 수와 비율을 센다. */
-  _sampleRatio(gray, position) {
+  _sampleRatio(gray, position, bandWidth = this.opts.bandWidth) {
     const o = this.opts;
-    const { start, end } = this._bandRange(position);
+    const { start, end } = this._bandRange(position, bandWidth);
     const crossLen = o.orientation === 'vertical' ? this.height : this.width;
     const roiFrom = Math.max(0, Math.round(Math.min(o.roiStart, o.roiEnd) * (crossLen - 1)));
     const roiTo = Math.min(crossLen - 1, Math.round(Math.max(o.roiStart, o.roiEnd) * (crossLen - 1)));
@@ -143,7 +161,37 @@ export class GateSpeedDetector {
         }
       }
     }
-    return { ratio: total === 0 ? 0 : moved / total, moved };
+    return { ratio: total === 0 ? 0 : moved / total, moved, total };
+  }
+
+  /** 구간 안에서 직전 프레임 대비 밝기가 변한 픽셀 수를 센다 (실제 움직임). */
+  _sampleMotion(gray, position, bandWidth) {
+    const o = this.opts;
+    const { start, end } = this._bandRange(position, bandWidth);
+    const crossLen = o.orientation === 'vertical' ? this.height : this.width;
+    const roiFrom = Math.max(0, Math.round(Math.min(o.roiStart, o.roiEnd) * (crossLen - 1)));
+    const roiTo = Math.min(crossLen - 1, Math.round(Math.max(o.roiStart, o.roiEnd) * (crossLen - 1)));
+    const thr = o.pixelThreshold;
+    const prev = this.prev;
+    let moved = 0;
+    if (o.orientation === 'vertical') {
+      for (let y = roiFrom; y <= roiTo; y++) {
+        const row = y * this.width;
+        for (let x = start; x <= end; x++) {
+          const d = gray[row + x] - prev[row + x];
+          if (d > thr || d < -thr) moved++;
+        }
+      }
+    } else {
+      for (let y = start; y <= end; y++) {
+        const row = y * this.width;
+        for (let x = roiFrom; x <= roiTo; x++) {
+          const d = gray[row + x] - prev[row + x];
+          if (d > thr || d < -thr) moved++;
+        }
+      }
+    }
+    return moved;
   }
 
   /**
@@ -161,8 +209,12 @@ export class GateSpeedDetector {
       this.height = height;
       this.bg = new Float32Array(gray.length);
       this.bg.set(gray);
+      this.prev = new Uint8Array(gray.length);
+      this.prev.set(gray);
+      this.fgFrames = new Uint16Array(gray.length);
       this.frames = 0;
       this.pending = null;
+      this.midSeen = false;
       for (const g of this.gates) g.reset();
     }
 
@@ -212,6 +264,22 @@ export class GateSpeedDetector {
       }
     }
 
+    // 대기 중인 짝이 있으면, 두 게이트 사이를 실제로 지나가는지 지켜본다.
+    // 이게 없으면 게이트 하나를 놓쳤을 때 짝이 어긋난 채로 고정되어,
+    // 이후 모든 측정이 "한 바퀴 도는 시간"으로 잡히고 방향까지 뒤집힌다.
+    // 첫 게이트를 완전히 벗어난 뒤부터 본다. 게이트 근처에서 어른거리는 것만으로
+    // "지나갔다"고 인정하면, 반대편으로 나가 버린 물체도 통과로 잘못 잡힌다.
+    if (this.pending && !this.midSeen && !this.gates[this.pending.index].active) {
+      const midPos = (o.gateA + o.gateB) / 2;
+      const midWidth = Math.max(o.bandWidth, Math.abs(o.gateB - o.gateA) / 3);
+      // 배경 차분이 아니라 프레임 간 차분으로 본다. 배경 차분은 학습 시점에 화면에
+      // 있던 물체가 남긴 "정지한 잔상"에도 반응하지만, 프레임 간 차분은 실제로
+      // 움직이는 것에만 반응한다.
+      const moving = this._sampleMotion(gray, midPos, midWidth);
+      const needed = Math.max(o.minMovedPixels, o.midConfirmFactor * o.onRatio * sampleA.total);
+      if (moving >= needed) this.midSeen = true;
+    }
+
     // 배경 갱신 (선택적 업데이트)
     // 움직이는 물체 위의 픽셀까지 빠르게 학습하면, 물체가 배경에 흡수됐다가
     // 지나간 뒤 "유령"이 남아 같은 게이트가 한 번 더 트리거된다. 전경으로 분류된
@@ -219,10 +287,20 @@ export class GateSpeedDetector {
     const a = o.learnRate;
     const aFg = a * o.foregroundLearnFactor;
     const thr = o.pixelThreshold;
+    const stale = o.staleForegroundFrames;
     const bg = this.bg;
+    const fg = this.fgFrames;
+    const prev = this.prev;
     for (let i = 0; i < bg.length; i++) {
       const diff = gray[i] - bg[i];
-      bg[i] += (diff > thr || diff < -thr ? aFg : a) * diff;
+      if (diff > thr || diff < -thr) {
+        // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
+        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+      } else {
+        fg[i] = 0;
+        bg[i] += a * diff;
+      }
+      prev[i] = gray[i];
     }
 
     return { ratios, triggers, measurement, warmingUp: this.isWarmingUp };
@@ -235,15 +313,24 @@ export class GateSpeedDetector {
     }
     if (!this.pending) {
       this.pending = { index, time };
+      this.midSeen = false;
       return null;
     }
     if (this.pending.index === index) {
       this.pending = { index, time }; // 같은 게이트 재트리거 → 시작 시각 갱신
+      this.midSeen = false;
+      return null;
+    }
+    if (!this.midSeen) {
+      // 사이 구간을 지나온 흔적이 없다 → 앞선 트리거는 다른 통과의 잔재다.
+      // 버리는 대신 이번 트리거를 새 출발점으로 삼아 짝을 다시 맞춘다.
+      this.pending = { index, time };
       return null;
     }
     const dtMs = time - this.pending.time;
     const first = this.pending.index;
     this.pending = null;
+    this.midSeen = false;
     if (dtMs < o.minDtMs || dtMs > o.maxDtMs) return null;
     return {
       dtMs,

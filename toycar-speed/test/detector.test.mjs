@@ -123,6 +123,44 @@ test('느린 차가 지나가도 배경에 흡수되지 않아 유령 트리거�
   assert.deepEqual(results.map((r) => r.direction), ['AB', 'AB']);
 });
 
+test('짝이 어긋나도 다음 통과에서 스스로 바로잡는다', () => {
+  // 게이트 하나를 놓치면(여기서는 통과 도중 배경 재학습) 이후 모든 측정이
+  // "한 바퀴 도는 시간"으로 잡히고 방향까지 뒤집히던 문제의 회귀 테스트.
+  // 두 게이트 사이를 실제로 지나온 흔적이 없는 짝은 인정하지 않는다.
+  const d = new GateSpeedDetector({ gateA: 0.3, gateB: 0.7 });
+  const speed = 3;
+  const results = [];
+  let t = 0;
+  const push = (f) => {
+    const r = d.update(f, W, H, t);
+    if (r.measurement) results.push(r.measurement);
+    t += FRAME_MS;
+  };
+
+  for (let i = 0; i < 30; i++) push(frame());
+  for (let i = 0; i < 74; i++) {
+    // 차가 두 게이트 사이에 있을 때 배경 재학습이 일어난 상황
+    if (i === 30) d.reset();
+    push(frame({ carX: -30 + i * speed, carW: 24 }));
+  }
+  for (let i = 0; i < 20; i++) push(frame());
+  for (let i = 0; i < 74; i++) push(frame({ carX: -30 + i * speed, carW: 24 }));
+
+  assert.ok(results.length >= 1, '재학습 이후 통과가 측정되어야 한다');
+  assert.deepEqual(
+    results.map((r) => r.direction),
+    results.map(() => 'AB'),
+    `방향이 뒤집힌 측정이 있다: ${JSON.stringify(results.map((r) => r.direction))}`,
+  );
+  const expectedDt = ((0.7 - 0.3) * (W - 1) / speed) * FRAME_MS;
+  for (const r of results) {
+    assert.ok(
+      Math.abs(r.dtMs - expectedDt) < FRAME_MS * 2,
+      `dt=${r.dtMs.toFixed(0)}ms (기대 ${expectedDt.toFixed(0)}ms) — 한 바퀴 시간이 섞였다`,
+    );
+  }
+});
+
 test('reset() 이후에는 다시 워밍업부터 시작한다', () => {
   const d = new GateSpeedDetector();
   run(d, Array.from({ length: 30 }, () => frame()));

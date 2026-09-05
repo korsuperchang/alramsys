@@ -18,6 +18,7 @@ const el = {
   btnCamera: $('btnCamera'),
   btnFlip: $('btnFlip'),
   btnDemo: $('btnDemo'),
+  btnCalibrate: $('btnCalibrate'),
   btnReset: $('btnReset'),
   distance: $('distance'),
   distanceUnit: $('distanceUnit'),
@@ -32,6 +33,15 @@ const el = {
   roiEndVal: $('roiEndVal'),
   sensitivity: $('sensitivity'),
   sensitivityVal: $('sensitivityVal'),
+  bandWidth: $('bandWidth'),
+  bandWidthVal: $('bandWidthVal'),
+  sigA: $('sigA'),
+  sigB: $('sigB'),
+  barA: $('barA'),
+  barB: $('barB'),
+  sigThr: $('sigThr'),
+  sigPeak: $('sigPeak'),
+  signalHint: $('signalHint'),
   scale: $('scale'),
   scaleVal: $('scaleVal'),
   sound: $('sound'),
@@ -46,7 +56,7 @@ const el = {
   btnClear: $('btnClear'),
 };
 
-const SETTINGS_KEY = 'toycar-speed/settings';
+const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
 const MAX_RECORDS = 50;
@@ -59,7 +69,8 @@ const defaultSettings = {
   gateB: 70,
   roiStart: 15,
   roiEnd: 85,
-  sensitivity: 5,
+  sensitivity: 12,
+  bandWidth: 3,
   scale: 1,
   sound: true,
   vibrate: true,
@@ -87,6 +98,8 @@ let frameTimes = [];
 let framePeriodMs = 1000 / 30;
 let flashUntil = 0;
 let lastGray = null;
+let calib = null;
+const signal = { peaks: [], lastRender: 0, bothHotSince: 0, holdUntil: 0 };
 let wakeLock = null;
 let audioCtx = null;
 
@@ -111,15 +124,34 @@ function distanceMeters() {
   return (Number.isFinite(v) && v > 0 ? v : 50) * parseFloat(el.distanceUnit.value);
 }
 
-/** 민감도 1~10 → 픽셀 임계값 / 면적 비율 */
+const SENSITIVITY_MAX = 20;
+const ON_RATIO_MIN = 0.25;   // 민감도 1 (큰 물체만)
+const ON_RATIO_MAX = 0.005;  // 민감도 20 (아주 작은 물체까지)
+
+/**
+ * 민감도 1~20 → 픽셀 임계값 / 면적 비율.
+ * 화면에서 자동차가 차지하는 비율은 거리에 따라 수십 배까지 차이가 나므로
+ * 임계 비율은 로그 스케일로 훑는다.
+ */
 function sensitivityToOptions(level) {
-  const t = (level - 1) / 9; // 0~1
-  const onRatio = 0.14 - t * 0.12;             // 0.14 → 0.02
+  const t = (level - 1) / (SENSITIVITY_MAX - 1); // 0~1
+  const onRatio = ON_RATIO_MIN * Math.pow(ON_RATIO_MAX / ON_RATIO_MIN, t);
   return {
-    pixelThreshold: Math.round(46 - t * 32),   // 46 → 14
+    pixelThreshold: Math.round(46 - t * 32),     // 46 → 14
     onRatio,
     offRatio: onRatio * 0.5,
   };
+}
+
+/** 목표 임계 비율에 가장 가까운 민감도 단계를 찾는다 (자동 맞춤용). */
+function ratioToSensitivity(targetRatio) {
+  let best = 1;
+  let bestErr = Infinity;
+  for (let lv = 1; lv <= SENSITIVITY_MAX; lv++) {
+    const err = Math.abs(sensitivityToOptions(lv).onRatio - targetRatio);
+    if (err < bestErr) { bestErr = err; best = lv; }
+  }
+  return best;
 }
 
 function applySettingsToUI() {
@@ -130,6 +162,7 @@ function applySettingsToUI() {
   el.roiStart.value = settings.roiStart;
   el.roiEnd.value = settings.roiEnd;
   el.sensitivity.value = settings.sensitivity;
+  el.bandWidth.value = settings.bandWidth;
   el.scale.value = settings.scale;
   el.sound.checked = settings.sound;
   el.vibrate.checked = settings.vibrate;
@@ -146,7 +179,9 @@ function syncLabels() {
   el.roiStartVal.textContent = `${el.roiStart.value}%`;
   el.roiEndVal.textContent = `${el.roiEnd.value}%`;
   el.sensitivityVal.textContent = el.sensitivity.value;
+  el.bandWidthVal.textContent = `${el.bandWidth.value}%`;
   el.scaleVal.textContent = el.scale.value;
+  el.sigThr.textContent = pct(sensitivityToOptions(Number(el.sensitivity.value)).onRatio);
   updateScaleLine();
 }
 
@@ -170,6 +205,7 @@ function collectSettings() {
     roiStart: Number(el.roiStart.value),
     roiEnd: Number(el.roiEnd.value),
     sensitivity: Number(el.sensitivity.value),
+    bandWidth: Number(el.bandWidth.value),
     scale: Number(el.scale.value),
     sound: el.sound.checked,
     vibrate: el.vibrate.checked,
@@ -185,6 +221,7 @@ function applySettingsToDetector({ reset = false } = {}) {
     gateB: settings.gateB / 100,
     roiStart: settings.roiStart / 100,
     roiEnd: settings.roiEnd / 100,
+    bandWidth: settings.bandWidth / 100,
     ...sensitivityToOptions(settings.sensitivity),
   });
   if (reset) detector.reset();
@@ -195,6 +232,102 @@ function onSettingChanged({ resetDetector = false } = {}) {
   syncLabels();
   applySettingsToDetector({ reset: resetDetector });
   drawOverlay();
+}
+
+/* ---------------- 감지 반응 표시 ---------------- */
+const pct = (x) => `${(x * 100).toFixed(1)}%`;
+
+/** 최근 3초간의 최대 반응을 추적하고, 상황에 맞는 안내를 띄운다. */
+function trackSignal(ratios, timeMs) {
+  const onRatio = detector.opts.onRatio;
+  const peakNow = Math.max(ratios[0], ratios[1]);
+  signal.peaks.push({ t: timeMs, r: peakNow });
+  while (signal.peaks.length && timeMs - signal.peaks[0].t > 3000) signal.peaks.shift();
+
+  // 두 게이트가 동시에 오래 반응하면 화면 전체가 흔들리는 상황이다.
+  const bothHot = ratios[0] >= onRatio && ratios[1] >= onRatio;
+  if (bothHot) { if (!signal.bothHotSince) signal.bothHotSince = timeMs; }
+  else signal.bothHotSince = 0;
+  const shaking = signal.bothHotSince && timeMs - signal.bothHotSince > 1500;
+
+  const now = performance.now();
+  if (now - signal.lastRender < 120) return;
+  signal.lastRender = now;
+
+  const peak = signal.peaks.reduce((a, p) => Math.max(a, p.r), 0);
+  renderSignal(ratios, peak, onRatio, shaking);
+}
+
+function renderSignal(ratios, peak, onRatio, shaking) {
+  const cells = [
+    { box: el.sigA.parentElement, val: el.sigA, bar: el.barA, r: ratios[0] },
+    { box: el.sigB.parentElement, val: el.sigB, bar: el.barB, r: ratios[1] },
+  ];
+  for (const c of cells) {
+    c.val.textContent = pct(c.r);
+    c.bar.style.width = `${Math.min(100, (c.r / onRatio) * 100)}%`;
+    c.box.classList.toggle('hot', c.r >= onRatio);
+  }
+  el.sigThr.textContent = pct(onRatio);
+  el.sigPeak.textContent = pct(peak);
+
+  // 자동 맞춤이 남긴 안내는 잠시 그대로 둔다
+  if (calib || performance.now() < signal.holdUntil) return;
+  let hint = '자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.';
+  let warn = false;
+  if (shaking) {
+    hint = '두 기준선이 동시에 계속 반응합니다 — <b>화면 전체가 흔들리고 있습니다.</b> 폰을 고정하세요.';
+    warn = true;
+  } else if (peak > 0.0005 && peak < onRatio * 0.9) {
+    hint = `최대 반응이 <b>${pct(peak)}</b>로 기준 <b>${pct(onRatio)}</b>에 못 미칩니다 — <b>자동 맞춤</b>을 누르거나 민감도를 올리세요.`;
+    warn = true;
+  }
+  el.signalHint.innerHTML = hint;
+  el.signalHint.className = warn ? 'signal-hint warn' : 'signal-hint';
+}
+
+/* ---------------- 자동 맞춤 ---------------- */
+const CALIBRATION_MS = 8000;
+
+function startCalibration() {
+  if (mode === 'idle') {
+    setStatus('먼저 카메라를 시작한 뒤 눌러 주세요', 'warn');
+    return;
+  }
+  calib = { endsAt: performance.now() + CALIBRATION_MS, peak: 0 };
+  el.btnCalibrate.classList.add('on');
+  signal.holdUntil = 0;
+  el.signalHint.className = 'signal-hint warn';
+  el.signalHint.innerHTML = '지금부터 <b>자동차를 두세 번</b> 기준선 위로 지나가게 하세요. 반응 크기를 보고 민감도를 맞춥니다.';
+  detector.reset();
+}
+
+function updateCalibration(ratios) {
+  calib.peak = Math.max(calib.peak, ratios[0], ratios[1]);
+  const left = Math.max(0, calib.endsAt - performance.now());
+  setStatus(`자동 맞춤 중… ${Math.ceil(left / 1000)}초`, 'warn');
+  if (left <= 0) finishCalibration();
+}
+
+function finishCalibration() {
+  const peak = calib.peak;
+  calib = null;
+  el.btnCalibrate.classList.remove('on');
+  signal.holdUntil = performance.now() + 8000;
+  if (peak < 0.004) {
+    setStatus('반응이 거의 없었습니다', 'err');
+    el.signalHint.className = 'signal-hint warn';
+    el.signalHint.innerHTML =
+      '자동차 움직임이 거의 잡히지 않았습니다 — <b>카메라를 더 가까이</b> 두거나, <b>감지 구간</b>을 자동차가 지나는 높이만 남도록 좁혀 보세요.';
+    return;
+  }
+  // 최대 반응의 40% 지점을 기준으로 삼는다 (지나갈 때는 확실히 넘고, 평소에는 안 넘도록)
+  const level = ratioToSensitivity(Math.max(0.004, peak * 0.4));
+  el.sensitivity.value = level;
+  onSettingChanged({ resetDetector: true });
+  setStatus(`자동 맞춤 완료 — 민감도 ${level}`, 'ok');
+  el.signalHint.className = 'signal-hint';
+  el.signalHint.innerHTML = `최대 반응 <b>${pct(peak)}</b>에 맞춰 기준을 <b>${pct(sensitivityToOptions(level).onRatio)}</b>로 잡았습니다. 이제 자동차를 굴려 보세요.`;
 }
 
 /* ---------------- 상태 표시 ---------------- */
@@ -393,7 +526,10 @@ function processFrame(timeMs) {
   trackFramePeriod(timeMs);
   const result = detector.update(grayBuf, pw, ph, timeMs);
 
-  if (result.measurement) handleMeasurement(result.measurement);
+  if (calib) updateCalibration(result.ratios);
+  trackSignal(result.ratios, timeMs);
+
+  if (result.measurement && !calib) handleMeasurement(result.measurement);
   if (result.triggers.length) flashUntil = performance.now() + 180;
 
   drawOverlay(result);
@@ -432,6 +568,10 @@ function handleMeasurement(m) {
   showSpeed(record);
   renderRecords();
   feedback();
+
+  if (m.dtMs < framePeriodMs * 4) {
+    setStatus(`측정됨 — 통과가 ${m.dtMs.toFixed(0)}ms로 너무 짧아 오차가 큽니다. 기준선 간격을 넓히세요`, 'warn');
+  }
 }
 
 function showSpeed(r, { flash = true } = {}) {
@@ -532,6 +672,8 @@ function drawOverlay(result) {
     { pos: settings.gateA / 100, label: 'A', ratio: ratios[0] || 0 },
     { pos: settings.gateB / 100, label: 'B', ratio: ratios[1] || 0 },
   ];
+  // 실제로 픽셀을 세는 띠를 그대로 보여 준다 (두께 설정이 눈에 보이도록).
+  const bandPx = (settings.bandWidth / 100) * (vertical ? W : H);
 
   for (const g of gates) {
     const hot = g.ratio >= onRatio;
@@ -542,6 +684,8 @@ function drawOverlay(result) {
     octx.beginPath();
     if (vertical) {
       const x = g.pos * W;
+      octx.fillStyle = hot ? 'rgba(53, 208, 127, 0.22)' : 'rgba(255, 255, 255, 0.10)';
+      octx.fillRect(x - bandPx / 2, roiFrom * H, bandPx, (roiTo - roiFrom) * H);
       octx.moveTo(x, roiFrom * H);
       octx.lineTo(x, roiTo * H);
       // ROI 밖은 흐리게
@@ -556,6 +700,8 @@ function drawOverlay(result) {
       drawGateLabel(g.label, x, roiFrom * H, g.ratio, onRatio, color);
     } else {
       const y = g.pos * H;
+      octx.fillStyle = hot ? 'rgba(53, 208, 127, 0.22)' : 'rgba(255, 255, 255, 0.10)';
+      octx.fillRect(roiFrom * W, y - bandPx / 2, (roiTo - roiFrom) * W, bandPx);
       octx.moveTo(roiFrom * W, y);
       octx.lineTo(roiTo * W, y);
       octx.stroke();
@@ -707,8 +853,14 @@ el.btnReset.addEventListener('click', () => {
   }, 1200);
 });
 
-for (const input of [el.gateA, el.gateB, el.roiStart, el.roiEnd, el.sensitivity, el.scale]) {
-  input.addEventListener('input', () => onSettingChanged({ resetDetector: input === el.sensitivity }));
+el.btnCalibrate.addEventListener('click', () => {
+  if (calib) finishCalibration();
+  else startCalibration();
+});
+
+for (const input of [el.gateA, el.gateB, el.roiStart, el.roiEnd, el.sensitivity, el.bandWidth, el.scale]) {
+  input.addEventListener('input', () =>
+    onSettingChanged({ resetDetector: input === el.sensitivity || input === el.bandWidth }));
 }
 for (const input of [el.distance, el.distanceUnit, el.sound, el.vibrate, el.showMask]) {
   input.addEventListener('change', () => onSettingChanged());

@@ -470,6 +470,140 @@ input[type="range"] {
 </div>
 <script type="module">
 /**
+ * 흔들림 추정 — 화면 전체가 얼마나 밀렸는지 알아낸다.
+ *
+ * 손으로 든 폰은 화면 전체가 매 프레임 조금씩 밀린다. 이걸 그대로 두면 바닥 무늬가
+ * 통째로 "움직이는 것"으로 잡혀서, 추적은 아무것도 못 잡고 기준선은 헛트리거를 낸다.
+ *
+ * 프레임마다 가로/세로 방향의 밝기 합(투영)을 구하고, 직전 프레임의 투영과 가장 잘
+ * 겹치는 이동량을 찾는다. 1차원 두 개만 비교하므로 아주 싸다. 회전은 다루지 못하지만
+ * 손떨림은 대부분 평행 이동이라 이것으로 충분하다.
+ */
+
+const STABILIZER_DEFAULTS = {
+  /** 한 프레임에서 찾아볼 최대 이동량(픽셀) */
+  maxShift: 6,
+  /** 배경 모델과 어긋난 채 누적될 수 있는 최대량(픽셀) */
+  maxOffset: 10,
+  /**
+   * 최소 오차와 평균 오차의 비. 이보다 크면 무늬가 밋밋해 신뢰할 수 없다고 보고 0으로 둔다.
+   * (벽처럼 균일한 면을 비추면 어떤 이동량이든 비슷하게 맞는다)
+   */
+  confidenceRatio: 0.92,
+  /**
+   * 오차를 합칠 때 값이 큰 쪽부터 버리는 비율.
+   * 지나가는 자동차 한 대는 투영의 일부만 크게 흔들어 놓는데, 이걸 그대로 합치면
+   * 화면이 아니라 자동차를 따라가 버린다. 큰 값들을 버리면 남는 것은 배경이다.
+   */
+  trimRatio: 0.3,
+};
+
+/**
+ * 1차원 투영 두 개를 비교해 가장 잘 겹치는 이동량을 찾는다.
+ * 오차는 큰 쪽부터 trimRatio만큼 버리고 합친다(움직이는 물체의 영향 제거).
+ */
+function bestShift(cur, prev, maxShift, confidenceRatio, trimRatio = 0.3, scratch = null) {
+  const n = cur.length;
+  const buf = scratch && scratch.length >= n ? scratch : new Float32Array(n);
+  let best = 0;
+  let bestErr = Infinity;
+  let sum = 0;
+  let tried = 0;
+  for (let s = -maxShift; s <= maxShift; s++) {
+    const from = Math.max(0, -s);
+    const to = Math.min(n, n - s);
+    const len = to - from;
+    if (len < n / 2) continue;
+    for (let i = 0; i < len; i++) buf[i] = Math.abs(cur[from + i] - prev[from + i + s]);
+    const keep = Math.max(1, Math.round(len * (1 - trimRatio)));
+    const sorted = buf.subarray(0, len).slice().sort();
+    let err = 0;
+    for (let i = 0; i < keep; i++) err += sorted[i];
+    err /= keep;
+    sum += err;
+    tried++;
+    if (err < bestErr) { bestErr = err; best = s; }
+  }
+  if (!tried) return 0;
+  const mean = sum / tried;
+  if (mean === 0 || bestErr / mean > confidenceRatio) return 0; // 판단 근거가 약하다
+  return best;
+}
+
+class Stabilizer {
+  constructor(options = {}) {
+    this.opts = { ...STABILIZER_DEFAULTS, ...options };
+    this.width = 0;
+    this.height = 0;
+    this.cols = null;
+    this.rows = null;
+    this.prevCols = null;
+    this.prevRows = null;
+    /** 배경 모델 좌표 = 현재 프레임 좌표 + offset */
+    this.offX = 0;
+    this.offY = 0;
+    /** 최근 프레임 간 이동량 (흔들림 세기) */
+    this.dx = 0;
+    this.dy = 0;
+    this.magnitude = 0;
+  }
+
+  reset() {
+    this.prevCols = null;
+    this.prevRows = null;
+    this.offX = 0;
+    this.offY = 0;
+    this.dx = 0;
+    this.dy = 0;
+    this.magnitude = 0;
+  }
+
+  /** 프레임 하나를 보고 흔들림을 갱신한다. @returns {{dx,dy,offX,offY,magnitude}} */
+  update(gray, width, height) {
+    const o = this.opts;
+    if (width !== this.width || height !== this.height || !this.cols) {
+      this.width = width;
+      this.height = height;
+      this.cols = new Float32Array(width);
+      this.rows = new Float32Array(height);
+      this.scratchX = new Float32Array(width);
+      this.scratchY = new Float32Array(height);
+      this.prevCols = null;
+      this.prevRows = null;
+    }
+    const cols = this.cols.fill(0);
+    const rows = this.rows.fill(0);
+    for (let y = 0; y < height; y++) {
+      const base = y * width;
+      let rowSum = 0;
+      for (let x = 0; x < width; x++) {
+        const v = gray[base + x];
+        cols[x] += v;
+        rowSum += v;
+      }
+      rows[y] = rowSum / width;
+    }
+    for (let x = 0; x < width; x++) cols[x] /= height;
+
+    if (this.prevCols) {
+      this.dx = bestShift(cols, this.prevCols, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchX);
+      this.dy = bestShift(rows, this.prevRows, o.maxShift, o.confidenceRatio, o.trimRatio, this.scratchY);
+      this.magnitude = Math.hypot(this.dx, this.dy);
+      const clamp = (v) => Math.max(-o.maxOffset, Math.min(o.maxOffset, v));
+      this.offX = clamp(this.offX + this.dx);
+      this.offY = clamp(this.offY + this.dy);
+    } else {
+      this.prevCols = new Float32Array(width);
+      this.prevRows = new Float32Array(height);
+    }
+    this.prevCols.set(cols);
+    this.prevRows.set(rows);
+
+    return { dx: this.dx, dy: this.dy, offX: this.offX, offY: this.offY, magnitude: this.magnitude };
+  }
+}
+
+/**
  * 장난감 자동차 속도 측정 - 감지 엔진
  *
  * 화면에 두 개의 "게이트(트립 라인)"를 두고, 배경 차분(background subtraction)으로
@@ -480,7 +614,12 @@ input[type="range"] {
  * Node에서 그대로 테스트할 수 있다.
  */
 
+
 const DEFAULT_OPTIONS = {
+  /** 손떨림 보정 사용 여부 */
+  stabilize: true,
+  /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 트리거를 막는다 */
+  maxShakeMagnitude: 5,
   /** 게이트 방향: 'vertical'이면 세로선(차가 좌우로 이동), 'horizontal'이면 가로선(차가 상하로 이동) */
   orientation: 'vertical',
   /** 게이트 위치 (0~1 정규화). gateA가 항상 작은 값일 필요는 없다. */
@@ -559,6 +698,10 @@ class GateSpeedDetector {
     this.prev = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer = new Stabilizer();
+    this.shake = 0;
+    this.offX = 0;
+    this.offY = 0;
     this.gates = [new GateState(), new GateState()];
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
@@ -578,6 +721,10 @@ class GateSpeedDetector {
     this.prev = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer.reset();
+    this.shake = 0;
+    this.offX = 0;
+    this.offY = 0;
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
     this.pending = null;
@@ -611,12 +758,18 @@ class GateSpeedDetector {
     let moved = 0;
     let total = 0;
 
+    const inside = (x, y) => {
+      const mx = x + this.offX;
+      const my = y + this.offY;
+      return mx >= 0 && mx < this.width && my >= 0 && my < this.height;
+    };
     if (o.orientation === 'vertical') {
       for (let y = roiFrom; y <= roiTo; y++) {
         const row = y * this.width;
+        const bgRow = (y + this.offY) * this.width + this.offX;
         for (let x = start; x <= end; x++) {
-          const i = row + x;
-          const diff = gray[i] - this.bg[i];
+          if (!inside(x, y)) continue;
+          const diff = gray[row + x] - this.bg[bgRow + x];
           if (diff > thr || diff < -thr) moved++;
           total++;
         }
@@ -624,9 +777,10 @@ class GateSpeedDetector {
     } else {
       for (let y = start; y <= end; y++) {
         const row = y * this.width;
+        const bgRow = (y + this.offY) * this.width + this.offX;
         for (let x = roiFrom; x <= roiTo; x++) {
-          const i = row + x;
-          const diff = gray[i] - this.bg[i];
+          if (!inside(x, y)) continue;
+          const diff = gray[row + x] - this.bg[bgRow + x];
           if (diff > thr || diff < -thr) moved++;
           total++;
         }
@@ -689,6 +843,14 @@ class GateSpeedDetector {
       for (const g of this.gates) g.reset();
     }
 
+    const shift = o.stabilize
+      ? this.stabilizer.update(gray, width, height)
+      : { offX: 0, offY: 0, magnitude: 0 };
+    this.shake = shift.magnitude;
+    this.offX = shift.offX;
+    this.offY = shift.offY;
+    const tooShaky = this.shake > o.maxShakeMagnitude;
+
     const sampleA = this._sampleRatio(gray, o.gateA);
     const sampleB = this._sampleRatio(gray, o.gateB);
     const ratios = [sampleA.ratio, sampleB.ratio];
@@ -700,7 +862,7 @@ class GateSpeedDetector {
     const triggers = [];
     let measurement = null;
 
-    if (!this.isWarmingUp) {
+    if (!this.isWarmingUp && !tooShaky) {
       for (let i = 0; i < 2; i++) {
         const gate = this.gates[i];
         const r = ratios[i];
@@ -762,19 +924,30 @@ class GateSpeedDetector {
     const bg = this.bg;
     const fg = this.fgFrames;
     const prev = this.prev;
-    for (let i = 0; i < bg.length; i++) {
-      const diff = gray[i] - bg[i];
-      if (diff > thr || diff < -thr) {
-        // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
-        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
-      } else {
-        fg[i] = 0;
-        bg[i] += a * diff;
+    const offX = this.offX;
+    const offY = this.offY;
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(height, height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
+      const row = y * width;
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const i = bgRow + x;
+        const diff = gray[row + x] - bg[i];
+        if (diff > thr || diff < -thr) {
+          // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
+          bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+        } else {
+          fg[i] = 0;
+          bg[i] += a * diff;
+        }
       }
-      prev[i] = gray[i];
     }
+    prev.set(gray);
 
-    return { ratios, triggers, measurement, warmingUp: this.isWarmingUp };
+    return { ratios, triggers, measurement, warmingUp: this.isWarmingUp, shake: this.shake, tooShaky };
   }
 
   _onTrigger(index, time) {
@@ -849,7 +1022,12 @@ function scaleSpeed(kmh, scale) {
  * DOM에 의존하지 않는다. 입력은 8비트 그레이스케일 배열뿐이다.
  */
 
+
 const TRACKER_DEFAULTS = {
+  /** 손떨림 보정 사용 여부 */
+  stabilize: true,
+  /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 측정을 멈춘다 */
+  maxShakeMagnitude: 5,
   /** 진행 축: 'horizontal'이면 좌우 이동, 'vertical'이면 상하 이동 */
   axis: 'horizontal',
   /** 배경과 이만큼 이상 밝기가 다르면 움직임 픽셀로 본다 */
@@ -910,6 +1088,8 @@ class MotionTracker {
     this.bg = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer = new Stabilizer();
+    this.shake = 0;
     this.track = null;   // 진행 중인 통과 {samples, lastSeen, gap}
     this.coverage = 0;
     this.centroid = null;
@@ -922,6 +1102,8 @@ class MotionTracker {
     this.bg = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer.reset();
+    this.shake = 0;
     this.track = null;
     this.coverage = 0;
     this.centroid = null;
@@ -944,8 +1126,17 @@ class MotionTracker {
       this.bg.set(gray);
       this.fgFrames = new Uint16Array(gray.length);
       this.frames = 0;
+      this.stabilizer.reset();
       this.track = null;
     }
+
+    // 화면 전체가 밀린 양을 먼저 재고, 그만큼 어긋난 자리끼리 비교한다.
+    const shift = o.stabilize
+      ? this.stabilizer.update(gray, width, height)
+      : { offX: 0, offY: 0, magnitude: 0 };
+    this.shake = shift.magnitude;
+    const offX = shift.offX;
+    const offY = shift.offY;
 
     const thr = o.pixelThreshold;
     const horizontal = o.axis === 'horizontal';
@@ -955,11 +1146,16 @@ class MotionTracker {
     let min = axisLen;
     let max = -1;
 
-    for (let y = 0; y < height; y++) {
+    // 어긋난 만큼은 배경 모델 바깥이므로 아예 보지 않는다.
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(height, height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
       const row = y * width;
-      for (let x = 0; x < width; x++) {
-        const i = row + x;
-        const diff = gray[i] - this.bg[i];
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const diff = gray[row + x] - this.bg[bgRow + x];
         if (diff > thr || diff < -thr) {
           const a = horizontal ? x : y;
           count++;
@@ -970,12 +1166,13 @@ class MotionTracker {
       }
     }
 
-    const total = width * height;
+    const total = Math.max(1, (y1 - y0) * (x1 - x0));
     const coverage = count / total;
     this.coverage = coverage;
 
     const enough = coverage >= o.minPixelRatio;
-    const shaking = coverage > o.maxPixelRatio;
+    // 보정 범위를 넘는 큰 흔들림이거나, 화면 대부분이 한꺼번에 달라졌을 때
+    const shaking = coverage > o.maxPixelRatio || this.shake > o.maxShakeMagnitude;
     const usable = enough && !shaking && !this.isWarmingUp;
 
     this.centroid = usable ? sum / count / (axisLen - 1) : null;
@@ -997,10 +1194,11 @@ class MotionTracker {
     }
 
     this.frames++;
-    this._updateBackground(gray);
+    this._updateBackground(gray, offX, offY);
 
     return {
       coverage,
+      shake: this.shake,
       centroid: this.centroid,
       box: this.box,
       shaking,
@@ -1037,7 +1235,7 @@ class MotionTracker {
     };
   }
 
-  _updateBackground(gray) {
+  _updateBackground(gray, offX, offY) {
     const o = this.opts;
     const a = o.learnRate;
     const aFg = a * o.foregroundLearnFactor;
@@ -1045,13 +1243,23 @@ class MotionTracker {
     const stale = o.staleForegroundFrames;
     const bg = this.bg;
     const fg = this.fgFrames;
-    for (let i = 0; i < bg.length; i++) {
-      const diff = gray[i] - bg[i];
-      if (diff > thr || diff < -thr) {
-        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
-      } else {
-        fg[i] = 0;
-        bg[i] += a * diff;
+    const width = this.width;
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(this.height, this.height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
+      const row = y * width;
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const i = bgRow + x;
+        const diff = gray[row + x] - bg[i];
+        if (diff > thr || diff < -thr) {
+          bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+        } else {
+          fg[i] = 0;
+          bg[i] += a * diff;
+        }
       }
     }
   }
@@ -1132,7 +1340,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v4 · 자동 추적';
+const APP_VERSION = 'v5 · 손떨림 보정';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1366,7 +1574,7 @@ function onSettingChanged({ resetDetector = false } = {}) {
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
 
 /** 최근 3초간의 최대 반응을 추적하고, 상황에 맞는 안내를 띄운다. */
-function trackSignal(ratios, timeMs) {
+function trackSignal(ratios, timeMs, info = {}) {
   const onRatio = detector.opts.onRatio;
   const peakNow = Math.max(ratios[0], ratios[1]);
   signal.peaks.push({ t: timeMs, r: peakNow });
@@ -1383,10 +1591,10 @@ function trackSignal(ratios, timeMs) {
   signal.lastRender = now;
 
   const peak = signal.peaks.reduce((a, p) => Math.max(a, p.r), 0);
-  renderSignal(ratios, peak, onRatio, shaking);
+  renderSignal(ratios, peak, onRatio, shaking, info);
 }
 
-function renderSignal(ratios, peak, onRatio, shaking) {
+function renderSignal(ratios, peak, onRatio, shaking, info = {}) {
   const cells = [
     { box: el.sigA.parentElement, val: el.sigA, bar: el.barA, r: ratios[0] },
     { box: el.sigB.parentElement, val: el.sigB, bar: el.barB, r: ratios[1] },
@@ -1403,7 +1611,12 @@ function renderSignal(ratios, peak, onRatio, shaking) {
   if (calib || performance.now() < signal.holdUntil) return;
   let hint = '자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.';
   let warn = false;
-  if (shaking) {
+  if (info.tooShaky) {
+    hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
+    warn = true;
+  } else if (info.shake >= 1) {
+    hint = `손떨림 <b>${info.shake.toFixed(1)}px</b>을 보정하며 재는 중입니다. 고정하면 더 정확합니다.`;
+  } else if (shaking) {
     hint = '두 기준선이 동시에 계속 반응합니다 — <b>화면 전체가 흔들리고 있습니다.</b> 폰을 고정하세요.';
     warn = true;
   } else if (peak > 0.0005 && peak < onRatio * 0.9) {
@@ -1440,8 +1653,10 @@ function trackAutoSignal(result) {
   if (result.warmingUp) {
     hint = '배경을 학습하는 중입니다 — 잠시 그대로 두세요.';
   } else if (result.shaking) {
-    hint = '화면 전체가 움직이고 있습니다 — <b>폰을 고정하세요.</b>';
+    hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
     warn = true;
+  } else if (result.shake >= 1) {
+    hint = `손떨림 <b>${result.shake.toFixed(1)}px</b>을 보정하며 재는 중입니다. 고정하면 더 정확합니다.`;
   } else if (result.tracking) {
     hint = '움직임을 따라가는 중…';
   } else if (peak > 0.0002 && peak < needed) {
@@ -1773,7 +1988,7 @@ function processFrame(timeMs) {
   const result = detector.update(grayBuf, pw, ph, timeMs);
 
   if (calib) updateCalibration(result.ratios);
-  trackSignal(result.ratios, timeMs);
+  trackSignal(result.ratios, timeMs, { shake: result.shake, tooShaky: result.tooShaky });
 
   if (result.measurement && !calib) handleMeasurement(result.measurement);
   if (result.triggers.length) flashUntil = performance.now() + 180;

@@ -2,7 +2,7 @@
 //
 // 주의: 버전을 올리면 예전 캐시가 통째로 버려진다. 파일을 바꿀 때마다 올릴 것.
 // (js/app.js 의 APP_VERSION 과 같이 맞춘다)
-const VERSION = 4;
+const VERSION = 5;
 const CACHE = `toycar-speed-v${VERSION}`;
 const ASSETS = [
   './',
@@ -11,6 +11,7 @@ const ASSETS = [
   'js/app.js',
   'js/detector.js',
   'js/tracker.js',
+  'js/stabilizer.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

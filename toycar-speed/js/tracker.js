@@ -12,7 +12,13 @@
  * DOM에 의존하지 않는다. 입력은 8비트 그레이스케일 배열뿐이다.
  */
 
+import { Stabilizer } from './stabilizer.js';
+
 export const TRACKER_DEFAULTS = {
+  /** 손떨림 보정 사용 여부 */
+  stabilize: true,
+  /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 측정을 멈춘다 */
+  maxShakeMagnitude: 5,
   /** 진행 축: 'horizontal'이면 좌우 이동, 'vertical'이면 상하 이동 */
   axis: 'horizontal',
   /** 배경과 이만큼 이상 밝기가 다르면 움직임 픽셀로 본다 */
@@ -73,6 +79,8 @@ export class MotionTracker {
     this.bg = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer = new Stabilizer();
+    this.shake = 0;
     this.track = null;   // 진행 중인 통과 {samples, lastSeen, gap}
     this.coverage = 0;
     this.centroid = null;
@@ -85,6 +93,8 @@ export class MotionTracker {
     this.bg = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer.reset();
+    this.shake = 0;
     this.track = null;
     this.coverage = 0;
     this.centroid = null;
@@ -107,8 +117,17 @@ export class MotionTracker {
       this.bg.set(gray);
       this.fgFrames = new Uint16Array(gray.length);
       this.frames = 0;
+      this.stabilizer.reset();
       this.track = null;
     }
+
+    // 화면 전체가 밀린 양을 먼저 재고, 그만큼 어긋난 자리끼리 비교한다.
+    const shift = o.stabilize
+      ? this.stabilizer.update(gray, width, height)
+      : { offX: 0, offY: 0, magnitude: 0 };
+    this.shake = shift.magnitude;
+    const offX = shift.offX;
+    const offY = shift.offY;
 
     const thr = o.pixelThreshold;
     const horizontal = o.axis === 'horizontal';
@@ -118,11 +137,16 @@ export class MotionTracker {
     let min = axisLen;
     let max = -1;
 
-    for (let y = 0; y < height; y++) {
+    // 어긋난 만큼은 배경 모델 바깥이므로 아예 보지 않는다.
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(height, height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
       const row = y * width;
-      for (let x = 0; x < width; x++) {
-        const i = row + x;
-        const diff = gray[i] - this.bg[i];
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const diff = gray[row + x] - this.bg[bgRow + x];
         if (diff > thr || diff < -thr) {
           const a = horizontal ? x : y;
           count++;
@@ -133,12 +157,13 @@ export class MotionTracker {
       }
     }
 
-    const total = width * height;
+    const total = Math.max(1, (y1 - y0) * (x1 - x0));
     const coverage = count / total;
     this.coverage = coverage;
 
     const enough = coverage >= o.minPixelRatio;
-    const shaking = coverage > o.maxPixelRatio;
+    // 보정 범위를 넘는 큰 흔들림이거나, 화면 대부분이 한꺼번에 달라졌을 때
+    const shaking = coverage > o.maxPixelRatio || this.shake > o.maxShakeMagnitude;
     const usable = enough && !shaking && !this.isWarmingUp;
 
     this.centroid = usable ? sum / count / (axisLen - 1) : null;
@@ -160,10 +185,11 @@ export class MotionTracker {
     }
 
     this.frames++;
-    this._updateBackground(gray);
+    this._updateBackground(gray, offX, offY);
 
     return {
       coverage,
+      shake: this.shake,
       centroid: this.centroid,
       box: this.box,
       shaking,
@@ -200,7 +226,7 @@ export class MotionTracker {
     };
   }
 
-  _updateBackground(gray) {
+  _updateBackground(gray, offX, offY) {
     const o = this.opts;
     const a = o.learnRate;
     const aFg = a * o.foregroundLearnFactor;
@@ -208,13 +234,23 @@ export class MotionTracker {
     const stale = o.staleForegroundFrames;
     const bg = this.bg;
     const fg = this.fgFrames;
-    for (let i = 0; i < bg.length; i++) {
-      const diff = gray[i] - bg[i];
-      if (diff > thr || diff < -thr) {
-        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
-      } else {
-        fg[i] = 0;
-        bg[i] += a * diff;
+    const width = this.width;
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(this.height, this.height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
+      const row = y * width;
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const i = bgRow + x;
+        const diff = gray[row + x] - bg[i];
+        if (diff > thr || diff < -thr) {
+          bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+        } else {
+          fg[i] = 0;
+          bg[i] += a * diff;
+        }
       }
     }
   }

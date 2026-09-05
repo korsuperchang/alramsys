@@ -15,8 +15,13 @@ const root = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(resolve(root, p), 'utf8');
 
 const css = read('css/styles.css');
-const detector = read('js/detector.js').replace(/^export /gm, '');
-const tracker = read('js/tracker.js').replace(/^export /gm, '');
+const stabilizer = read('js/stabilizer.js').replace(/^export /gm, '');
+const detector = read('js/detector.js')
+  .replace(/^export /gm, '')
+  .replace(/^import .*from '\.\/stabilizer\.js';\n/m, '');
+const tracker = read('js/tracker.js')
+  .replace(/^export /gm, '')
+  .replace(/^import .*from '\.\/stabilizer\.js';\n/m, '');
 const app = read('js/app.js')
   .replace(/^import .*from '\.\/detector\.js';\n/m, '')
   .replace(/^import .*from '\.\/tracker\.js';\n/m, '')
@@ -34,7 +39,7 @@ const FONT_LINK =
   '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">';
 
 const TITLE = '장난감 자동차 속도 측정기';
-const script = `<script type="module">\n${detector}\n${tracker}\n${app}</script>`;
+const script = `<script type="module">\n${stabilizer}\n${detector}\n${tracker}\n${app}</script>`;
 
 // 아티팩트용: <head>/<body> 없이 title + style + 본문 + script
 const artifact = `<title>${TITLE}</title>\n${FONT_LINK}\n<style>\n${css}</style>\n\n${body}\n\n${script}\n`;

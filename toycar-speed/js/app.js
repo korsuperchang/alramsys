@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v4 · 자동 추적';
+const APP_VERSION = 'v5 · 손떨림 보정';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -302,7 +302,7 @@ function onSettingChanged({ resetDetector = false } = {}) {
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
 
 /** 최근 3초간의 최대 반응을 추적하고, 상황에 맞는 안내를 띄운다. */
-function trackSignal(ratios, timeMs) {
+function trackSignal(ratios, timeMs, info = {}) {
   const onRatio = detector.opts.onRatio;
   const peakNow = Math.max(ratios[0], ratios[1]);
   signal.peaks.push({ t: timeMs, r: peakNow });
@@ -319,10 +319,10 @@ function trackSignal(ratios, timeMs) {
   signal.lastRender = now;
 
   const peak = signal.peaks.reduce((a, p) => Math.max(a, p.r), 0);
-  renderSignal(ratios, peak, onRatio, shaking);
+  renderSignal(ratios, peak, onRatio, shaking, info);
 }
 
-function renderSignal(ratios, peak, onRatio, shaking) {
+function renderSignal(ratios, peak, onRatio, shaking, info = {}) {
   const cells = [
     { box: el.sigA.parentElement, val: el.sigA, bar: el.barA, r: ratios[0] },
     { box: el.sigB.parentElement, val: el.sigB, bar: el.barB, r: ratios[1] },
@@ -339,7 +339,12 @@ function renderSignal(ratios, peak, onRatio, shaking) {
   if (calib || performance.now() < signal.holdUntil) return;
   let hint = '자동차가 기준선을 지날 때 A·B 수치가 <b>기준</b>보다 커져야 측정됩니다.';
   let warn = false;
-  if (shaking) {
+  if (info.tooShaky) {
+    hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
+    warn = true;
+  } else if (info.shake >= 1) {
+    hint = `손떨림 <b>${info.shake.toFixed(1)}px</b>을 보정하며 재는 중입니다. 고정하면 더 정확합니다.`;
+  } else if (shaking) {
     hint = '두 기준선이 동시에 계속 반응합니다 — <b>화면 전체가 흔들리고 있습니다.</b> 폰을 고정하세요.';
     warn = true;
   } else if (peak > 0.0005 && peak < onRatio * 0.9) {
@@ -376,8 +381,10 @@ function trackAutoSignal(result) {
   if (result.warmingUp) {
     hint = '배경을 학습하는 중입니다 — 잠시 그대로 두세요.';
   } else if (result.shaking) {
-    hint = '화면 전체가 움직이고 있습니다 — <b>폰을 고정하세요.</b>';
+    hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
     warn = true;
+  } else if (result.shake >= 1) {
+    hint = `손떨림 <b>${result.shake.toFixed(1)}px</b>을 보정하며 재는 중입니다. 고정하면 더 정확합니다.`;
   } else if (result.tracking) {
     hint = '움직임을 따라가는 중…';
   } else if (peak > 0.0002 && peak < needed) {
@@ -709,7 +716,7 @@ function processFrame(timeMs) {
   const result = detector.update(grayBuf, pw, ph, timeMs);
 
   if (calib) updateCalibration(result.ratios);
-  trackSignal(result.ratios, timeMs);
+  trackSignal(result.ratios, timeMs, { shake: result.shake, tooShaky: result.tooShaky });
 
   if (result.measurement && !calib) handleMeasurement(result.measurement);
   if (result.triggers.length) flashUntil = performance.now() + 180;

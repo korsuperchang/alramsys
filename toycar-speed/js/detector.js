@@ -9,7 +9,13 @@
  * Node에서 그대로 테스트할 수 있다.
  */
 
+import { Stabilizer } from './stabilizer.js';
+
 export const DEFAULT_OPTIONS = {
+  /** 손떨림 보정 사용 여부 */
+  stabilize: true,
+  /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 트리거를 막는다 */
+  maxShakeMagnitude: 5,
   /** 게이트 방향: 'vertical'이면 세로선(차가 좌우로 이동), 'horizontal'이면 가로선(차가 상하로 이동) */
   orientation: 'vertical',
   /** 게이트 위치 (0~1 정규화). gateA가 항상 작은 값일 필요는 없다. */
@@ -88,6 +94,10 @@ export class GateSpeedDetector {
     this.prev = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer = new Stabilizer();
+    this.shake = 0;
+    this.offX = 0;
+    this.offY = 0;
     this.gates = [new GateState(), new GateState()];
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
@@ -107,6 +117,10 @@ export class GateSpeedDetector {
     this.prev = null;
     this.fgFrames = null;
     this.frames = 0;
+    this.stabilizer.reset();
+    this.shake = 0;
+    this.offX = 0;
+    this.offY = 0;
     this.ratios = [0, 0];
     this.movedPixels = [0, 0];
     this.pending = null;
@@ -140,12 +154,18 @@ export class GateSpeedDetector {
     let moved = 0;
     let total = 0;
 
+    const inside = (x, y) => {
+      const mx = x + this.offX;
+      const my = y + this.offY;
+      return mx >= 0 && mx < this.width && my >= 0 && my < this.height;
+    };
     if (o.orientation === 'vertical') {
       for (let y = roiFrom; y <= roiTo; y++) {
         const row = y * this.width;
+        const bgRow = (y + this.offY) * this.width + this.offX;
         for (let x = start; x <= end; x++) {
-          const i = row + x;
-          const diff = gray[i] - this.bg[i];
+          if (!inside(x, y)) continue;
+          const diff = gray[row + x] - this.bg[bgRow + x];
           if (diff > thr || diff < -thr) moved++;
           total++;
         }
@@ -153,9 +173,10 @@ export class GateSpeedDetector {
     } else {
       for (let y = start; y <= end; y++) {
         const row = y * this.width;
+        const bgRow = (y + this.offY) * this.width + this.offX;
         for (let x = roiFrom; x <= roiTo; x++) {
-          const i = row + x;
-          const diff = gray[i] - this.bg[i];
+          if (!inside(x, y)) continue;
+          const diff = gray[row + x] - this.bg[bgRow + x];
           if (diff > thr || diff < -thr) moved++;
           total++;
         }
@@ -218,6 +239,14 @@ export class GateSpeedDetector {
       for (const g of this.gates) g.reset();
     }
 
+    const shift = o.stabilize
+      ? this.stabilizer.update(gray, width, height)
+      : { offX: 0, offY: 0, magnitude: 0 };
+    this.shake = shift.magnitude;
+    this.offX = shift.offX;
+    this.offY = shift.offY;
+    const tooShaky = this.shake > o.maxShakeMagnitude;
+
     const sampleA = this._sampleRatio(gray, o.gateA);
     const sampleB = this._sampleRatio(gray, o.gateB);
     const ratios = [sampleA.ratio, sampleB.ratio];
@@ -229,7 +258,7 @@ export class GateSpeedDetector {
     const triggers = [];
     let measurement = null;
 
-    if (!this.isWarmingUp) {
+    if (!this.isWarmingUp && !tooShaky) {
       for (let i = 0; i < 2; i++) {
         const gate = this.gates[i];
         const r = ratios[i];
@@ -291,19 +320,30 @@ export class GateSpeedDetector {
     const bg = this.bg;
     const fg = this.fgFrames;
     const prev = this.prev;
-    for (let i = 0; i < bg.length; i++) {
-      const diff = gray[i] - bg[i];
-      if (diff > thr || diff < -thr) {
-        // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
-        bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
-      } else {
-        fg[i] = 0;
-        bg[i] += a * diff;
+    const offX = this.offX;
+    const offY = this.offY;
+    const y0 = Math.max(0, -offY);
+    const y1 = Math.min(height, height - offY);
+    const x0 = Math.max(0, -offX);
+    const x1 = Math.min(width, width - offX);
+    for (let y = y0; y < y1; y++) {
+      const row = y * width;
+      const bgRow = (y + offY) * width + offX;
+      for (let x = x0; x < x1; x++) {
+        const i = bgRow + x;
+        const diff = gray[row + x] - bg[i];
+        if (diff > thr || diff < -thr) {
+          // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
+          bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
+        } else {
+          fg[i] = 0;
+          bg[i] += a * diff;
+        }
       }
-      prev[i] = gray[i];
     }
+    prev.set(gray);
 
-    return { ratios, triggers, measurement, warmingUp: this.isWarmingUp };
+    return { ratios, triggers, measurement, warmingUp: this.isWarmingUp, shake: this.shake, tooShaky };
   }
 
   _onTrigger(index, time) {

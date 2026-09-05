@@ -466,7 +466,7 @@ input[type="range"] {
     <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
   </section>
 
-  <footer class="foot">카메라 영상은 기기 안에서만 처리되며 어디로도 전송되지 않습니다.</footer>
+  <footer class="foot">카메라 영상은 기기 안에서만 처리되며 어디로도 전송되지 않습니다.<br><span id="version"></span></footer>
 </div>
 <script type="module">
 /**
@@ -1097,6 +1097,7 @@ const el = {
   labThr: $('labThr'),
   labPeak: $('labPeak'),
   unit: document.querySelector('.speed-main .unit'),
+  version: $('version'),
   gateA: $('gateA'),
   gateB: $('gateB'),
   gateAVal: $('gateAVal'),
@@ -1130,6 +1131,8 @@ const el = {
   btnClear: $('btnClear'),
 };
 
+/** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
+const APP_VERSION = 'v4 · 자동 추적';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -2219,6 +2222,7 @@ window.addEventListener('orientationchange', () => setTimeout(() => drawOverlay(
 applySettingsToUI();
 applySettingsToDetector({ reset: true });
 renderRecords();
+el.version.textContent = APP_VERSION;
 if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복원
 drawOverlay();
 setStatus('‘카메라 시작’을 눌러 주세요');

@@ -21,7 +21,7 @@ const app = read('js/app.js')
   .replace(/^import .*from '\.\/detector\.js';\n/m, '')
   .replace(/^import .*from '\.\/tracker\.js';\n/m, '')
   // 서비스 워커는 단일 파일 빌드에 포함되지 않는다.
-  .replace(/if \('serviceWorker' in navigator\) \{[\s\S]*?\n\}\n?/m, '');
+  .replace(/\/\/ \[standalone:strip-start\][\s\S]*?\/\/ \[standalone:strip-end\]\n?/g, '');
 
 const html = read('index.html');
 const bodyMatch = html.match(/<body>([\s\S]*)<script type="module"[\s\S]*?<\/script>\s*<\/body>/);

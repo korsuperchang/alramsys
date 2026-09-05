@@ -33,6 +33,7 @@ const el = {
   labThr: $('labThr'),
   labPeak: $('labPeak'),
   unit: document.querySelector('.speed-main .unit'),
+  version: $('version'),
   gateA: $('gateA'),
   gateB: $('gateB'),
   gateAVal: $('gateAVal'),
@@ -66,6 +67,8 @@ const el = {
   btnClear: $('btnClear'),
 };
 
+/** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
+const APP_VERSION = 'v4 · 자동 추적';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1155,12 +1158,22 @@ window.addEventListener('orientationchange', () => setTimeout(() => drawOverlay(
 applySettingsToUI();
 applySettingsToDetector({ reset: true });
 renderRecords();
+el.version.textContent = APP_VERSION;
 if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복원
 drawOverlay();
 setStatus('‘카메라 시작’을 눌러 주세요');
 
+// [standalone:strip-start] 단일 파일 빌드에는 서비스 워커가 없다
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => { /* 오프라인 캐시는 선택 사항 */ });
   });
+  // 새 버전이 넘겨받으면 한 번만 새로고침해서 곧바로 반영한다.
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
 }
+// [standalone:strip-end]

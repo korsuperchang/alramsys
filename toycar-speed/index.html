@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="description" content="핸드폰 카메라로 장난감 자동차의 속도를 재는 웹 앱">
+<title>장난감 자동차 속도 측정기</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <h1>🏎️ 속도 측정기</h1>
+    <div class="status" id="status">카메라 준비 중…</div>
+  </header>
+
+  <main class="stage-wrap">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="demo" class="demo-source" width="640" height="480" hidden></canvas>
+      <canvas id="overlay" class="overlay"></canvas>
+      <div class="stage-hint" id="stageHint">
+        <p>카메라 권한을 허용하면 화면에 <b>기준선 A·B</b>가 나타납니다.<br>
+        선을 드래그해서 자동차가 지나갈 위치에 맞춰 주세요.</p>
+      </div>
+    </div>
+
+    <div class="readout" id="readout">
+      <div class="speed-main"><span id="speedValue">--</span><span class="unit">km/h</span></div>
+      <div class="speed-sub">
+        <span id="speedMps">-- m/s</span>
+        <span id="speedTolerance"></span>
+        <span id="speedDt"></span>
+      </div>
+      <div class="speed-scale" id="speedScale" hidden></div>
+    </div>
+  </main>
+
+  <div class="actions">
+    <button id="btnCamera" class="btn primary">카메라 시작</button>
+    <button id="btnFlip" class="btn">카메라 전환</button>
+    <button id="btnDemo" class="btn">데모 모드</button>
+    <button id="btnReset" class="btn">배경 재학습</button>
+  </div>
+
+  <section class="panel">
+    <h2>측정 설정</h2>
+
+    <div class="field">
+      <label for="distance">기준선 A ↔ B 실제 거리</label>
+      <div class="row">
+        <input type="number" id="distance" min="0.1" step="0.1" value="50" inputmode="decimal">
+        <select id="distanceUnit">
+          <option value="0.01" selected>cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
+      <p class="hint">바닥에 자로 재서 표시한 두 지점 사이의 실제 거리입니다. 이 값이 정확해야 속도도 정확합니다.</p>
+    </div>
+
+    <div class="field">
+      <label>기준선 방향</label>
+      <div class="segmented" id="orientation">
+        <button type="button" data-value="vertical" class="on">세로선 (차가 좌우로 이동)</button>
+        <button type="button" data-value="horizontal">가로선 (차가 위아래로 이동)</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="gateA">기준선 A 위치 <span class="val" id="gateAVal">30%</span></label>
+      <input type="range" id="gateA" min="2" max="98" value="30">
+      <label for="gateB">기준선 B 위치 <span class="val" id="gateBVal">70%</span></label>
+      <input type="range" id="gateB" min="2" max="98" value="70">
+    </div>
+
+    <div class="field">
+      <label for="roiStart">감지 구간 시작 <span class="val" id="roiStartVal">15%</span></label>
+      <input type="range" id="roiStart" min="0" max="100" value="15">
+      <label for="roiEnd">감지 구간 끝 <span class="val" id="roiEndVal">85%</span></label>
+      <input type="range" id="roiEnd" min="0" max="100" value="85">
+      <p class="hint">기준선 중 실제로 차가 지나가는 부분만 남기면 오검출이 줄어듭니다.</p>
+    </div>
+
+    <div class="field">
+      <label for="sensitivity">민감도 <span class="val" id="sensitivityVal">5</span></label>
+      <input type="range" id="sensitivity" min="1" max="10" value="5">
+      <p class="hint">잘 안 잡히면 올리고, 그림자·흔들림에 계속 반응하면 내리세요.</p>
+    </div>
+
+    <div class="field">
+      <label for="scale">축척 환산 (1 : <span class="val" id="scaleVal">1</span>)</label>
+      <input type="range" id="scale" min="1" max="87" value="1">
+      <p class="hint">핫휠·토미카는 보통 1:64입니다. 1보다 크게 두면 "실제 차라면 몇 km/h인지"를 같이 보여줍니다.</p>
+    </div>
+
+    <div class="field row wrap">
+      <label class="check"><input type="checkbox" id="sound" checked> 측정음</label>
+      <label class="check"><input type="checkbox" id="vibrate" checked> 진동</label>
+      <label class="check"><input type="checkbox" id="showMask"> 감지 픽셀 표시</label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>측정 기록 <span class="count" id="recordCount">0</span></h2>
+    <div class="summary">
+      <div><span class="k">최고</span><span class="v" id="bestSpeed">--</span></div>
+      <div><span class="k">평균</span><span class="v" id="avgSpeed">--</span></div>
+      <div><span class="k">최근</span><span class="v" id="lastSpeed">--</span></div>
+    </div>
+    <ol class="records" id="records"></ol>
+    <div class="actions">
+      <button id="btnCopy" class="btn">CSV 복사</button>
+      <button id="btnClear" class="btn danger">기록 삭제</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>사용법</h2>
+    <ol class="howto">
+      <li>바닥에 자동차가 지나갈 직선 구간을 정하고, <b>두 지점 사이 거리를 자로 재서</b> 위에 입력합니다. (30~100cm 권장)</li>
+      <li>핸드폰을 삼각대·컵 등에 <b>고정</b>하고, 주행 경로를 <b>옆에서 정면으로</b> 바라보게 둡니다.</li>
+      <li>화면의 기준선 A·B를 바닥에 표시한 두 지점에 맞춥니다.</li>
+      <li>화면이 조용해지면(배경 학습 완료) 자동차를 굴립니다. 두 선을 지나는 순간 자동으로 속도가 뜹니다.</li>
+    </ol>
+    <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
+  </section>
+
+  <footer class="foot">카메라 영상은 기기 안에서만 처리되며 어디로도 전송되지 않습니다.</footer>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

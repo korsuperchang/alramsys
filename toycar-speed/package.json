@@ -1,0 +1,12 @@
+{
+  "name": "toycar-speed",
+  "version": "1.0.0",
+  "description": "핸드폰 카메라로 장난감 자동차 속도를 측정하는 웹 앱",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/detector.test.mjs",
+    "serve": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}

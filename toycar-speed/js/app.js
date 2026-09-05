@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v9 · 잡음 안내 정리';
+const APP_VERSION = 'v10 · 손·차 구분';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -383,6 +383,9 @@ function trackAutoSignal(result) {
   } else if (result.shaking) {
     hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
     warn = true;
+  } else if (result.cameraMoving) {
+    hint = '화면 전체가 움직이고 있습니다 — <b>카메라를 고정</b>해 주세요. 지금은 자동차를 가려낼 수 없습니다.';
+    warn = true;
   } else if (result.shake >= 1) {
     hint = `손떨림 <b>${result.shake.toFixed(1)}px</b>을 보정하며 재는 중입니다. 고정하면 더 정확합니다.`;
   } else if (result.tracking) {
@@ -402,8 +405,8 @@ function trackAutoSignal(result) {
 function explainRejection(r) {
   // 표본 두엇에 이동도 거의 없는 것은 자동차가 아니라 그림자·잔떨림이다.
   // 그걸 "너무 빨리 지나갔다"고 알리면, 자동차를 놓친 것처럼 읽혀 오해만 만든다.
-  const noiseBlip = r.reason === 'tooFast' && r.samples <= 2
-    && (r.travel ?? 0) < tracker.opts.minTravelRatio;
+  // 이동이 화면의 5%도 안 되는 것은 자동차가 지나간 시도가 아니라 잔 움직임이다.
+  const noiseBlip = (r.travel ?? 0) < 0.05;
   if (noiseBlip) return;
 
   const messages = {
@@ -784,7 +787,14 @@ function handlePass(p) {
   showSpeed(record);
   renderRecords();
   feedback();
-  setStatus(`측정됨 — 화면의 ${(p.travel * 100).toFixed(0)}% 구간, 표본 ${p.samples}개`, 'ok');
+  if (p.cameraMoved) {
+    setStatus('측정됨 — 다만 재는 동안 카메라가 크게 움직였습니다', 'warn');
+    el.signalHint.className = 'signal-hint warn';
+    el.signalHint.innerHTML = '재는 동안 <b>카메라가 크게 움직였습니다.</b> 그 구간은 건너뛰고 계산했기 때문에 값이 어긋났을 수 있습니다. 폰을 고정하고 다시 재 보세요.';
+    signal.holdUntil = performance.now() + 6000;
+  } else {
+    setStatus(`측정됨 — 화면의 ${(p.travel * 100).toFixed(0)}% 구간, 표본 ${p.samples}개`, 'ok');
+  }
 }
 
 function trackFramePeriod(timeMs) {

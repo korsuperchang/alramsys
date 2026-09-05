@@ -43,6 +43,11 @@ export const TRACKER_DEFAULTS = {
   blobEdgeRatio: 0.3,
   /** 한 덩어리로 인정할 최대 폭 (축 길이 대비). 이보다 넓게 퍼지면 물체가 아니라 잡음이다 */
   blobMaxWidthRatio: 0.45,
+  /**
+   * 덩어리로 뭉치지 않는 움직임이 화면의 이만큼을 넘으면 카메라가 움직인 것으로 본다.
+   * (물체는 한곳에 뭉치고, 카메라가 움직이면 화면 전체가 넓게 달라진다)
+   */
+  spreadMotionRatio: 0.02,
   /** 이보다 크면 화면 전체가 움직인 것 — 흔들림으로 보고 버린다 */
   maxPixelRatio: 0.5,
   /** 비교할 과거 프레임이 쌓일 때까지 기다리는 프레임 수 */
@@ -60,6 +65,12 @@ export const TRACKER_DEFAULTS = {
   minR2: 0.8,
   /** 한 번의 통과가 이보다 길면 버린다 */
   maxDurationMs: 8000,
+  /**
+   * 다음 프레임에서 물체가 이만큼(축 길이 대비) 넘게 튀면 다른 물체로 본다.
+   * 자동차를 굴려 주는 손이 화면 한쪽에서 움직이다가 자동차가 반대쪽에 나타나면,
+   * 이 둘을 한 통과로 묶어 버려서 아무것도 측정하지 못한다.
+   */
+  maxJumpRatio: 0.3,
 };
 
 /** 표본 (t초, 위치 0~1)에 직선을 맞춘다. 기울기가 곧 속도(화면폭/초). */
@@ -141,6 +152,19 @@ export class MotionTracker {
   }
 
   get isWarmingUp() { return this.frames < this.opts.warmupFrames; }
+
+  /** 지금 본 위치가 보던 물체의 다음 위치로 볼 수 없을 만큼 동떨어져 있는가 */
+  _isJump(centroid, timeMs) {
+    const samples = this.track.samples;
+    const last = samples[samples.length - 1];
+    let expected = last.p;
+    if (samples.length >= 2) {
+      const prev = samples[samples.length - 2];
+      const dt = last.t - prev.t;
+      if (dt > 0) expected = last.p + ((last.p - prev.p) / dt) * (timeMs / 1000 - last.t);
+    }
+    return Math.abs(centroid - expected) > this.opts.maxJumpRatio;
+  }
 
   _profileFor(axisLen) {
     if (!this._profile || this._profile.length !== axisLen) this._profile = new Int32Array(axisLen);
@@ -248,6 +272,8 @@ export class MotionTracker {
     this.coverage = coverage;
 
     const enough = !!blob && coverage >= o.minPixelRatio;
+    // 뭉치지 않은 움직임이 화면 곳곳에 퍼져 있다 = 카메라가 움직였다
+    const cameraMoving = !blob && total0 / total > o.spreadMotionRatio;
     // 보정 범위를 넘는 큰 흔들림이거나, 화면 대부분이 한꺼번에 달라졌을 때
     const saturated = Math.abs(offX) >= this.stabilizer.opts.maxShift
       || Math.abs(offY) >= this.stabilizer.opts.maxShift;
@@ -263,7 +289,14 @@ export class MotionTracker {
     let pass = null;
     let rejected = null;
     if (usable) {
-      if (!this.track) this.track = { samples: [], gap: 0 };
+      // 직전에 보던 것과 너무 멀리 떨어져 나타났다면 다른 물체다.
+      // 보던 통과를 여기서 끊고, 이 표본으로 새 통과를 시작한다.
+      if (this.track && this.track.samples.length && this._isJump(this.centroid, timeMs)) {
+        const outcome = this._finishTrack();
+        if (outcome && outcome.reason) rejected = outcome;
+        else pass = outcome;
+      }
+      if (!this.track) this.track = { samples: [], gap: 0, cameraMoved: false };
       this.track.gap = 0;
       this.track.samples.push({ t: timeMs / 1000, p: this.centroid });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
@@ -272,6 +305,8 @@ export class MotionTracker {
         this.track = null;
       }
     } else if (this.track) {
+      // 이 통과가 이어지는 동안 카메라가 크게 움직였다면 결과에 표시해 준다.
+      if (shaking || cameraMoving) this.track.cameraMoved = true;
       this.track.gap++;
       if (this.track.gap >= o.gapFrames) {
         const outcome = this._finishTrack();
@@ -291,6 +326,7 @@ export class MotionTracker {
       centroid: this.centroid,
       box: this.box,
       shaking,
+      cameraMoving,
       tracking: !!this.track,
       warmingUp: this.isWarmingUp,
       pass,
@@ -306,6 +342,7 @@ export class MotionTracker {
   _finishTrack() {
     const o = this.opts;
     const samples = this.track.samples;
+    const cameraMoved = this.track.cameraMoved;
     this.track = null;
     if (samples.length < 2) return null; // 스쳐 지나간 잡음, 알릴 것도 없다
 
@@ -334,6 +371,8 @@ export class MotionTracker {
       durationMs,
       r2,
       samples: kept.length,
+      /** 통과 도중 카메라가 크게 움직였다 — 값이 실제보다 어긋났을 수 있다 */
+      cameraMoved,
     };
   }
 

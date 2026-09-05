@@ -220,6 +220,33 @@ test('정상 통과에는 거절 이유가 붙지 않는다', () => {
   assert.equal(rejected, 0);
 });
 
+test('굴려 주는 손과 자동차를 다른 것으로 구분한다', () => {
+  // 실제 촬영에서 측정이 실패하던 또 다른 상황:
+  // 화면 왼쪽에서 손이 20프레임쯤 꼼지락거린 뒤, 자동차가 오른쪽에서 나타나 가로지른다.
+  // 이 둘을 한 통과로 묶으면 궤적이 뒤죽박죽이 되어 아무것도 측정되지 않는다.
+  const tr = new MotionTracker();
+  const frames = [
+    ...Array.from({ length: 15 }, () => frame()),
+    // 왼쪽 끝에서 손이 조금씩 움직인다
+    ...Array.from({ length: 20 }, (_, i) => frame({ carX: 6 + (i % 4) * 3, carW: 18, carTop: 30, carH: 26 })),
+    // 곧이어 자동차가 오른쪽에서 왼쪽으로 가로지른다
+    ...Array.from({ length: 26 }, (_, i) => frame({ carX: 150 - i * 6 })),
+    ...Array.from({ length: 8 }, () => frame()),
+  ];
+  const passes = [];
+  let t = 0;
+  for (const f of frames) {
+    const r = tr.update(f, W, H, t);
+    if (r.pass) passes.push(r.pass);
+    t += FRAME_MS;
+  }
+  assert.equal(passes.length, 1, `통과 ${passes.length}건 — 손과 자동차가 섞였다`);
+  assert.equal(passes[0].direction, 'RL');
+  const expected = (6 / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}%`);
+});
+
 test('카메라가 천천히 미끄러지는 바닥 무늬 위에서도 자동차를 찾아낸다', () => {
   // 실제 촬영에서 측정이 통째로 실패하던 상황의 재현:
   // 촘촘한 무늬(퍼즐 매트) 위에서 폰이 2초 동안 8픽셀쯤 서서히 밀린다.

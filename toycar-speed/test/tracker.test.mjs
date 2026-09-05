@@ -154,28 +154,54 @@ test('인정하지 않은 통과는 이유를 함께 알려 준다', () => {
   };
   const idle = (n) => Array.from({ length: n }, () => frame());
 
-  // 표본이 모자랄 만큼 빠르게 지나간 경우
-  const fast = reasons([...idle(20), ...[-20, 30, 80, 130].map((x) => frame({ carX: x })), ...idle(6)]);
+  // 표본이 모자랄 만큼 빠르게 지나간 경우 (두세 프레임 만에 화면을 벗어남)
+  const fast = reasons([...idle(20), frame({ carX: 70 }), ...idle(6)]);
   assert.equal(fast.length, 1);
   assert.equal(fast[0].reason, 'tooFast');
-  assert.ok(fast[0].samples < 5);
+  assert.ok(fast[0].samples < 4, `표본 ${fast[0].samples}개`);
 
-  // 제자리에서 조금만 움직인 경우
+  // 화면을 가로지르지 않고 조금만 이동한 경우 (움직이긴 하지만 8%만 이동)
   const short = reasons([
     ...idle(20),
-    ...Array.from({ length: 12 }, (_, i) => frame({ carX: 70 + i * 0.4 })),
+    ...Array.from({ length: 10 }, (_, i) => frame({ carX: 60 + i * 1.4 })),
     ...idle(6),
   ]);
-  assert.equal(short[0].reason, 'tooShort');
+  assert.equal(short[0].reason, 'tooShort', `이유=${short[0].reason}, 이동=${(short[0].travel * 100).toFixed(0)}%`);
 
-  // 한 방향으로 꾸준하지 않은 경우 (앞으로 갔다가 절반쯤 되돌아옴)
+  // 갔던 만큼 그대로 되돌아온 경우 (한 방향 통과가 아니다)
   const wobbly = reasons([
     ...idle(20),
-    ...Array.from({ length: 14 }, (_, i) => frame({ carX: 10 + i * 8 })),
-    ...Array.from({ length: 8 }, (_, i) => frame({ carX: 122 - i * 8 })),
+    ...Array.from({ length: 12 }, (_, i) => frame({ carX: 10 + i * 9 })),
+    ...Array.from({ length: 12 }, (_, i) => frame({ carX: 118 - i * 9 })),
     ...idle(6),
   ]);
+  assert.ok(wobbly.length > 0, '왕복은 통과로 인정하면 안 된다');
   assert.ok(['notSteady', 'tooShort'].includes(wobbly[0].reason), `이유=${wobbly[0].reason}`);
+});
+
+test('통과 앞뒤에 잔 움직임이 한둘 끼어도 측정을 놓치지 않는다', () => {
+  // 실제 촬영에서는 자동차가 지나기 직전·직후에 그림자나 잔 흔들림이 한두 프레임 잡힌다.
+  // 양 끝 표본만 보고 판단하면 그것만으로 통과 전체를 놓친다.
+  const tr = new MotionTracker();
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    frame({ carX: 80, carW: 10 }),          // 엉뚱한 위치의 잔 움직임
+    frame(),
+    ...lap(5),                               // 진짜 통과
+    frame({ carX: 90, carW: 10 }),          // 지나간 뒤의 잔 움직임
+    ...Array.from({ length: 8 }, () => frame()),
+  ];
+  const passes = [];
+  let t = 0;
+  for (const f of frames) {
+    const r = tr.update(f, W, H, t);
+    if (r.pass) passes.push(r.pass);
+    t += FRAME_MS;
+  }
+  assert.ok(passes.length >= 1, '잔 움직임 때문에 통과를 놓쳤다');
+  const expected = (5 / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}%`);
 });
 
 test('정상 통과에는 거절 이유가 붙지 않는다', () => {
@@ -192,6 +218,60 @@ test('정상 통과에는 거절 이유가 붙지 않는다', () => {
   }
   assert.equal(passed, 1);
   assert.equal(rejected, 0);
+});
+
+test('카메라가 천천히 미끄러지는 바닥 무늬 위에서도 자동차를 찾아낸다', () => {
+  // 실제 촬영에서 측정이 통째로 실패하던 상황의 재현:
+  // 촘촘한 무늬(퍼즐 매트) 위에서 폰이 2초 동안 8픽셀쯤 서서히 밀린다.
+  // 배경을 오래 쌓아 비교하는 방식은 이때 화면 전체가 "움직임"이 되어 자동차가 묻힌다.
+  const BW = W + 40;
+  const BH = H + 40;
+  const floor = new Uint8Array(BW * BH);
+  for (let y = 0; y < BH; y++) {
+    for (let x = 0; x < BW; x++) {
+      // 매트의 촘촘한 격자 무늬
+      floor[y * BW + x] = 175 + ((x % 3 === 0 ? 12 : 0) + (y % 3 === 0 ? 12 : 0));
+    }
+  }
+  const view = (carX, ox, oy) => {
+    const g = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) g[y * W + x] = floor[(y + 20 + oy) * BW + (x + 20 + ox)];
+    }
+    if (carX !== null) {
+      const x0 = Math.max(0, Math.round(carX));
+      const x1 = Math.min(W - 1, Math.round(carX + 12));
+      for (let y = 54; y < 64; y++) for (let x = x0; x <= x1; x++) g[y * W + x] = 45;
+    }
+    return g;
+  };
+
+  const tr = new MotionTracker();
+  const passes = [];
+  let t = 0;
+  let f = 0;
+  const step = (carX) => {
+    // 2초 동안 8px 정도 미끄러지는 카메라 (프레임당 0.14px)
+    const ox = Math.round(f * 0.14);
+    const oy = Math.round(f * 0.07);
+    const r = tr.update(view(carX, ox, oy), W, H, t);
+    if (r.pass) passes.push(r.pass);
+    t += FRAME_MS;
+    f++;
+  };
+  for (let i = 0; i < 20; i++) step(null);
+  const speed = 6;
+  for (let i = 0; i < 26; i++) {
+    const x = 150 - i * speed;   // 오른쪽에서 왼쪽으로
+    step(x < -20 ? null : x);
+  }
+  for (let i = 0; i < 8; i++) step(null);
+
+  assert.equal(passes.length, 1, `통과 ${passes.length}건 — 미끄러지는 카메라에서 자동차를 놓쳤다`);
+  assert.equal(passes[0].direction, 'RL');
+  const expected = (speed / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
 });
 
 test('fitLine: 기울기와 R²를 정확히 낸다', () => {

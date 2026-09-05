@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v7 · 조건 안내';
+const APP_VERSION = 'v8 · 실제 영상 대응';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -379,7 +379,7 @@ function trackAutoSignal(result) {
   let hint = '자동차를 굴리면 알아서 따라갑니다. 폰만 고정해 두세요.';
   let warn = false;
   if (result.warmingUp) {
-    hint = '배경을 학습하는 중입니다 — 잠시 그대로 두세요.';
+    hint = '준비 중…';
   } else if (result.shaking) {
     hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
     warn = true;

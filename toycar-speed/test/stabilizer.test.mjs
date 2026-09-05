@@ -4,8 +4,9 @@ import { Stabilizer, bestShift, STABILIZER_DEFAULTS } from '../js/stabilizer.js'
 import { MotionTracker } from '../js/tracker.js';
 import { GateSpeedDetector } from '../js/detector.js';
 
-const { maxShift, confidenceRatio, trimRatio, zeroBias } = STABILIZER_DEFAULTS;
-const shiftOf = (cur, prev) => bestShift(cur, prev, maxShift, confidenceRatio, trimRatio, null, zeroBias);
+const { maxShift, confidenceRatio, trimRatio, zeroBias, minSignal } = STABILIZER_DEFAULTS;
+const shiftOf = (cur, prev) =>
+  bestShift(cur, prev, maxShift, confidenceRatio, trimRatio, null, zeroBias, minSignal);
 
 /** 무늬가 있는 1차원 신호 */
 function textured(n, seed = 3) {
@@ -70,7 +71,7 @@ test('타일처럼 같은 무늬가 반복돼도 가만히 있는 화면을 흔�
   assert.equal(shiftOf(cur, prev), 0);
 });
 
-test('Stabilizer는 프레임마다 누적된 어긋남을 들고 있다', () => {
+test('Stabilizer는 기준 화면 대비 어긋난 양을 돌려준다', () => {
   const W = 64;
   const H = 48;
   const world = new Uint8Array((W + 32) * H);
@@ -82,10 +83,12 @@ test('Stabilizer는 프레임마다 누적된 어긋남을 들고 있다', () =>
     return g;
   };
   const st = new Stabilizer();
-  st.update(view(0), W, H);
-  st.update(view(2), W, H);
-  st.update(view(4), W, H);
-  assert.equal(Math.abs(st.offX), 4, `누적 어긋남 ${st.offX}`);
+  const base = view(0);
+  // 기준(배경/과거 프레임)과 직접 견주므로, 천천히 밀려도 누적된 양이 그대로 나온다.
+  for (const by of [1, 2, 4, 7]) {
+    st.update(view(by), base, W, H);
+    assert.equal(Math.abs(st.offX), by, `${by}px 어긋남을 ${st.offX}로 봤다`);
+  }
   st.reset();
   assert.equal(st.offX, 0);
 });
@@ -163,23 +166,38 @@ function shakyRun(amp) {
   return { passes, gates, truth, shakingFrames };
 }
 
-for (const amp of [1, 2, 4]) {
+// 자동 추적은 ±8px까지 값이 흔들리지 않는다.
+for (const amp of [1, 2, 4, 8]) {
   test(`카메라가 ±${amp}px 흔들려도 자동 추적 값이 흔들리지 않는다`, () => {
     const { passes, truth } = shakyRun(amp);
     assert.equal(passes.length, 1, `통과 ${passes.length}건`);
     const err = Math.abs(passes[0].fwps - truth) / truth;
     assert.ok(err < 0.1, `오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(3)}, 참값 ${truth.toFixed(3)})`);
   });
+}
 
-  test(`카메라가 ±${amp}px 흔들려도 기준선이 헛측정을 내지 않는다`, () => {
+// 기준선 방식은 ±4px까지 정상 측정한다.
+for (const amp of [1, 2, 4]) {
+  test(`카메라가 ±${amp}px 흔들려도 기준선이 제 값을 낸다`, () => {
     const { gates } = shakyRun(amp);
     assert.equal(gates.length, 1, `측정 ${gates.length}건 (${gates.map((g) => g.direction).join(',')})`);
     assert.equal(gates[0].direction, 'AB');
   });
 }
 
+// 그보다 크게 흔들리면 틀린 값을 내는 대신 멈춘다. (못 재는 것보다 나쁜 것은 틀리게 재는 것)
+for (const amp of [8, 16]) {
+  test(`카메라가 ±${amp}px 흔들리면 기준선은 헛측정 대신 침묵한다`, () => {
+    const { gates } = shakyRun(amp);
+    for (const g of gates) {
+      assert.equal(g.direction, 'AB', `방향이 뒤집힌 측정이 나왔다 (${gates.length}건)`);
+    }
+    assert.ok(gates.length <= 1, `헛측정 ${gates.length}건`);
+  });
+}
+
 test('보정 범위를 넘는 큰 흔들림은 측정하지 않고 흔들림으로 표시한다', () => {
-  const { passes, gates, shakingFrames } = shakyRun(12);
+  const { passes, gates, shakingFrames } = shakyRun(16);
   assert.equal(passes.length, 0, '엉터리 값을 내면 안 된다');
   assert.equal(gates.length, 0, '엉터리 값을 내면 안 된다');
   assert.ok(shakingFrames > 10, `흔들림으로 표시된 프레임 ${shakingFrames}`);

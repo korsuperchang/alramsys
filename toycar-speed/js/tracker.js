@@ -6,6 +6,11 @@
  * 움직이는 픽셀 덩어리의 중심을 매 프레임 기록하고, 한 번의 통과가 끝나면
  * 위치-시간 표본에 직선을 맞춰(최소제곱) 속도를 구한다.
  *
+ * 움직임은 "몇 프레임 전과 달라진 곳"으로 찾는다(프레임 간 차분). 오래 쌓아 둔 배경과
+ * 비교하는 방식은 카메라가 조금씩 미끄러지기만 해도 바닥 무늬 전체가 달라져 버려서,
+ * 실제 촬영에서는 자동차가 그 속에 묻힌다. 프레임 간 차분은 느린 드리프트에 거의
+ * 반응하지 않으면서 지나가는 물체만 남긴다.
+ *
  * 속도는 "초당 화면 폭의 몇 배"(fwps)로 낸다. 카메라를 고정해 두면 이 값끼리는
  * 그대로 비교할 수 있고, 화면에 담긴 실제 가로 길이를 알려 주면 m/s로 환산된다.
  *
@@ -21,18 +26,32 @@ export const TRACKER_DEFAULTS = {
   maxShakeMagnitude: 5,
   /** 진행 축: 'horizontal'이면 좌우 이동, 'vertical'이면 상하 이동 */
   axis: 'horizontal',
-  /** 배경과 이만큼 이상 밝기가 다르면 움직임 픽셀로 본다 */
+  /** 이만큼 이상 밝기가 달라지면 움직임 픽셀로 본다 */
   pixelThreshold: 26,
-  /** 움직임으로 인정할 최소 면적 (전체 픽셀 대비) */
+  /**
+   * 몇 프레임 전과 비교할지. 1이면 바로 직전 프레임.
+   * 2~3으로 두면 느리게 움직이는 물체의 신호가 그만큼 커진다.
+   * 물체가 지나간 자리와 새 자리의 중간이 중심으로 잡히지만, 그 치우침은 일정하므로
+   * 기울기(속도)에는 영향이 없다.
+   */
+  motionLag: 2,
+  /** 움직임으로 인정할 최소 면적 (전체 픽셀 대비). 가장 큰 덩어리 기준이다. */
   minPixelRatio: 0.0015,
+  /** 덩어리를 찾을 때 진행 축 방향으로 뭉개는 폭 (축 길이 대비) */
+  blobSmoothRatio: 0.03,
+  /** 봉우리에서 이 비율 이상인 곳까지를 한 덩어리로 본다 */
+  blobEdgeRatio: 0.3,
+  /** 한 덩어리로 인정할 최대 폭 (축 길이 대비). 이보다 넓게 퍼지면 물체가 아니라 잡음이다 */
+  blobMaxWidthRatio: 0.45,
   /** 이보다 크면 화면 전체가 움직인 것 — 흔들림으로 보고 버린다 */
   maxPixelRatio: 0.5,
-  learnRate: 0.06,
-  foregroundLearnFactor: 0.05,
-  staleForegroundFrames: 120,
-  warmupFrames: 12,
-  /** 움직임이 이 프레임 수만큼 끊기면 한 번의 통과가 끝난 것으로 본다 */
-  gapFrames: 3,
+  /** 비교할 과거 프레임이 쌓일 때까지 기다리는 프레임 수 */
+  warmupFrames: 4,
+  /**
+   * 움직임이 이 프레임 수만큼 끊기면 한 번의 통과가 끝난 것으로 본다.
+   * 너무 크면 물체가 나간 뒤 들어온 잔 움직임에 통과가 계속 이어져 끝나지 않는다.
+   */
+  gapFrames: 2,
   /** 통과로 인정할 최소 표본 수 (직선을 믿을 수 있는 최소한) */
   minSamples: 4,
   /** 화면 폭의 이 비율 이상 이동해야 통과로 인정한다 */
@@ -71,13 +90,34 @@ export function fitLine(samples) {
   return { slope, intercept, r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot };
 }
 
+/**
+ * 직선을 맞추되, 크게 벗어나는 표본은 버리고 다시 맞춘다.
+ * 통과 앞뒤에 잔 움직임 한두 개가 끼면 그것만으로 적합도가 무너지는데,
+ * 실제 통과는 대다수 표본이 만드는 직선 쪽이다.
+ */
+export function fitLineRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
+  let kept = samples;
+  let fit = fitLine(kept);
+  for (let r = 0; r < rounds; r++) {
+    if (kept.length < 6) break;
+    const residuals = kept.map((s) => Math.abs(s.p - (fit.slope * s.t + fit.intercept)));
+    const sorted = [...residuals].sort((a, b) => a - b);
+    const cut = sorted[Math.max(0, Math.floor(sorted.length * keepRatio) - 1)];
+    const next = kept.filter((_, i) => residuals[i] <= cut + 1e-9);
+    if (next.length < 4 || next.length === kept.length) break;
+    kept = next;
+    fit = fitLine(kept);
+  }
+  return { ...fit, kept };
+}
+
 export class MotionTracker {
   constructor(options = {}) {
     this.opts = { ...TRACKER_DEFAULTS, ...options };
     this.width = 0;
     this.height = 0;
-    this.bg = null;
-    this.fgFrames = null;
+    /** 최근 프레임 보관 (프레임 간 차분용) */
+    this.history = [];
     this.frames = 0;
     this.stabilizer = new Stabilizer();
     this.shake = 0;
@@ -90,8 +130,7 @@ export class MotionTracker {
   configure(partial) { Object.assign(this.opts, partial); }
 
   reset() {
-    this.bg = null;
-    this.fgFrames = null;
+    this.history = [];
     this.frames = 0;
     this.stabilizer.reset();
     this.shake = 0;
@@ -103,6 +142,50 @@ export class MotionTracker {
 
   get isWarmingUp() { return this.frames < this.opts.warmupFrames; }
 
+  _profileFor(axisLen) {
+    if (!this._profile || this._profile.length !== axisLen) this._profile = new Int32Array(axisLen);
+    else this._profile.fill(0);
+    return this._profile;
+  }
+
+  /**
+   * 진행 축 방향 분포에서 가장 두꺼운 덩어리 하나를 골라낸다.
+   * 잡음은 얇게 퍼지고 물체는 뭉치므로, 봉우리 주변만 취하면 물체만 남는다.
+   */
+  _dominantBlob(profile, axisLen) {
+    const o = this.opts;
+    const radius = Math.max(1, Math.round(axisLen * o.blobSmoothRatio));
+    // 누적합으로 이동 평균 (O(n))
+    const cum = new Float32Array(axisLen + 1);
+    for (let i = 0; i < axisLen; i++) cum[i + 1] = cum[i] + profile[i];
+    const smooth = new Float32Array(axisLen);
+    let peak = 0;
+    let peakAt = -1;
+    for (let i = 0; i < axisLen; i++) {
+      const from = Math.max(0, i - radius);
+      const to = Math.min(axisLen, i + radius + 1);
+      smooth[i] = (cum[to] - cum[from]) / (to - from);
+      if (smooth[i] > peak) { peak = smooth[i]; peakAt = i; }
+    }
+    if (peakAt < 0 || peak <= 0) return null;
+
+    const edge = peak * o.blobEdgeRatio;
+    let lo = peakAt;
+    let hi = peakAt;
+    while (lo > 0 && smooth[lo - 1] >= edge) lo--;
+    while (hi < axisLen - 1 && smooth[hi + 1] >= edge) hi++;
+    if (hi - lo > axisLen * o.blobMaxWidthRatio) return null; // 너무 퍼졌다 = 물체가 아니다
+
+    let mass = 0;
+    let weighted = 0;
+    for (let i = lo; i <= hi; i++) {
+      mass += profile[i];
+      weighted += profile[i] * i;
+    }
+    if (mass <= 0) return null;
+    return { centroid: weighted / mass, mass, lo, hi };
+  }
+
   /**
    * 프레임 한 장을 처리한다.
    * @returns {{coverage:number, centroid:?number, box:?{min:number,max:number},
@@ -110,20 +193,23 @@ export class MotionTracker {
    */
   update(gray, width, height, timeMs) {
     const o = this.opts;
-    if (!this.bg || width !== this.width || height !== this.height) {
+    if (width !== this.width || height !== this.height) {
       this.width = width;
       this.height = height;
-      this.bg = new Float32Array(gray.length);
-      this.bg.set(gray);
-      this.fgFrames = new Uint16Array(gray.length);
+      this.history = [];
       this.frames = 0;
       this.stabilizer.reset();
       this.track = null;
     }
 
-    // 화면 전체가 밀린 양을 먼저 재고, 그만큼 어긋난 자리끼리 비교한다.
-    const shift = o.stabilize
-      ? this.stabilizer.update(gray, width, height)
+    // 비교 대상은 몇 프레임 전의 화면이다.
+    const ref = this.history.length >= o.motionLag
+      ? this.history[this.history.length - o.motionLag]
+      : null;
+
+    // 그 사이 화면이 밀렸으면(손떨림·팬) 그만큼 어긋난 자리끼리 비교한다.
+    const shift = ref && o.stabilize
+      ? this.stabilizer.update(gray, ref, width, height)
       : { offX: 0, offY: 0, magnitude: 0 };
     this.shake = shift.magnitude;
     const offX = shift.offX;
@@ -132,42 +218,47 @@ export class MotionTracker {
     const thr = o.pixelThreshold;
     const horizontal = o.axis === 'horizontal';
     const axisLen = horizontal ? width : height;
-    let count = 0;
-    let sum = 0;
-    let min = axisLen;
-    let max = -1;
+    // 진행 축 위치별 움직임 픽셀 수. 바닥 무늬에서 오는 잡음은 화면 전체에 얇게
+    // 퍼지지만 자동차는 한곳에 뭉치므로, 가장 두꺼운 덩어리만 골라내면 구분된다.
+    const profile = this._profileFor(axisLen);
+    let total0 = 0;
 
-    // 어긋난 만큼은 배경 모델 바깥이므로 아예 보지 않는다.
+    // 어긋난 만큼은 비교할 짝이 없으므로 아예 보지 않는다.
     const y0 = Math.max(0, -offY);
     const y1 = Math.min(height, height - offY);
     const x0 = Math.max(0, -offX);
     const x1 = Math.min(width, width - offX);
-    for (let y = y0; y < y1; y++) {
-      const row = y * width;
-      const bgRow = (y + offY) * width + offX;
-      for (let x = x0; x < x1; x++) {
-        const diff = gray[row + x] - this.bg[bgRow + x];
-        if (diff > thr || diff < -thr) {
-          const a = horizontal ? x : y;
-          count++;
-          sum += a;
-          if (a < min) min = a;
-          if (a > max) max = a;
+    if (ref) {
+      for (let y = y0; y < y1; y++) {
+        const row = y * width;
+        const refRow = (y + offY) * width + offX;
+        for (let x = x0; x < x1; x++) {
+          const diff = gray[row + x] - ref[refRow + x];
+          if (diff > thr || diff < -thr) {
+            profile[horizontal ? x : y]++;
+            total0++;
+          }
         }
       }
     }
 
     const total = Math.max(1, (y1 - y0) * (x1 - x0));
-    const coverage = count / total;
+    const blob = this._dominantBlob(profile, axisLen);
+    const coverage = blob ? blob.mass / total : 0;
     this.coverage = coverage;
 
-    const enough = coverage >= o.minPixelRatio;
+    const enough = !!blob && coverage >= o.minPixelRatio;
     // 보정 범위를 넘는 큰 흔들림이거나, 화면 대부분이 한꺼번에 달라졌을 때
-    const shaking = coverage > o.maxPixelRatio || this.shake > o.maxShakeMagnitude;
+    const saturated = Math.abs(offX) >= this.stabilizer.opts.maxShift
+      || Math.abs(offY) >= this.stabilizer.opts.maxShift;
+    // 크게 움직였다는 사실 자체는 문제가 아니다. 보정하고 나서 화면 대부분이 여전히
+    // 달라져 있거나(보정 실패), 찾을 수 있는 범위를 넘었을 때만 측정을 멈춘다.
+    this.shakeLevel = Math.max(saturated ? 99 : this.shake, (this.shakeLevel || 0) * 0.93);
+    const shaking = total0 / total > o.maxPixelRatio || saturated;
     const usable = enough && !shaking && !this.isWarmingUp;
 
-    this.centroid = usable ? sum / count / (axisLen - 1) : null;
-    this.box = usable ? { min: min / (axisLen - 1), max: max / (axisLen - 1) } : null;
+    this.centroid = usable ? blob.centroid / (axisLen - 1) : null;
+    this.box = usable ? { min: blob.lo / (axisLen - 1), max: blob.hi / (axisLen - 1) } : null;
 
     let pass = null;
     let rejected = null;
@@ -190,7 +281,9 @@ export class MotionTracker {
     }
 
     this.frames++;
-    this._updateBackground(gray, offX, offY);
+    const keep = o.motionLag + 1;
+    this.history.push(Uint8Array.from(gray));
+    while (this.history.length > keep) this.history.shift();
 
     return {
       coverage,
@@ -216,18 +309,20 @@ export class MotionTracker {
     this.track = null;
     if (samples.length < 2) return null; // 스쳐 지나간 잡음, 알릴 것도 없다
 
-    const travel = samples[samples.length - 1].p - samples[0].p;
-    const durationMs = (samples[samples.length - 1].t - samples[0].t) * 1000;
-    const { slope, r2 } = fitLine(samples);
+    const { slope, r2, kept } = fitLineRobust(samples);
+    const durationMs = (kept[kept.length - 1].t - kept[0].t) * 1000;
+    // 이동 거리는 양 끝 표본이 아니라 맞춘 직선으로 잰다. 통과 앞뒤에 잔 움직임이
+    // 하나 끼면 양 끝만 보는 방식은 실제로 가로지른 거리를 통째로 놓친다.
+    const travel = slope * (durationMs / 1000);
 
-    if (samples.length < o.minSamples) {
-      return { reason: 'tooFast', samples: samples.length, travel: Math.abs(travel), durationMs };
+    if (kept.length < o.minSamples) {
+      return { reason: 'tooFast', samples: kept.length, travel: Math.abs(travel), durationMs };
     }
     if (Math.abs(travel) < o.minTravelRatio) {
-      return { reason: 'tooShort', samples: samples.length, travel: Math.abs(travel), durationMs };
+      return { reason: 'tooShort', samples: kept.length, travel: Math.abs(travel), durationMs };
     }
     if (r2 < o.minR2) {
-      return { reason: 'notSteady', samples: samples.length, travel: Math.abs(travel), r2, durationMs };
+      return { reason: 'notSteady', samples: kept.length, travel: Math.abs(travel), r2, durationMs };
     }
     if (durationMs <= 0) return null;
 
@@ -238,38 +333,10 @@ export class MotionTracker {
       travel: Math.abs(travel),
       durationMs,
       r2,
-      samples: samples.length,
+      samples: kept.length,
     };
   }
 
-  _updateBackground(gray, offX, offY) {
-    const o = this.opts;
-    const a = o.learnRate;
-    const aFg = a * o.foregroundLearnFactor;
-    const thr = o.pixelThreshold;
-    const stale = o.staleForegroundFrames;
-    const bg = this.bg;
-    const fg = this.fgFrames;
-    const width = this.width;
-    const y0 = Math.max(0, -offY);
-    const y1 = Math.min(this.height, this.height - offY);
-    const x0 = Math.max(0, -offX);
-    const x1 = Math.min(width, width - offX);
-    for (let y = y0; y < y1; y++) {
-      const row = y * width;
-      const bgRow = (y + offY) * width + offX;
-      for (let x = x0; x < x1; x++) {
-        const i = bgRow + x;
-        const diff = gray[row + x] - bg[i];
-        if (diff > thr || diff < -thr) {
-          bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
-        } else {
-          fg[i] = 0;
-          bg[i] += a * diff;
-        }
-      }
-    }
-  }
 }
 
 /** 화면 폭 기준 속도(fwps)를 실제 속도로 바꾼다. viewWidthMeters를 모르면 null. */

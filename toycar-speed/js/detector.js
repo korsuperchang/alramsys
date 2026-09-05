@@ -14,8 +14,11 @@ import { Stabilizer } from './stabilizer.js';
 export const DEFAULT_OPTIONS = {
   /** 손떨림 보정 사용 여부 */
   stabilize: true,
-  /** 프레임 간 이동이 이보다 크면 보정 범위를 넘어선 것으로 보고 트리거를 막는다 */
-  maxShakeMagnitude: 5,
+  /**
+   * 배경과 맞춘 뒤에도 화면의 이만큼이 달라져 있으면 정렬에 실패한 것으로 보고
+   * 트리거를 막는다. 흔들림이 보정 범위를 넘으면 이 값이 치솟는다.
+   */
+  maxMisalignRatio: 0.08,
   /** 게이트 방향: 'vertical'이면 세로선(차가 좌우로 이동), 'horizontal'이면 가로선(차가 상하로 이동) */
   orientation: 'vertical',
   /** 게이트 위치 (0~1 정규화). gateA가 항상 작은 값일 필요는 없다. */
@@ -240,12 +243,17 @@ export class GateSpeedDetector {
     }
 
     const shift = o.stabilize
-      ? this.stabilizer.update(gray, width, height)
+      ? this.stabilizer.update(gray, this.bg, width, height)
       : { offX: 0, offY: 0, magnitude: 0 };
     this.shake = shift.magnitude;
     this.offX = shift.offX;
     this.offY = shift.offY;
-    const tooShaky = this.shake > o.maxShakeMagnitude;
+    // 보정 한계에 닿았거나, 맞춘 뒤에도 화면이 크게 다르면 정렬에 실패한 것이다.
+    // 틀린 값을 내느니 멈춘다. 한 번 실패하면 배경이 다시 자리 잡을 때까지 유지한다.
+    const saturated = Math.abs(this.offX) >= this.stabilizer.opts.maxShift
+      || Math.abs(this.offY) >= this.stabilizer.opts.maxShift;
+    this.misalign = Math.max(saturated ? 1 : this.globalCoverage || 0, (this.misalign || 0) * 0.85);
+    const tooShaky = this.misalign > o.maxMisalignRatio;
 
     const sampleA = this._sampleRatio(gray, o.gateA);
     const sampleB = this._sampleRatio(gray, o.gateB);
@@ -326,13 +334,17 @@ export class GateSpeedDetector {
     const y1 = Math.min(height, height - offY);
     const x0 = Math.max(0, -offX);
     const x1 = Math.min(width, width - offX);
+    let changed = 0;
+    let seen = 0;
     for (let y = y0; y < y1; y++) {
       const row = y * width;
       const bgRow = (y + offY) * width + offX;
       for (let x = x0; x < x1; x++) {
         const i = bgRow + x;
+        seen++;
         const diff = gray[row + x] - bg[i];
         if (diff > thr || diff < -thr) {
+          changed++;
           // 너무 오래 전경으로 남아 있으면(치워진 물건, 옮겨진 카메라) 배경으로 받아들인다.
           bg[i] += (fg[i]++ > stale ? a : aFg) * diff;
         } else {
@@ -341,6 +353,8 @@ export class GateSpeedDetector {
         }
       }
     }
+    // 배경과 맞춘 뒤에도 화면의 얼마가 다른지 — 정렬이 실패했는지 재는 잣대
+    this.globalCoverage = seen ? changed / seen : 0;
     prev.set(gray);
 
     return { ratios, triggers, measurement, warmingUp: this.isWarmingUp, shake: this.shake, tooShaky };

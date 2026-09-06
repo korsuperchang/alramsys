@@ -513,7 +513,11 @@ export class MotionTracker {
     if (growth !== null && (growth > o.depthGrowthRatio || growth < 1 / o.depthGrowthRatio)) {
       return { reason: 'towardCamera', samples: kept.length, travel, growth, durationMs };
     }
-    if (durationMs <= 0) return null;
+    if (durationMs <= 0) {
+      // 프레임마다 시각이 그대로다 — 브라우저가 프레임 시각을 제대로 주지 않는 상황.
+      // 조용히 넘기면 "아무 일도 안 일어난다"로만 보여서 원인을 찾을 수 없다.
+      return { reason: 'noTime', samples: kept.length, travel, durationMs };
+    }
 
     const peak = peakSpeed(kept, o.peakWindowSamples);
     return {

@@ -54,6 +54,7 @@ const el = {
   sigThr: $('sigThr'),
   sigPeak: $('sigPeak'),
   signalHint: $('signalHint'),
+  diag: $('diag'),
   scale: $('scale'),
   scaleVal: $('scaleVal'),
   sound: $('sound'),
@@ -69,7 +70,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v15 · 최고 순간 속도';
+const APP_VERSION = 'v16 · 프레임 시각 보정';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -334,6 +335,7 @@ function renderSignal(ratios, peak, onRatio, shaking, info = {}) {
   }
   el.sigThr.textContent = pct(onRatio);
   el.sigPeak.textContent = pct(peak);
+  renderDiag();
 
   // 자동 맞춤이 남긴 안내는 잠시 그대로 둔다
   if (calib || performance.now() < signal.holdUntil) return;
@@ -376,6 +378,8 @@ function trackAutoSignal(result) {
   el.barB.style.width = `${result.centroid ? result.centroid.x * 100 : 0}%`;
   el.sigThr.textContent = pct(needed);
   el.sigPeak.textContent = pct(peak);
+  const tracked = tracker.track?.samples?.length ?? 0;
+  renderDiag(`표본 ${tracked}`);
 
   if (performance.now() < signal.holdUntil) return;
   let hint = '자동차를 굴리면 알아서 따라갑니다. 폰만 고정해 두세요.';
@@ -408,7 +412,8 @@ function explainRejection(r) {
   // 표본 두엇에 이동도 거의 없는 것은 자동차가 아니라 그림자·잔떨림이다.
   // 그걸 "너무 빨리 지나갔다"고 알리면, 자동차를 놓친 것처럼 읽혀 오해만 만든다.
   // 이동이 화면의 5%도 안 되는 것은 자동차가 지나간 시도가 아니라 잔 움직임이다.
-  const noiseBlip = (r.travel ?? 0) < 0.05 && r.reason !== 'towardCamera';
+  const noiseBlip = (r.travel ?? 0) < 0.05
+    && r.reason !== 'towardCamera' && r.reason !== 'noTime';
   if (noiseBlip) return;
 
   const messages = {
@@ -421,6 +426,8 @@ function explainRejection(r) {
       손·그림자가 함께 잡혔거나, 갔다가 되돌아왔을 수 있습니다.`,
     tooLong: `화면 안에 계속 움직이는 것이 있어 <b>한 번의 통과를 구분하지 못했습니다.</b>
       자동차 말고 움직이는 것을 화면에서 치워 주세요.`,
+    noTime: `프레임마다 <b>시각이 그대로입니다.</b> 브라우저가 카메라 프레임의 시각을 주지 않고 있어
+      속도를 계산할 수 없습니다. 페이지를 새로고침해 보세요.`,
     towardCamera: `자동차가 <b>카메라 쪽으로 다가오고(멀어지고) 있습니다.</b>
       지나가는 동안 크기가 ${(r.growth ?? 0).toFixed(1)}배로 변했습니다.
       이 방향은 화면에서 위치가 거의 변하지 않아 속도를 낼 수 없습니다 —
@@ -432,6 +439,7 @@ function explainRejection(r) {
     notSteady: `움직임이 불규칙 — R² ${(r.r2 ?? 0).toFixed(2)} (최소 0.80)`,
     tooLong: '한 번의 통과를 구분하지 못했습니다',
     towardCamera: '카메라 쪽으로 다가오는 방향입니다 — 옆에서 찍어 주세요',
+    noTime: '프레임 시각을 읽지 못했습니다 — 새로고침해 주세요',
   };
   const text = messages[r.reason];
   if (!text) return;
@@ -505,6 +513,24 @@ function drawAutoOverlay(result) {
   }
 
   drawBanner(W, H);
+}
+
+/**
+ * 한 줄짜리 진단 정보. 폰 화면을 한 장 찍으면 무엇이 문제인지 알 수 있도록,
+ * 지금 어떤 조건에서 돌고 있는지를 그대로 적는다.
+ */
+function renderDiag(extra = '') {
+  const fps = framePeriodMs > 0 ? Math.round(1000 / framePeriodMs) : 0;
+  const size = procCanvas.width ? `${procCanvas.width}×${procCanvas.height}` : '-';
+  const parts = [
+    settings.mode === 'auto' ? '자동추적' : '기준선',
+    `${fps}fps`,
+    size,
+    `민감도 ${settings.sensitivity}`,
+  ];
+  if (extra) parts.push(extra);
+  parts.push(`v${APP_VERSION.match(/v(\d+)/)?.[1] ?? '?'}`);
+  el.diag.textContent = parts.join(' · ');
 }
 
 /* ---------------- 자동 맞춤 ---------------- */
@@ -688,6 +714,9 @@ function drawDemoFrame(now) {
 function startLoop() {
   if (running) return;
   running = true;
+  mediaTimeStalls = 0;
+  useMediaTime = true;
+  lastMediaTime = -1;
   frameTimes = [];
   detector.reset();
   applySettingsToDetector();
@@ -704,10 +733,37 @@ function stopLoop() {
   rafId = 0;
 }
 
+/**
+ * 프레임 시각을 고른다.
+ *
+ * mediaTime은 영상 자체의 시각이라 가장 정확하지만, 일부 브라우저(특히 iOS의 라이브
+ * 카메라)에서는 이 값이 제자리에 머문다. 그러면 모든 표본의 시각이 같아져 통과 시간이
+ * 0이 되고, 측정이 아무 말 없이 사라진다. 그래서 실제로 흘러가는지 확인하고,
+ * 아니면 곧바로 브라우저 시계로 갈아탄다.
+ */
+let mediaTimeStalls = 0;
+let useMediaTime = true;
+let lastMediaTime = -1;
+
+function frameTimestamp(now, metadata) {
+  const clock = typeof metadata?.expectedDisplayTime === 'number' ? metadata.expectedDisplayTime : now;
+  if (!useMediaTime || typeof metadata?.mediaTime !== 'number') return clock;
+  const media = metadata.mediaTime * 1000;
+  if (media <= lastMediaTime + 0.01) {
+    if (++mediaTimeStalls >= 5) {
+      useMediaTime = false;
+      setStatus('프레임 시각이 멈춰 있어 브라우저 시계로 바꿔 측정합니다', 'warn');
+    }
+    return clock;
+  }
+  mediaTimeStalls = 0;
+  lastMediaTime = media;
+  return media;
+}
+
 function onVideoFrame(now, metadata) {
   if (!running) return;
-  const t = typeof metadata?.mediaTime === 'number' ? metadata.mediaTime * 1000 : now;
-  processFrame(t);
+  processFrame(frameTimestamp(now, metadata));
   el.video.requestVideoFrameCallback(onVideoFrame);
 }
 
@@ -1366,6 +1422,7 @@ applySettingsToUI();
 applySettingsToDetector({ reset: true });
 renderRecords();
 el.version.textContent = APP_VERSION;
+renderDiag();
 if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복원
 drawOverlay();
 setStatus('‘카메라 시작’을 눌러 주세요');

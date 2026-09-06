@@ -134,6 +134,13 @@ html, body {
 .signal-hint.warn { color: #ffc857; }
 .signal-hint b { color: var(--text); }
 .signal-hint.warn b { color: #ffc857; }
+.diag {
+  margin: 2px 2px 0;
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: #6b7f94;
+}
 
 /* ---------- 속도 표시 ---------- */
 .readout {

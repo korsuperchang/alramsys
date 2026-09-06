@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v13 · 화면 위 결과 표시';
+const APP_VERSION = 'v14 · 빠른 차 대응';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)

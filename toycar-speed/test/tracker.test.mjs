@@ -302,6 +302,31 @@ test('옆에서 지나가는 통과는 크기가 그대로라 정상 측정된�
   assert.equal(passes.length, 1, '옆에서 지나가는 통과까지 막으면 안 된다');
 });
 
+test('빠른 자동차가 진행 방향으로 번져 보여도 한 번의 통과로 잡는다', () => {
+  // 실제 촬영에서 통과가 둘로 갈리던 상황의 재현.
+  // 빠른 자동차는 (1) 셔터 동안 번지고 (2) "있던 자리"와 "지금 자리"가 멀어져서,
+  // 진행 방향으로 화면의 절반 가까이 퍼져 보인다. 이걸 화면 전체가 움직인 것으로
+  // 오해하면 그 프레임을 통째로 버려 통과가 끊긴다.
+  // 카메라가 움직인 경우는 가로·세로 양쪽으로 퍼진다는 점이 다르다.
+  const tr = new MotionTracker();
+  const speed = 12;                      // px/frame — 화면의 7.5%씩
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    ...Array.from({ length: 14 }, (_, i) => frame({
+      carX: -20 + i * speed,
+      carW: 34,                          // 번져서 가로로 길쭉하다
+      carTop: 54,
+      carH: 9,                           // 세로로는 여전히 좁다
+    })),
+    ...Array.from({ length: 8 }, () => frame()),
+  ];
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1, `통과 ${passes.length}건 — 한 번 지나간 것이 갈렸다`);
+  const expected = (speed / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.2, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
+});
+
 test('굴려 주는 손과 자동차를 다른 것으로 구분한다', () => {
   // 실제 촬영에서 측정이 실패하던 또 다른 상황:
   // 화면 왼쪽에서 손이 20프레임쯤 꼼지락거린 뒤, 자동차가 오른쪽에서 나타나 가로지른다.

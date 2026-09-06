@@ -1087,9 +1087,22 @@ const TRACKER_DEFAULTS = {
   /** 덩어리를 찾을 때 진행 축 방향으로 뭉개는 폭 (축 길이 대비) */
   blobSmoothRatio: 0.03,
   /** 봉우리에서 이 비율 이상인 곳까지를 한 덩어리로 본다 */
-  blobEdgeRatio: 0.3,
-  /** 한 덩어리로 인정할 최대 폭 (축 길이 대비). 이보다 넓게 퍼지면 물체가 아니라 잡음이다 */
-  blobMaxWidthRatio: 0.45,
+  blobEdgeRatio: 0.2,
+  /**
+   * 떨어진 두 덩어리를 하나로 합칠 최대 간격 (축 길이 대비).
+   * 두 장을 견주면 물체는 "있던 자리"와 "지금 자리" 두 봉우리로 나타난다. 빠를수록
+   * 둘이 벌어지는데, 이 간격 안이면 한 물체로 본다. 합치지 않으면 프레임마다 어느
+   * 한쪽만 잡혀 중심이 튀고 속도까지 틀어진다.
+   */
+  blobMergeGapRatio: 0.25,
+  /**
+   * 가로·세로 양쪽으로 이만큼 넘게 퍼져 있으면 물체가 아니라 화면 전체가 움직인 것이다.
+   * 한 방향으로만 길쭉한 것은 물체다 — 빠른 자동차는 진행 방향으로 번져 보이지만
+   * 그 반대 방향으로는 여전히 좁다.
+   */
+  blobMaxWidthRatio: 0.5,
+  /** 한 축으로도 이보다 넓으면 덩어리로 보지 않는다 */
+  blobAbsoluteMaxRatio: 0.85,
   /**
    * 덩어리로 뭉치지 않는 움직임이 화면의 이만큼을 넘으면 카메라가 움직인 것으로 본다.
    * (물체는 한곳에 뭉치고, 카메라가 움직이면 화면 전체가 넓게 달라진다)
@@ -1295,12 +1308,40 @@ class MotionTracker {
     }
     if (peakAt < 0 || peak <= 0) return null;
 
+    // 문턱을 넘는 구간들을 찾고, 가까운 것끼리 하나로 합친다
     const edge = peak * o.blobEdgeRatio;
-    let lo = peakAt;
-    let hi = peakAt;
-    while (lo > 0 && smooth[lo - 1] >= edge) lo--;
-    while (hi < axisLen - 1 && smooth[hi + 1] >= edge) hi++;
-    if (hi - lo > axisLen * o.blobMaxWidthRatio) return null; // 너무 퍼졌다 = 물체가 아니다
+    const gapLimit = Math.round(axisLen * o.blobMergeGapRatio);
+    const segments = [];
+    let start = -1;
+    for (let i = 0; i < axisLen; i++) {
+      const above = smooth[i] >= edge;
+      if (above && start < 0) start = i;
+      if (!above && start >= 0) { segments.push([start, i - 1]); start = -1; }
+    }
+    if (start >= 0) segments.push([start, axisLen - 1]);
+    if (!segments.length) return null;
+
+    const merged = [segments[0]];
+    for (let i = 1; i < segments.length; i++) {
+      const last = merged[merged.length - 1];
+      if (segments[i][0] - last[1] <= gapLimit) last[1] = segments[i][1];
+      else merged.push(segments[i]);
+    }
+
+    // 합친 구간 중 움직임이 가장 많이 담긴 것을 고른다
+    const massOf = ([a, b]) => {
+      let m = 0;
+      for (let i = a; i <= b; i++) m += profile[i];
+      return m;
+    };
+    let best = merged[0];
+    let bestMass = massOf(best);
+    for (let i = 1; i < merged.length; i++) {
+      const m = massOf(merged[i]);
+      if (m > bestMass) { bestMass = m; best = merged[i]; }
+    }
+    const [lo, hi] = best;
+    if (hi - lo > axisLen * o.blobAbsoluteMaxRatio) return null; // 축 전체에 퍼졌다
 
     let mass = 0;
     let weighted = 0;
@@ -1371,7 +1412,13 @@ class MotionTracker {
     const total = Math.max(1, (y1 - y0) * (x1 - x0));
     const blobX = this._dominantBlob(profileX, width);
     const blobY = this._dominantBlob(profileY, height);
-    const blob = blobX && blobY ? { mass: Math.min(blobX.mass, blobY.mass) } : null;
+    // 가로로도 세로로도 넓게 퍼졌다면 물체가 아니라 화면 전체가 움직인 것이다.
+    const spreadOut = blobX && blobY
+      && (blobX.hi - blobX.lo) > width * o.blobMaxWidthRatio
+      && (blobY.hi - blobY.lo) > height * o.blobMaxWidthRatio;
+    const blob = blobX && blobY && !spreadOut
+      ? { mass: Math.min(blobX.mass, blobY.mass) }
+      : null;
     const coverage = blob ? blob.mass / total : 0;
     this.coverage = coverage;
 
@@ -1582,7 +1629,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v13 · 화면 위 결과 표시';
+const APP_VERSION = 'v14 · 빠른 차 대응';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)

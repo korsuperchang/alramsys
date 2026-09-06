@@ -14,6 +14,7 @@ const el = {
   speedValue: $('speedValue'),
   speedMps: $('speedMps'),
   speedTolerance: $('speedTolerance'),
+  speedAvg: $('speedAvg'),
   speedDt: $('speedDt'),
   speedScale: $('speedScale'),
   btnCamera: $('btnCamera'),
@@ -68,7 +69,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v14 · 빠른 차 대응';
+const APP_VERSION = 'v15 · 최고 순간 속도';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -771,11 +772,16 @@ function processFrame(timeMs) {
 /** 자동 추적 한 건을 기록한다. 화면 가로 길이를 모르면 상대 속도만 남는다. */
 function handlePass(p) {
   const viewW = viewWidthMeters();
-  const abs = passToSpeed(p.fwps, viewW);
+  // 화면에 내세우는 값은 "가장 빨랐던 순간"이다. 경사로를 내려온 자동차는 처음이
+  // 가장 빠르고 점점 느려지므로, 통과 전체의 평균은 실제보다 낮게 읽힌다.
+  const abs = passToSpeed(p.fwpsPeak, viewW);
+  const absAvg = passToSpeed(p.fwps, viewW);
   const record = {
     kmh: abs ? abs.kmh : null,
     mps: abs ? abs.mps : null,
-    fwps: p.fwps,
+    kmhAvg: absAvg ? absAvg.kmh : null,
+    fwpsAvg: p.fwps,
+    fwps: p.fwpsPeak,
     dtMs: p.durationMs,
     tolerance: 0,
     direction: p.direction,
@@ -795,8 +801,8 @@ function handlePass(p) {
   showBanner({
     value: label.value,
     unit: label.unit,
-    sub: record.kmh != null
-      ? `${record.mps.toFixed(2)} m/s · ${directionText(record)}`
+    sub: record.fwpsAvg != null
+      ? `최고 순간 · 평균 ${record.kmhAvg != null ? `${record.kmhAvg.toFixed(2)} km/h` : `${record.fwpsAvg.toFixed(2)}`} · ${directionText(record)}`
       : `${directionText(record)}  상대 속도`,
     kind: p.cameraMoved ? 'warn' : 'ok',
   });
@@ -880,6 +886,9 @@ function showSpeed(r, { flash = true } = {}) {
   el.speedMps.textContent = r.mps != null
     ? `${r.mps.toFixed(2)} m/s · ${(r.mps * 100).toFixed(0)} cm/s`
     : `상대 속도 — 화면 가로 길이를 넣으면 km/h로 바뀝니다`;
+  el.speedAvg.textContent = r.fwpsAvg != null
+    ? `최고 순간 속도 · 통과 평균 ${r.kmhAvg != null ? `${r.kmhAvg.toFixed(2)} km/h` : `${r.fwpsAvg.toFixed(2)} 화면폭/초`}`
+    : '';
   el.speedTolerance.textContent = r.tolerance > 0 ? `± ${r.tolerance.toFixed(2)} km/h` : '';
   el.speedDt.textContent = `${r.dtMs.toFixed(0)} ms · ${directionText(r)}`;
   updateScaleLine();
@@ -932,11 +941,13 @@ function renderRecords() {
     .map((r, i) => {
       const time = new Date(r.at).toLocaleTimeString('ko-KR', { hour12: false });
       const label = speedLabel(r);
-      const second = r.mps != null ? `${r.mps.toFixed(2)} m/s` : `${(r.fwps ?? 0).toFixed(2)} 화면폭/초`;
+      const second = r.fwpsAvg != null
+        ? `평균 ${r.kmhAvg != null ? r.kmhAvg.toFixed(2) : r.fwpsAvg.toFixed(2)}`
+        : (r.mps != null ? `${r.mps.toFixed(2)} m/s` : '');
       return `<li>
         <span class="idx">${i + 1}</span>
         <span class="spd">${label.value} ${label.unit}</span>
-        <span>${r.kmh != null ? second : ''}</span>
+        <span>${second}</span>
         <span class="meta">${r.dtMs.toFixed(0)}ms · ${directionText(r)} · ${time}</span>
       </li>`;
     })

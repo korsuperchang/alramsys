@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MotionTracker, fitLine, passToSpeed } from '../js/tracker.js';
+import { MotionTracker, fitLine, peakSpeed, passToSpeed } from '../js/tracker.js';
 
 const W = 160;
 const H = 120;
@@ -406,6 +406,80 @@ test('카메라가 천천히 미끄러지는 바닥 무늬 위에서도 자동�
   const expected = (speed / (W - 1)) * FPS;
   const err = Math.abs(passes[0].fwps - expected) / expected;
   assert.ok(err < 0.15, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
+});
+
+test('감속하는 통과를 "멀어지는 중"으로 오해하지 않는다', () => {
+  // 크기를 진행 방향 쪽 폭으로 재면, 느려지기만 해도 마스크가 좁아져 "멀어진다"고
+  // 잘못 읽는다. 진행 방향과 직각인 쪽 폭으로 재야 속도와 무관하게 크기가 잡힌다.
+  const tr = new MotionTracker();
+  const frames = [...Array.from({ length: 20 }, () => frame())];
+  let x = 4;
+  let step = 9;
+  for (let i = 0; i < 22 && x < W - 20; i++) {
+    frames.push(frame({ carX: x, carW: 16 }));
+    x += step;
+    step *= 0.9;
+  }
+  frames.push(...Array.from({ length: 8 }, () => frame()));
+  const tracked = [];
+  let t = 0;
+  for (const f of frames) {
+    const r = tr.update(f, W, H, t);
+    if (r.rejected) tracked.push(r.rejected.reason);
+    t += FRAME_MS;
+  }
+  assert.ok(!tracked.includes('towardCamera'), `거절 이유: ${tracked.join(',')}`);
+});
+
+test('점점 느려지는 통과에서는 가장 빨랐던 순간을 낸다', () => {
+  // 경사로를 내려온 자동차는 처음이 가장 빠르고 점점 느려진다.
+  // 통과 전체의 평균은 실제로 얼마나 빨랐는지를 낮게 읽는다.
+  const tr = new MotionTracker();
+  const frames = [...Array.from({ length: 20 }, () => frame())];
+  let x = 4;
+  let step = 9;                     // 9px/프레임에서 시작해 점점 줄어든다
+  const positions = [];
+  for (let i = 0; i < 22 && x < W - 20; i++) {
+    positions.push(x);
+    frames.push(frame({ carX: x, carW: 16 }));
+    x += step;
+    step *= 0.9;
+  }
+  frames.push(...Array.from({ length: 8 }, () => frame()));
+
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1);
+  const p = passes[0];
+  assert.ok(p.fwpsPeak > p.fwps * 1.3,
+    `최고(${p.fwpsPeak.toFixed(2)})가 평균(${p.fwps.toFixed(2)})보다 뚜렷이 커야 한다`);
+  // 최고값은 짧은 구간(표본 5개 ≈ 0.17초)의 평균이므로 순간 최고보다는 낮게 나오지만,
+  // 처음 속도를 넘어서는 안 된다. 넘는다면 잡음 중 큰 값을 고른 것이다.
+  const expectedStart = (9 / (W - 1)) * FPS;
+  assert.ok(p.fwpsPeak <= expectedStart * 1.1,
+    `최고 ${p.fwpsPeak.toFixed(2)}가 처음 속도 ${expectedStart.toFixed(2)}보다 크다 — 부풀려졌다`);
+  assert.ok(p.fwpsPeak > expectedStart * 0.5,
+    `최고 ${p.fwpsPeak.toFixed(2)}가 처음 속도 ${expectedStart.toFixed(2)}에 비해 너무 낮다`);
+});
+
+test('일정한 속도로 지나가면 최고와 평균이 거의 같다', () => {
+  const tr = new MotionTracker();
+  const frames = [
+    ...Array.from({ length: 20 }, () => frame()),
+    ...lap(5),
+    ...Array.from({ length: 10 }, () => frame()),
+  ];
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1);
+  const p = passes[0];
+  assert.ok(p.fwpsPeak / p.fwps < 1.2,
+    `일정 속도인데 최고(${p.fwpsPeak.toFixed(2)})가 평균(${p.fwps.toFixed(2)})보다 많이 크다`);
+});
+
+test('peakSpeed: 구간 길이보다 표본이 적으면 전체로 잰다', () => {
+  const samples = [0, 1, 2, 3].map((i) => ({ t: i * 0.1, x: i * 0.05, y: 0 }));
+  const v = peakSpeed(samples, 5);
+  assert.ok(Math.abs(v - 0.5) < 1e-6, `${v}`);
+  assert.equal(peakSpeed(samples.slice(0, 2), 5), null);
 });
 
 test('fitLine: 기울기와 R²를 정확히 낸다', () => {

@@ -70,6 +70,13 @@ export const TRACKER_DEFAULTS = {
   gapFrames: 2,
   /** 통과로 인정할 최소 표본 수 (직선을 믿을 수 있는 최소한) */
   minSamples: 4,
+  /**
+   * 가장 빠른 순간을 잴 때 쓰는 구간 길이(표본 수).
+   * 경사로를 내려온 자동차는 처음이 가장 빠르고 점점 느려지므로, 통과 전체의 평균보다
+   * 이 구간들 중 가장 빠른 값이 "얼마나 빨랐나"에 가깝다.
+   * 너무 짧게 잡으면 흔들리는 값 중 가장 큰 것을 고르게 되어 실제보다 부풀려진다.
+   */
+  peakWindowSamples: 5,
   /** 화면 폭의 이 비율 이상 이동해야 통과로 인정한다 */
   minTravelRatio: 0.1,
   /** 직선 적합도(R²) 하한 — 흔들림·그림자처럼 제멋대로 움직이는 것을 걸러낸다 */
@@ -166,10 +173,13 @@ export function fitPathRobust(samples, { rounds = 2, keepRatio = 0.8 } = {}) {
 /**
  * 통과하는 동안 물체가 얼마나 커졌는지(작아졌는지) 잰다.
  * 옆에서 본 통과는 크기가 거의 그대로지만, 다가오는 물체는 몇 배로 커진다.
+ *
+ * 크기는 **진행 방향과 직각인 쪽의 폭**으로 잰다. 진행 방향 쪽 폭은 빠를수록 번져서
+ * 넓어지므로, 그걸로 재면 속도가 줄기만 해도 "멀어진다"고 잘못 읽는다.
  * 화면 가장자리에 걸쳐 잘려 보이는 프레임은 빼고 본다.
  */
-export function measureGrowth(samples, minSamples = 6) {
-  const sizes = samples.map((s) => s.size).filter((v) => typeof v === 'number' && v > 0);
+export function measureGrowth(samples, minSamples = 6, key = 'sizeY') {
+  const sizes = samples.map((s) => s[key]).filter((v) => typeof v === 'number' && v > 0);
   if (sizes.length < minSamples) return null;
   const third = Math.max(1, Math.floor(sizes.length / 3));
   const median = (arr) => {
@@ -179,6 +189,24 @@ export function measureGrowth(samples, minSamples = 6) {
   const first = median(sizes.slice(0, third));
   const last = median(sizes.slice(-third));
   return first > 0 ? last / first : null;
+}
+
+/**
+ * 통과 구간을 훑어 가장 빨랐던 구간의 속도를 낸다.
+ * 구간마다 직선을 맞춰 재므로, 표본 하나가 튀는 것만으로 값이 부풀지 않는다.
+ */
+export function peakSpeed(samples, windowSamples = 5) {
+  const win = Math.max(3, Math.min(windowSamples, samples.length));
+  if (samples.length < 3) return null;
+  let best = 0;
+  for (let from = 0; from + win <= samples.length; from++) {
+    const slice = samples.slice(from, from + win);
+    const fx = fitLine(slice, 'x');
+    const fy = fitLine(slice, 'y');
+    const speed = Math.hypot(fx.slope, fy.slope);
+    if (speed > best) best = speed;
+  }
+  return best;
 }
 
 export class MotionTracker {
@@ -415,7 +443,8 @@ export class MotionTracker {
         t: timeMs / 1000,
         x: this.centroid.x,
         y: this.centroid.y,
-        size: whole ? coverage : null,
+        sizeX: whole ? b.x1 - b.x0 : null,
+        sizeY: whole ? b.y1 - b.y0 : null,
       });
       if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
         // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
@@ -479,15 +508,19 @@ export class MotionTracker {
     if (r2 < o.minR2) {
       return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
     }
-    const growth = measureGrowth(kept, o.minDepthSamples);
+    // 진행 방향과 직각인 쪽의 폭으로 본다 (가로로 지나가면 세로 폭)
+    const growth = measureGrowth(kept, o.minDepthSamples, Math.abs(vx) >= Math.abs(vy) ? 'sizeY' : 'sizeX');
     if (growth !== null && (growth > o.depthGrowthRatio || growth < 1 / o.depthGrowthRatio)) {
       return { reason: 'towardCamera', samples: kept.length, travel, growth, durationMs };
     }
     if (durationMs <= 0) return null;
 
+    const peak = peakSpeed(kept, o.peakWindowSamples);
     return {
-      /** 초당 화면 폭의 몇 배로 움직였는가 */
+      /** 통과 전체의 평균 속도 (초당 화면 폭의 몇 배) */
       fwps: speed,
+      /** 통과 중 가장 빨랐던 구간의 속도 */
+      fwpsPeak: peak != null && peak > speed ? peak : speed,
       vx,
       vy,
       /** 주된 진행 방향 */

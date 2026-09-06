@@ -68,7 +68,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v12 · 정면 구도 안내';
+const APP_VERSION = 'v13 · 화면 위 결과 표시';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -114,6 +114,8 @@ let running = false;
 let frameTimes = [];
 let framePeriodMs = 1000 / 30;
 let flashUntil = 0;
+/** 카메라 화면 위에 띄우는 결과 배너 */
+let banner = null;
 let lastGray = null;
 let calib = null;
 const signal = { peaks: [], lastRender: 0, bothHotSince: 0, holdUntil: 0 };
@@ -432,6 +434,7 @@ function explainRejection(r) {
   };
   const text = messages[r.reason];
   if (!text) return;
+  showBanner({ sub: short[r.reason] || '측정 조건에 못 미쳤습니다', kind: 'warn' });
   el.signalHint.innerHTML = text;
   el.signalHint.className = 'signal-hint warn';
   signal.holdUntil = performance.now() + 6000;
@@ -499,6 +502,8 @@ function drawAutoOverlay(result) {
     octx.lineWidth = 8;
     octx.strokeRect(4, 4, W - 8, H - 8);
   }
+
+  drawBanner(W, H);
 }
 
 /* ---------------- 자동 맞춤 ---------------- */
@@ -786,6 +791,15 @@ function handlePass(p) {
   showSpeed(record);
   renderRecords();
   feedback();
+  const label = speedLabel(record);
+  showBanner({
+    value: label.value,
+    unit: label.unit,
+    sub: record.kmh != null
+      ? `${record.mps.toFixed(2)} m/s · ${directionText(record)}`
+      : `${directionText(record)}  상대 속도`,
+    kind: p.cameraMoved ? 'warn' : 'ok',
+  });
   if (p.cameraMoved) {
     setStatus('측정됨 — 다만 재는 동안 카메라가 크게 움직였습니다', 'warn');
     el.signalHint.className = 'signal-hint warn';
@@ -829,6 +843,12 @@ function handleMeasurement(m) {
   showSpeed(record);
   renderRecords();
   feedback();
+  const label = speedLabel(record);
+  showBanner({
+    value: label.value,
+    unit: label.unit,
+    sub: `${record.dtMs.toFixed(0)} ms · ${directionText(record)}`,
+  });
 
   if (m.dtMs < framePeriodMs * 4) {
     setStatus(`측정됨 — 통과가 ${m.dtMs.toFixed(0)}ms로 너무 짧아 오차가 큽니다. 기준선 간격을 넓히세요`, 'warn');
@@ -939,6 +959,122 @@ function recordsToCsv() {
   return [header, ...rows].join('\n');
 }
 
+/* ---------------- 카메라 화면 위 결과 표시 ---------------- */
+const BANNER_BIG_MS = 7000;   // 크게 보여 주는 시간
+const BANNER_KEEP_MS = 90000; // 작게 남겨 두는 시간
+
+function showBanner({ value = null, unit = '', sub = '', kind = 'ok' }) {
+  banner = { value, unit, sub, kind, at: performance.now() };
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/**
+ * 측정 결과를 카메라 화면 위에 직접 그린다.
+ * 폰을 트랙 옆에 두고 멀리서 보게 되므로, 화면 아래 숫자만으로는 읽히지 않는다.
+ * 방금 잰 값은 크게, 지난 값은 구석에 작게 남긴다.
+ */
+function drawBanner(W, H) {
+  if (!banner) return;
+  const age = performance.now() - banner.at;
+  if (age > BANNER_KEEP_MS) { banner = null; return; }
+  const big = age < BANNER_BIG_MS;
+  if (!big && !banner.value) return; // 안내 문구는 잠깐만 띄운다
+  const accent = banner.kind === 'warn' ? '#ffc857' : '#35d07f';
+
+  const valueFont = (size) => `700 ${size}px ui-monospace, "IBM Plex Mono", Menlo, monospace`;
+  const plainFont = (size) => `600 ${size}px system-ui, sans-serif`;
+
+  /** 값 + 단위를 한 줄에 넣되, 폭을 넘으면 넘지 않을 때까지 줄인다. */
+  const fitLine = (maxWidth, wanted) => {
+    let size = wanted;
+    for (let i = 0; i < 20; i++) {
+      octx.font = valueFont(size);
+      const vw = banner.value ? octx.measureText(banner.value).width : 0;
+      const unitSize = size * 0.34;
+      octx.font = plainFont(unitSize);
+      const uw = banner.unit ? octx.measureText(banner.unit).width : 0;
+      const gap = banner.unit ? size * 0.16 : 0;
+      const total = vw + gap + uw;
+      if (total <= maxWidth || size < 10) return { size, unitSize, vw, uw, gap, total };
+      size *= Math.max(0.8, maxWidth / total);
+    }
+    return null;
+  };
+
+  octx.textBaseline = 'middle';
+
+  if (big) {
+    const boxW = W * 0.88;
+    const boxX = (W - boxW) / 2;
+    const boxY = H * 0.05;
+    const pad = W * 0.04;
+    const line = banner.value ? fitLine(boxW - pad * 2, W / 6.2) : null;
+    const subSize = Math.round(W / 23);
+    const lineH = line ? line.size * 1.15 : 0;
+    const gapY = line && banner.sub ? line.size * 0.2 : 0;
+    const boxH = pad * 1.6 + lineH + gapY + (banner.sub ? subSize * 1.2 : 0);
+
+    octx.fillStyle = 'rgba(6, 12, 18, 0.8)';
+    roundRect(octx, boxX, boxY, boxW, boxH, W * 0.035);
+    octx.fill();
+    octx.strokeStyle = accent;
+    octx.lineWidth = Math.max(2, W / 170);
+    octx.stroke();
+
+    let y = boxY + pad * 0.8;
+    if (line) {
+      const startX = (W - line.total) / 2;
+      octx.textAlign = 'left';
+      octx.fillStyle = accent;
+      octx.font = valueFont(line.size);
+      octx.fillText(banner.value, startX, y + lineH / 2);
+      if (banner.unit) {
+        octx.fillStyle = 'rgba(255,255,255,0.75)';
+        octx.font = plainFont(line.unitSize);
+        octx.fillText(banner.unit, startX + line.vw + line.gap, y + lineH / 2 + line.size * 0.16);
+      }
+      y += lineH + gapY;
+    }
+    if (banner.sub) {
+      octx.textAlign = 'center';
+      octx.fillStyle = line ? 'rgba(255,255,255,0.8)' : accent;
+      octx.font = plainFont(subSize);
+      octx.fillText(banner.sub, W / 2, y + subSize * 0.6);
+    }
+    return;
+  }
+
+  // 지난 값은 오른쪽 위에 작게 남긴다
+  const pad = W * 0.025;
+  const line = fitLine(W * 0.5, W / 15);
+  if (!line) return;
+  const boxW = line.total + pad * 2;
+  const boxH = line.size * 1.9;
+  const boxX = W - boxW - W * 0.03;
+  const boxY = H * 0.035;
+  octx.fillStyle = 'rgba(6, 12, 18, 0.72)';
+  roundRect(octx, boxX, boxY, boxW, boxH, boxH * 0.32);
+  octx.fill();
+  octx.textAlign = 'left';
+  octx.fillStyle = 'rgba(255,255,255,0.92)';
+  octx.font = valueFont(line.size);
+  octx.fillText(banner.value, boxX + pad, boxY + boxH / 2);
+  if (banner.unit) {
+    octx.fillStyle = 'rgba(255,255,255,0.6)';
+    octx.font = plainFont(line.unitSize);
+    octx.fillText(banner.unit, boxX + pad + line.vw + line.gap, boxY + boxH / 2 + line.size * 0.12);
+  }
+}
+
 /* ---------------- 오버레이 ---------------- */
 function resizeOverlay() {
   const rect = el.stage.getBoundingClientRect();
@@ -1028,6 +1164,8 @@ function drawOverlay(result) {
     octx.lineWidth = 8;
     octx.strokeRect(4, 4, W - 8, H - 8);
   }
+
+  drawBanner(W, H);
 }
 
 function drawGateLabel(label, rawX, rawY, ratio, onRatio, color) {
@@ -1199,6 +1337,7 @@ el.btnClear.addEventListener('click', () => {
   if (!confirm('측정 기록을 모두 지울까요?')) return;
   records = [];
   lastRecord = null;
+  banner = null;
   saveJSON(RECORDS_KEY, records);
   renderRecords();
   updateScaleLine();

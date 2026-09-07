@@ -1,2 +1,2 @@
-*.bat text eol=crlf
+scripts/Git설치.bat -text
 *.ps1 text eol=crlf

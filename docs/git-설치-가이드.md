@@ -8,18 +8,18 @@ Claude Code 로컬 세션은 Git이 PATH에 있어야 동작합니다.
 
 ## Windows
 
-### 1순위 — winget (Microsoft 공식 배포, 사내망에서 가장 잘 통함)
+### 1순위 — 브라우저로 설치 파일 직접 다운로드
 
-PowerShell을 열고:
+git-scm.com이 막혀 있어도 **github.com은 열리는 경우가 많습니다.**
+아래 페이지에서 `Git-<버전>-64-bit.exe` 를 받아 실행하세요. 설치 옵션은 기본값 그대로 두면 됩니다.
 
-```powershell
-winget install --id Microsoft.Git -e --source winget
+```
+https://github.com/git-for-windows/git/releases/latest
 ```
 
-> `Microsoft.Git`은 Microsoft가 배포하는 Git for Windows 포크로,
-> 설치 파일을 Microsoft CDN에서 받기 때문에 github.com이 막혀 있어도 대개 성공합니다.
+### 2순위 — winget
 
-위가 실패하면 원본 배포판을 시도합니다(설치 파일을 github.com에서 받습니다):
+PowerShell을 열고:
 
 ```powershell
 winget install --id Git.Git -e --source winget
@@ -27,7 +27,28 @@ winget install --id Git.Git -e --source winget
 
 `winget` 자체가 없다면: 시작 메뉴 → **Microsoft Store** → "앱 설치 관리자(App Installer)" 설치.
 
-### 2순위 — Visual Studio Installer (사내 PC에 이미 깔려 있는 경우)
+> **주의:** `Microsoft.Git` 패키지도 설치 파일은 `github.com/microsoft/git` 에서 받습니다.
+> Microsoft CDN에서 받지 않으므로, github.com 쪽이 막힌 환경에서는 `Git.Git` 과 똑같이 실패합니다.
+
+#### winget이 `0x80072f0d` 로 실패한다면
+
+이 코드는 `ERROR_INTERNET_INVALID_CA` — **방화벽 차단이 아니라 인증서 문제**입니다.
+사내 SSL 검사 장비가 HTTPS를 중계하는데 winget이 그 장비의 루트 인증서를 신뢰하지 않는 상태입니다.
+연결 자체는 되고 있으므로 다음 순서로 해결합니다.
+
+1. **브라우저로 직접 다운로드** (위 1순위). 브라우저는 사내 인증서를 이미 신뢰하도록
+   설정된 경우가 많아 대개 이 방법으로 해결됩니다.
+2. winget의 다운로드 방식을 바꿔 재시도:
+
+   ```powershell
+   winget settings --set network.downloader wininet
+   winget install --id Git.Git -e --source winget
+   ```
+3. 그래도 안 되면 사내 IT에 요청:
+   *"winget이 0x80072f0d (INVALID_CA)로 실패합니다. 사내 루트 인증서를
+   '신뢰할 수 있는 루트 인증 기관' 저장소(로컬 컴퓨터)에 등록해 주세요."*
+
+### 3순위 — Visual Studio Installer (사내 PC에 이미 깔려 있는 경우)
 
 1. 시작 메뉴에서 **Visual Studio Installer** 실행
 2. 설치된 항목 → **수정(Modify)**
@@ -37,7 +58,7 @@ winget install --id Git.Git -e --source winget
 VS 설치 파일은 Microsoft 배포 서버에서 받으므로 외부 사이트 차단과 무관합니다.
 설치 위치는 보통 `C:\Program Files\Git\` 입니다.
 
-### 3순위 — GitHub Desktop (Git 내장)
+### 4순위 — GitHub Desktop (Git 내장)
 
 `desktop.github.com`이 열린다면 GitHub Desktop을 설치합니다. Git이 함께 설치되며 위치는:
 
@@ -47,7 +68,7 @@ VS 설치 파일은 Microsoft 배포 서버에서 받으므로 외부 사이트 
 
 이 경로를 PATH에 추가하면 됩니다(아래 "PATH 추가" 참고).
 
-### 4순위 — Scoop / Chocolatey
+### 5순위 — Scoop / Chocolatey
 
 ```powershell
 # Scoop (관리자 권한 불필요)
@@ -62,7 +83,7 @@ irm https://community.chocolatey.org/install.ps1 | iex
 choco install git -y
 ```
 
-### 5순위 — Portable Git (관리자 권한 없음 / USB 반입)
+### 6순위 — Portable Git (관리자 권한 없음 / USB 반입)
 
 인터넷이 되는 다른 PC에서 아래 파일을 받아 옮깁니다.
 
@@ -75,7 +96,7 @@ choco install git -y
 2. 설치 불필요, 관리자 권한 불필요
 3. `C:\Tools\PortableGit\cmd` 를 PATH에 추가
 
-### 6순위 — 사내 IT에 요청
+### 7순위 — 사내 IT에 요청
 
 - 사내 소프트웨어 배포(SCCM / Intune) 카탈로그에 Git이 있는지 확인
 - 없다면 방화벽 허용 요청: `git-scm.com`, `github.com`, `objects.githubusercontent.com`, `codeload.github.com`

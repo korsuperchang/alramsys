@@ -1,52 +1,52 @@
 @echo off
-chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
-title Git ì„¤ì¹˜ ë„ìš°ë¯¸
-color 0F
+title Git ¼³Ä¡ µµ¿ì¹Ì
 
 set "PF86=%ProgramFiles(x86)%"
+set "DLURL=https://github.com/git-for-windows/git/releases/latest"
 
 echo ============================================================
-echo   Git ì„¤ì¹˜ ë„ìš°ë¯¸
-echo   (git-scm.com ì ‘ì†ì´ ë§‰íŒ ì‚¬ë‚´ë§ìš©)
+echo   Git ¼³Ä¡ µµ¿ì¹Ì
 echo ============================================================
 echo.
 
-echo [1/4] ì´ë¯¸ ì„¤ì¹˜ë˜ì–´ ìˆëŠ”ì§€ í™•ì¸í•©ë‹ˆë‹¤...
+echo [1/5] ÀÌ¹Ì ¼³Ä¡µÇ¾î ÀÖ´ÂÁö È®ÀÎÇÕ´Ï´Ù...
 where git >nul 2>&1
 if not errorlevel 1 (
     echo.
-    echo   ì´ë¯¸ ì„¤ì¹˜ë˜ì–´ ìˆìŠµë‹ˆë‹¤.
+    echo   ÀÌ¹Ì ¼³Ä¡µÇ¾î ÀÖ½À´Ï´Ù.
     git --version
     goto :success
 )
 
 call :findgit
 if defined GITDIR (
-    echo   ì„¤ì¹˜ëŠ” ë˜ì–´ ìˆì§€ë§Œ PATHì— ì—†ìŠµë‹ˆë‹¤: !GITDIR!
+    echo   ¼³Ä¡´Â µÇ¾î ÀÖÁö¸¸ PATH ¿¡ ¾ø½À´Ï´Ù: !GITDIR!
     goto :addpath
 )
-echo   ì„¤ì¹˜ë˜ì–´ ìˆì§€ ì•ŠìŠµë‹ˆë‹¤.
+echo   ¼³Ä¡µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.
 echo.
 
-echo [2/4] winget ì‚¬ìš© ê°€ëŠ¥ ì—¬ë¶€ë¥¼ í™•ì¸í•©ë‹ˆë‹¤...
+echo [2/5] winget »ç¿ë °¡´É ¿©ºÎ¸¦ È®ÀÎÇÕ´Ï´Ù...
 where winget >nul 2>&1
 if errorlevel 1 (
-    echo   winget ì„ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤.
+    echo   winget À» Ã£À» ¼ö ¾ø½À´Ï´Ù.
     goto :manual
 )
-echo   ì‚¬ìš© ê°€ëŠ¥í•©ë‹ˆë‹¤.
+echo   »ç¿ë °¡´ÉÇÕ´Ï´Ù.
 echo.
 
-echo [3/4] Git ì„ ì„¤ì¹˜í•©ë‹ˆë‹¤. ëª‡ ë¶„ ê±¸ë¦´ ìˆ˜ ìˆìŠµë‹ˆë‹¤...
+echo [3/5] winget À¸·Î ¼³Ä¡¸¦ ½ÃµµÇÕ´Ï´Ù. ¸î ºĞ °É¸± ¼ö ÀÖ½À´Ï´Ù...
 echo.
-echo   --- Microsoft.Git ì‹œë„ (Microsoft ì„œë²„ì—ì„œ ë‹¤ìš´ë¡œë“œ) ---
-winget install --id Microsoft.Git -e --source winget --accept-package-agreements --accept-source-agreements
+winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
 call :findgit
 if defined GITDIR goto :addpath
 
 echo.
-echo   --- Git.Git ì‹œë„ (ì›ë³¸ Git for Windows) ---
+echo [4/5] ½ÇÆĞÇß½À´Ï´Ù. ´Ù¿î·Îµå ¹æ½ÄÀ» wininet À¸·Î ¹Ù²ã ´Ù½Ã ½ÃµµÇÕ´Ï´Ù...
+echo       (»ç³» SSL °Ë»ç Àåºñ È¯°æ¿¡¼­ ÀÌ ¹æ½ÄÀÌ ÅëÇÏ´Â °æ¿ì°¡ ÀÖ½À´Ï´Ù)
+echo.
+winget settings --set network.downloader wininet >nul 2>&1
 winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
 call :findgit
 if defined GITDIR goto :addpath
@@ -55,7 +55,7 @@ goto :manual
 
 :addpath
 echo.
-echo [4/4] PATH ì— ë“±ë¡í•©ë‹ˆë‹¤: !GITDIR!
+echo [5/5] PATH ¿¡ µî·ÏÇÕ´Ï´Ù: !GITDIR!
 powershell -NoProfile -Command "$d='!GITDIR!'; $c=[Environment]::GetEnvironmentVariable('Path','User'); if([string]::IsNullOrWhiteSpace($c)){[Environment]::SetEnvironmentVariable('Path',$d,'User')} elseif(($c -split ';') -notcontains $d){[Environment]::SetEnvironmentVariable('Path',$c.TrimEnd(';')+';'+$d,'User')}"
 echo.
 "!GITDIR!\git.exe" --version
@@ -64,11 +64,11 @@ goto :success
 :success
 echo.
 echo ============================================================
-echo   ì„¤ì¹˜ ì™„ë£Œ
+echo   ¼³Ä¡ ¿Ï·á
 echo.
-echo   â˜… ì¤‘ìš” â˜…
-echo   Claude Code ì•±ê³¼ ëª¨ë“  í„°ë¯¸ë„ ì°½ì„ ì™„ì „íˆ ì¢…ë£Œí•œ ë’¤
-echo   ë‹¤ì‹œ ì‹¤í–‰í•˜ì„¸ìš”. ê·¸ë˜ì•¼ PATH ê°€ ë°˜ì˜ë©ë‹ˆë‹¤.
+echo   [Áß¿ä]
+echo   Claude Code ¾Û°ú ¸ğµç ÅÍ¹Ì³Î Ã¢À» ¿ÏÀüÈ÷ Á¾·áÇÑ µÚ
+echo   ´Ù½Ã ½ÇÇàÇÏ¼¼¿ä. ±×·¡¾ß PATH °¡ ¹İ¿µµË´Ï´Ù.
 echo ============================================================
 echo.
 pause
@@ -77,20 +77,35 @@ exit /b 0
 :manual
 echo.
 echo ============================================================
-echo   ìë™ ì„¤ì¹˜ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì•„ë˜ë¥¼ ìˆœì„œëŒ€ë¡œ ì‹œë„í•´ ë³´ì„¸ìš”.
+echo   ÀÚµ¿ ¼³Ä¡¿¡ ½ÇÆĞÇß½À´Ï´Ù.
 echo.
-echo   1. Microsoft Store ì—ì„œ "ì•± ì„¤ì¹˜ ê´€ë¦¬ì" ì„¤ì¹˜ í›„ ì´ íŒŒì¼ ì¬ì‹¤í–‰
+echo   ¿À·ùÄÚµå 0x80072f0d °¡ º¸¿´´Ù¸é ¹æÈ­º® Â÷´ÜÀÌ ¾Æ´Ï¶ó
+echo   »ç³» SSL °Ë»ç ÀåºñÀÇ ÀÎÁõ¼­ ¹®Á¦ÀÔ´Ï´Ù.
+echo   github.com ÀÚÃ¼´Â ¿¬°áµÇ¹Ç·Î, ºê¶ó¿ìÀú·Î Á÷Á¢ ¹ŞÀ¸¸é µË´Ï´Ù.
 echo.
-echo   2. Visual Studio Installer ì‹¤í–‰
-echo      -^> ìˆ˜ì • -^> ê°œë³„ êµ¬ì„± ìš”ì†Œ -^> "Git for Windows" ì²´í¬
+echo   [¹æ¹ı 1] ºê¶ó¿ìÀú¿¡¼­ ¾Æ·¡ ÁÖ¼Ò¸¦ ¿­°í
+echo            Git-(¹öÀü)-64-bit.exe ¸¦ ¹Ş¾Æ ½ÇÇàÇÏ¼¼¿ä.
 echo.
-echo   3. ì¸í„°ë„· ë˜ëŠ” PC ì—ì„œ PortableGit-(ë²„ì „)-64-bit.7z.exe ë¥¼
-echo      ë°›ì•„ ì˜®ê¸´ ë’¤ C:\Tools\PortableGit ì— í’€ê³  ì´ íŒŒì¼ ì¬ì‹¤í–‰
+echo            %DLURL%
 echo.
-echo   4. ì‚¬ë‚´ IT ì— git-scm.com / github.com ë°©í™”ë²½ í—ˆìš© ìš”ì²­
+echo   [¹æ¹ı 2] Visual Studio Installer ½ÇÇà
+echo            ¼öÁ¤ - °³º° ±¸¼º ¿ä¼Ò - "Git for Windows" Ã¼Å©
 echo.
-echo   ìì„¸í•œ ë‚´ìš©: docs\git-ì„¤ì¹˜-ê°€ì´ë“œ.md
+echo   [¹æ¹ı 3] ÀÎÅÍ³İ µÇ´Â PC ¿¡¼­ PortableGit-(¹öÀü)-64-bit.7z.exe ¸¦
+echo            ¹Ş¾Æ ¿Å±ä µÚ C:\Tools\PortableGit ¿¡ Ç®°í ÀÌ ÆÄÀÏ Àç½ÇÇà
+echo.
+echo   [¹æ¹ı 4] »ç³» IT ¿¡ ¹®ÀÇ
+echo            "winget ÀÌ 0x80072f0d (INVALID_CA) ·Î ½ÇÆĞÇÑ´Ù,
+echo             »ç³» ·çÆ® ÀÎÁõ¼­¸¦ ½Å·ÚÇÒ ¼ö ÀÖ´Â ·çÆ® ÀúÀå¼Ò¿¡
+echo             µî·ÏÇØ ´Ş¶ó" °í ¿äÃ»ÇÏ¼¼¿ä.
 echo ============================================================
+echo.
+echo ºê¶ó¿ìÀú·Î ´Ù¿î·Îµå ÆäÀÌÁö¸¦ ¿©½Ã°Ú½À´Ï±î?
+choice /c YN /n /m "  Y = ¿­±â / N = ´İ±â : "
+if errorlevel 2 goto :end
+start "" "%DLURL%"
+
+:end
 echo.
 pause
 exit /b 1
@@ -100,7 +115,6 @@ set "GITDIR="
 for %%D in (
     "%ProgramFiles%\Git\cmd"
     "%LOCALAPPDATA%\Programs\Git\cmd"
-    "%LOCALAPPDATA%\Microsoft\WinGet\Links"
     "C:\Tools\PortableGit\cmd"
 ) do (
     if exist "%%~D\git.exe" set "GITDIR=%%~D"

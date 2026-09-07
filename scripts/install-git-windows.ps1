@@ -44,8 +44,13 @@ function Test-Git {
 function Add-UserPath {
     param([string]$Dir)
     $current = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($current -split ';' -contains $Dir) { return }
-    [Environment]::SetEnvironmentVariable('Path', "$current;$Dir", 'User')
+    if ([string]::IsNullOrWhiteSpace($current)) {
+        $updated = $Dir
+    } else {
+        if ($current -split ';' -contains $Dir) { return }
+        $updated = ($current.TrimEnd(';')) + ";$Dir"
+    }
+    [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
     $env:Path = "$env:Path;$Dir"
     Write-Ok "사용자 PATH에 추가: $Dir"
 }

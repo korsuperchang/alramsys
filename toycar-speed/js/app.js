@@ -20,6 +20,10 @@ const el = {
   btnCamera: $('btnCamera'),
   btnFlip: $('btnFlip'),
   btnDemo: $('btnDemo'),
+  btnFile: $('btnFile'),
+  fileInput: $('fileInput'),
+  slowFactor: $('slowFactor'),
+  slowFactorVal: $('slowFactorVal'),
   btnCalibrate: $('btnCalibrate'),
   btnReset: $('btnReset'),
   distance: $('distance'),
@@ -70,7 +74,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v16 · 프레임 시각 보정';
+const APP_VERSION = 'v17 · 영상으로 측정';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -78,6 +82,7 @@ const MAX_RECORDS = 50;
 
 const defaultSettings = {
   mode: 'auto',
+  slowFactor: 1,
   viewWidth: 0,
   viewWidthUnit: 0.01,
   distance: 50,
@@ -109,7 +114,11 @@ const octx = el.overlay.getContext('2d');
 
 let stream = null;
 let source = null;       // 처리 대상: <video> 또는 데모 캔버스
-let mode = 'idle';       // 'idle' | 'camera' | 'demo'
+let mode = 'idle';       // 'idle' | 'camera' | 'demo' | 'file'
+let fileUrl = null;      // 분석 중인 영상의 임시 주소
+let lastFileProgress = -1;
+/** 영상 분석 재생 배속 — 낮을수록 프레임을 빠짐없이 받는다 */
+const FILE_PLAYBACK_RATE = 0.25;
 let grayBuf = null;
 let rafId = 0;
 let running = false;
@@ -191,6 +200,7 @@ function ratioToSensitivity(targetRatio) {
 }
 
 function applySettingsToUI() {
+  el.slowFactor.value = String(settings.slowFactor || 1);
   el.viewWidth.value = settings.viewWidth || '';
   el.viewWidthUnit.value = String(settings.viewWidthUnit);
   el.distance.value = settings.distance;
@@ -222,6 +232,7 @@ function syncLabels() {
   el.roiEndVal.textContent = `${el.roiEnd.value}%`;
   el.sensitivityVal.textContent = el.sensitivity.value;
   el.bandWidthVal.textContent = `${el.bandWidth.value}%`;
+  el.slowFactorVal.textContent = Number(el.slowFactor.value) > 1 ? `${el.slowFactor.value}배 느리게 찍음` : '일반';
   el.scaleVal.textContent = el.scale.value;
   el.sigThr.textContent = pct(sensitivityToOptions(Number(el.sensitivity.value)).onRatio);
   updateScaleLine();
@@ -258,6 +269,7 @@ function applyModeToUI() {
 function collectSettings() {
   settings = {
     ...settings,
+    slowFactor: parseFloat(el.slowFactor.value) || 1,
     viewWidth: parseFloat(el.viewWidth.value) || 0,
     viewWidthUnit: parseFloat(el.viewWidthUnit.value),
     distance: parseFloat(el.distance.value) || defaultSettings.distance,
@@ -528,6 +540,7 @@ function renderDiag(extra = '') {
     size,
     `민감도 ${settings.sensitivity}`,
   ];
+  if (mode === 'file') parts.push(`영상${settings.slowFactor > 1 ? ` ×${settings.slowFactor}` : ''}`);
   if (extra) parts.push(extra);
   parts.push(`v${APP_VERSION.match(/v(\d+)/)?.[1] ?? '?'}`);
   el.diag.textContent = parts.join(' · ');
@@ -652,6 +665,93 @@ function stopCamera() {
   releaseWakeLock();
 }
 
+/* ---------------- 영상 파일로 측정 ---------------- */
+
+/**
+ * 폰 카메라 앱으로 찍은 영상을 불러와 그대로 분석한다.
+ *
+ * 실시간 카메라는 브라우저마다 프레임 시각을 주는 방식이 제각각이라 측정이 조용히
+ * 어긋날 수 있다. 녹화된 영상은 프레임 시각이 정확하고, 같은 장면을 몇 번이고 다시
+ * 돌려볼 수 있어서 설정을 바꿔 가며 확인하기에도 낫다.
+ * 아주 빠른 자동차는 슬로우 모션으로 찍으면 표본이 몇 배로 늘어난다.
+ */
+async function startFileAnalysis(file) {
+  stopDemo();
+  stopCamera();
+  if (fileUrl) URL.revokeObjectURL(fileUrl);
+  fileUrl = URL.createObjectURL(file);
+
+  el.video.hidden = false;
+  el.demo.hidden = true;
+  el.video.srcObject = null;
+  el.video.src = fileUrl;
+  el.video.loop = false;
+  // 느리게 재생한다. 1배속으로 틀면 폰이 디코딩을 못 따라가 프레임을 흘리는데,
+  // 시각은 영상 자체의 시각을 쓰므로 느리게 봐도 속도 값은 그대로다.
+  // (실제로 1배속에서는 30fps 영상의 3분의 1만 들어와 측정이 안 됐다)
+  el.video.playbackRate = FILE_PLAYBACK_RATE;
+  source = el.video;
+  mode = 'file';
+  el.stageHint.hidden = true;
+  el.btnFile.classList.add('on');
+  records.slice();        // (기록은 그대로 쌓는다)
+  banner = null;
+
+  const before = records.length;
+  try {
+    await el.video.play();
+  } catch (err) {
+    setStatus('영상을 재생하지 못했습니다 — 다른 형식으로 저장해 보세요', 'err');
+    stopFileAnalysis();
+    return;
+  }
+  setStatus('영상 분석 중…', 'warn');
+  startLoop();
+
+  el.video.onended = () => {
+    const found = records.length - before;
+    stopFileAnalysis({ keepFrame: true });
+    if (found > 0) {
+      const best = records.slice(0, found).reduce((a, r) => (valueOfRecord(r) > valueOfRecord(a) ? r : a));
+      const label = speedLabel(best);
+      setStatus(`분석 완료 — 측정 ${found}건, 최고 ${label.value} ${label.unit}`, 'ok');
+      showBanner({
+        value: label.value,
+        unit: label.unit,
+        sub: found > 1 ? `이 영상에서 찾은 ${found}건 중 가장 빠른 값` : '이 영상에서 찾은 값',
+      });
+      showSpeed(best);
+    } else {
+      setStatus('이 영상에서는 측정된 통과가 없습니다', 'warn');
+      showBanner({ sub: '이 영상에서는 측정된 통과가 없습니다', kind: 'warn' });
+    }
+    redrawOverlayOnce();
+  };
+}
+
+function stopFileAnalysis({ keepFrame = false } = {}) {
+  stopLoop();
+  el.video.onended = null;
+  el.video.pause();
+  el.btnFile.classList.remove('on');
+  mode = 'idle';
+  source = null;
+  // 분석이 끝난 뒤에는 마지막 장면과 결과를 남겨 둔다 (안내 문구로 덮지 않는다)
+  el.stageHint.hidden = keepFrame;
+}
+
+/** 루프가 멈춘 뒤에도 결과를 한 번 그려 화면에 남긴다. */
+function redrawOverlayOnce() {
+  resizeOverlay();
+  octx.clearRect(0, 0, el.overlay.width, el.overlay.height);
+  drawBanner(el.overlay.width, el.overlay.height);
+}
+
+/** 기록 하나의 비교용 값 (절대 속도를 알면 km/h, 아니면 상대 속도) */
+function valueOfRecord(r) {
+  return r.kmh != null ? r.kmh : (r.fwps ?? 0);
+}
+
 /* ---------------- 데모 모드 ---------------- */
 const demoState = { x: -60, speed: 260, ctx: null, lastT: 0, pxPerSec: 260 };
 
@@ -720,7 +820,7 @@ function startLoop() {
   frameTimes = [];
   detector.reset();
   applySettingsToDetector();
-  if (mode === 'camera' && typeof el.video.requestVideoFrameCallback === 'function') {
+  if ((mode === 'camera' || mode === 'file') && typeof el.video.requestVideoFrameCallback === 'function') {
     el.video.requestVideoFrameCallback(onVideoFrame);
   } else {
     rafId = requestAnimationFrame(onAnimationFrame);
@@ -802,6 +902,14 @@ function processFrame(timeMs) {
 
   trackFramePeriod(timeMs);
 
+  if (mode === 'file' && el.video.duration) {
+    const pct100 = Math.min(100, Math.round((el.video.currentTime / el.video.duration) * 100));
+    if (pct100 !== lastFileProgress) {
+      lastFileProgress = pct100;
+      setStatus(`영상 분석 중… ${pct100}%`, 'warn');
+    }
+  }
+
   if (settings.mode === 'auto') {
     const result = tracker.update(grayBuf, pw, ph, timeMs);
     trackAutoSignal(result);
@@ -828,6 +936,15 @@ function processFrame(timeMs) {
 /** 자동 추적 한 건을 기록한다. 화면 가로 길이를 모르면 상대 속도만 남는다. */
 function handlePass(p) {
   const viewW = viewWidthMeters();
+  // 슬로우 모션으로 찍은 영상은 느리게 재생된다. 찍을 때와 재생할 때의 배속 차이만큼
+  // 실제 속도가 빨랐다는 뜻이므로 그만큼 곱해 준다.
+  const slow = mode === 'file' ? Math.max(1, settings.slowFactor || 1) : 1;
+  p = slow === 1 ? p : {
+    ...p,
+    fwps: p.fwps * slow,
+    fwpsPeak: p.fwpsPeak * slow,
+    durationMs: p.durationMs / slow,
+  };
   // 화면에 내세우는 값은 "가장 빨랐던 순간"이다. 경사로를 내려온 자동차는 처음이
   // 가장 빠르고 점점 느려지므로, 통과 전체의 평균은 실제보다 낮게 읽힌다.
   const abs = passToSpeed(p.fwpsPeak, viewW);
@@ -1342,6 +1459,17 @@ el.btnFlip.addEventListener('click', () => {
   else setStatus(settings.facingMode === 'environment' ? '후면 카메라 선택됨' : '전면 카메라 선택됨');
 });
 
+el.btnFile.addEventListener('click', () => {
+  if (mode === 'file') { stopFileAnalysis(); setStatus('분석을 멈췄습니다'); return; }
+  el.fileInput.value = '';
+  el.fileInput.click();
+});
+
+el.fileInput.addEventListener('change', () => {
+  const file = el.fileInput.files?.[0];
+  if (file) startFileAnalysis(file);
+});
+
 el.btnDemo.addEventListener('click', () => {
   if (mode === 'demo') { stopDemo(); setStatus('정지됨'); el.stageHint.hidden = false; }
   else startDemo();
@@ -1365,7 +1493,8 @@ for (const input of [el.gateA, el.gateB, el.roiStart, el.roiEnd, el.sensitivity,
   input.addEventListener('input', () =>
     onSettingChanged({ resetDetector: input === el.sensitivity || input === el.bandWidth }));
 }
-for (const input of [el.distance, el.distanceUnit, el.viewWidth, el.viewWidthUnit, el.sound, el.vibrate, el.showMask]) {
+for (const input of [el.distance, el.distanceUnit, el.viewWidth, el.viewWidthUnit, el.slowFactor,
+  el.sound, el.vibrate, el.showMask]) {
   input.addEventListener('change', () => onSettingChanged());
 }
 

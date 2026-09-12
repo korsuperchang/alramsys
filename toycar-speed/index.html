@@ -60,6 +60,8 @@
     <button id="btnCamera" class="btn primary">카메라 시작</button>
     <button id="btnFlip" class="btn">카메라 전환</button>
     <button id="btnCalibrate" class="btn">자동 맞춤</button>
+    <button id="btnFile" class="btn">영상으로 측정</button>
+    <input type="file" id="fileInput" accept="video/*" hidden>
     <button id="btnDemo" class="btn">데모 모드</button>
     <button id="btnReset" class="btn">배경 재학습</button>
   </div>
@@ -74,6 +76,19 @@
         <button type="button" data-value="gates">기준선 2개 (정밀)</button>
       </div>
       <p class="hint" id="modeHint">움직이는 것을 찾아 따라가며 속도를 냅니다. 좌우·상하·대각선 어느 방향이든 그대로 잽니다.</p>
+    </div>
+
+    <div class="field" id="fieldSlow">
+      <label for="slowFactor">촬영 배속 <span class="val" id="slowFactorVal">일반</span></label>
+      <select id="slowFactor">
+        <option value="1" selected>일반 촬영 (그대로)</option>
+        <option value="2">슬로우 2배 (60fps 촬영 → 30fps 재생)</option>
+        <option value="4">슬로우 4배 (120fps 촬영 → 30fps 재생)</option>
+        <option value="8">슬로우 8배 (240fps 촬영 → 30fps 재생)</option>
+      </select>
+      <p class="hint"><b>슬로우 모션으로 찍은 영상</b>을 불러올 때만 쓰세요. 슬로우 영상은 느리게 재생되므로
+      그대로 재면 실제보다 느리게 나옵니다. 아이폰 슬로우 모션은 보통 <b>8배</b>(240fps)입니다.
+      실시간 카메라 측정에는 영향이 없습니다.</p>
     </div>
 
     <div class="field auto-only" id="fieldView">
@@ -174,6 +189,9 @@
       <li>km/h로 보고 싶으면 화면에 담긴 바닥의 <b>가로 길이</b>만 재서 넣으세요. 비워 두면 상대 속도로 나옵니다.</li>
       <li>더 정확한 값이 필요하면 <b>기준선 2개</b> 방식으로 바꾸고, 바닥 두 지점의 실제 거리를 입력한 뒤 A·B 선을 그 지점에 맞춥니다.</li>
     </ol>
+    <p class="hint"><b>실시간으로 잘 안 잡히면 ‘영상으로 측정’을 쓰세요.</b> 폰 카메라 앱으로 찍은 영상을 불러와
+    같은 방식으로 분석합니다. 프레임 시각이 정확하고, 안 잡히면 몇 번이고 다시 돌려볼 수 있습니다.
+    아주 빠른 자동차는 <b>슬로우 모션</b>으로 찍고 위에서 배속을 골라 주세요 — 표본이 8배로 늘어납니다.</p>
     <p class="hint">손이나 그림자가 화면에 같이 들어오면 그것도 움직임으로 잡힙니다. 되도록 <b>화면 밖에서 굴려</b> 주세요.</p>
     <p class="hint">핸드폰이 흔들리면 화면 전체가 움직임으로 잡혀 오차가 생깁니다. 반드시 고정하세요.</p>
   </section>

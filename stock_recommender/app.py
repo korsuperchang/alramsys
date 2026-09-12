@@ -135,6 +135,19 @@ def run_recommend(market: str, demo: bool, as_of: str | None = None,
             "DART_API_KEY 를 추가하고 재시작하세요. "
             "(나머지 팩터 가중치는 자동 재정규화되어 순위는 정상입니다)")
 
+    # 추천 스냅샷을 남겨 두면 5·20·60영업일 뒤 실제 수익률을 채워
+    # 모델이 맞았는지 확인할 수 있다. 실패해도 추천 자체는 내보낸다.
+    try:
+        from rec_track import RecTracker
+        close = price_df.sort_values("date").groupby("ticker")["close"].last()
+        n = RecTracker().snapshot(
+            market, as_of, result,
+            {t: int(p) for t, p in close.items() if pd.notna(p)})
+        if n:
+            print(f"      [추천추적] {n}건 기록")
+    except Exception as e:
+        print(f"      [추천추적] 기록 실패: {e}")
+
     return {"market": market, "as_of": as_of, "notes": notes,
             "universe_count": len(scored), "recommendations": result}
 

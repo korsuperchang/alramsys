@@ -378,8 +378,10 @@ class PaperTrader:
             "avg_loss_pct": avg([t["pnl_pct"] for t in losses]),
             # 총이익/총손실 — 1.0 미만이면 전략이 돈을 잃고 있다는 뜻
             "profit_factor": round(gain / loss, 2) if loss else 0.0,
-            "total_cost": sum(t["entry_fee"] + t["exit_fee"] + t["tax"]
-                              for t in rows),
+            # 파일이 손상되거나 손으로 편집돼 필드가 빠져도 집계가 죽지 않게 한다
+            # (stats()는 _save_state 경로에 있어 여기서 죽으면 스캐너가 멈춘다)
+            "total_cost": sum(t.get("entry_fee", 0) + t.get("exit_fee", 0)
+                              + t.get("tax", 0) for t in rows),
             "best_pct": max(pcts),
             "worst_pct": min(pcts),
             # 청산 사유 분포 — 대부분 시간 청산이면 손절/익절 폭이

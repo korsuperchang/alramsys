@@ -226,6 +226,32 @@ class DayScanner:
             self._log(f"  [모의] 매수 {pos['qty']}주 × {price:,}원 "
                       f"= {pos['cost']:,}원")
 
+    def _process_rec_returns(self):
+        """
+        종목 추천의 5·20·60영업일 수익률을 채운다.
+
+        스캐너가 이미 KIS 시세를 쓰고 있어 여기서 같이 처리한다. 매매와는
+        무관하며, 추천 모델이 실제로 맞는지 확인할 근거를 모은다.
+        """
+        try:
+            from rec_track import RecTracker
+            tr = RecTracker()
+            due = tr.due()
+            if not due:
+                return
+            filled = 0
+            for idx, days in due[:20]:
+                price = self.kis.get_price(tr.records[idx]["ticker"])
+                if not price:
+                    continue
+                tr.record_return(idx, days, price["price"])
+                filled += 1
+            if filled:
+                tr.save()
+                self._log(f"  [추천추적] 수익률 {filled}건 기록")
+        except Exception as e:
+            self._log(f"  [추천추적] 실패: {e}")
+
     def _record_miss(self, c: dict, price: int, kind: str,
                      ratio: float | None):
         """돌파했으나 조건에서 걸린 종목을 남긴다 (같은 날 사유당 1회)"""
@@ -910,6 +936,7 @@ class DayScanner:
                 # 단계 사이 유휴 구간에서 청산 후 추적을 채운다.
                 # 감시 루프를 방해하지 않으면서 기준시각이 지난 것만 처리된다.
                 self._process_followups()
+                self._process_rec_returns()
                 self.state["phase"] = self._idle_phase(hm)
                 self._save_state()
                 time.sleep(30)

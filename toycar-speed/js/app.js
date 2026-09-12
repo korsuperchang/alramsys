@@ -32,6 +32,11 @@ const el = {
   mode: $('mode'),
   modeHint: $('modeHint'),
   viewWidth: $('viewWidth'),
+  btnCalibrate2: $('btnCalibrate2'),
+  calDistance: $('calDistance'),
+  calDistanceUnit: $('calDistanceUnit'),
+  calState: $('calState'),
+  calResult: $('calResult'),
   viewWidthUnit: $('viewWidthUnit'),
   labA: $('labA'),
   labB: $('labB'),
@@ -74,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v18 · 결과 계속 표시';
+const APP_VERSION = 'v19 · 두 점 거리 맞추기';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -83,6 +88,11 @@ const MAX_RECORDS = 50;
 const defaultSettings = {
   mode: 'auto',
   slowFactor: 1,
+  /** 거리 맞추기: 화면 위 두 점(0~1)과 그 사이 실제 거리 */
+  calA: { x: 0.25, y: 0.6 },
+  calB: { x: 0.75, y: 0.6 },
+  calDistance: 50,
+  calDistanceUnit: 0.01,
   viewWidth: 0,
   viewWidthUnit: 0.01,
   distance: 50,
@@ -117,6 +127,8 @@ let source = null;       // 처리 대상: <video> 또는 데모 캔버스
 let mode = 'idle';       // 'idle' | 'camera' | 'demo' | 'file'
 let fileUrl = null;      // 분석 중인 영상의 임시 주소
 let lastFileProgress = -1;
+/** 거리 맞추기 중인가 (화면에 점 두 개를 띄우고 드래그로 옮긴다) */
+let calibratingScale = false;
 /** 영상 분석 재생 배속 — 낮을수록 프레임을 빠짐없이 받는다 */
 const FILE_PLAYBACK_RATE = 0.25;
 let grayBuf = null;
@@ -153,6 +165,66 @@ function saveJSON(key, value) {
 function viewWidthMeters() {
   const v = parseFloat(el.viewWidth.value);
   return Number.isFinite(v) && v > 0 ? v * parseFloat(el.viewWidthUnit.value) : 0;
+}
+
+/**
+ * 화면에 찍은 두 점과 그 사이 실제 거리로 "화면 가로가 실제로 몇 m인지"를 구한다.
+ * 속도는 화면 폭을 1로 놓고 재므로, 이 값 하나만 알면 m/s·km/h로 바꿀 수 있다.
+ * 세로 방향도 가로와 같은 자로 재기 때문에 두 점이 비스듬해도 된다.
+ */
+function calibratedViewWidth() {
+  const d = parseFloat(el.calDistance.value);
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  const real = d * parseFloat(el.calDistanceUnit.value);
+  const stage = el.stage.getBoundingClientRect();
+  const aspect = stage.height / Math.max(1, stage.width);
+  const dx = settings.calB.x - settings.calA.x;
+  const dy = (settings.calB.y - settings.calA.y) * aspect;   // 세로도 화면 폭 기준으로
+  const span = Math.hypot(dx, dy);
+  if (span < 0.02) return 0;                                  // 두 점이 너무 붙어 있다
+  return real / span;
+}
+
+/** 두 점 설정을 화면 가로 길이로 환산해 저장하고, 안내 문구를 갱신한다. */
+function applyCalibration() {
+  const w = calibratedViewWidth();
+  if (w > 0) {
+    el.viewWidth.value = (w * 100).toFixed(1);
+    el.viewWidthUnit.value = '0.01';
+    el.calState.textContent = '맞춰짐';
+    el.calResult.textContent = `화면 가로 ≈ ${(w * 100).toFixed(0)}cm 로 계산됩니다. 이제 km/h로 나옵니다.`;
+  } else {
+    el.calState.textContent = '안 됨';
+    el.calResult.textContent = '';
+  }
+  collectSettings();
+  syncLabels();
+  if (lastRecord) recomputeLastRecord();
+}
+
+/** 보정이 바뀌면 마지막 측정값을 새 기준으로 다시 표시한다. */
+function recomputeLastRecord() {
+  const viewW = viewWidthMeters();
+  for (const r of records) {
+    const abs = passToSpeed(r.fwps, viewW);
+    const absAvg = r.fwpsAvg != null ? passToSpeed(r.fwpsAvg, viewW) : null;
+    r.kmh = abs ? abs.kmh : null;
+    r.mps = abs ? abs.mps : null;
+    r.kmhAvg = absAvg ? absAvg.kmh : null;
+    r.distance = viewW;
+  }
+  saveJSON(RECORDS_KEY, records);
+  lastRecord = records[0] || lastRecord;
+  if (lastRecord) {
+    showSpeed(lastRecord, { flash: false });
+    // 화면 위 배너도 새 단위로 다시 적는다 (보정 전 값이 남아 있으면 혼란스럽다)
+    if (banner && banner.value) {
+      const label = speedLabel(lastRecord);
+      banner.value = label.value;
+      banner.unit = label.unit;
+    }
+  }
+  renderRecords();
 }
 
 function distanceMeters() {
@@ -201,6 +273,8 @@ function ratioToSensitivity(targetRatio) {
 
 function applySettingsToUI() {
   el.slowFactor.value = String(settings.slowFactor || 1);
+  el.calDistance.value = settings.calDistance ?? 50;
+  el.calDistanceUnit.value = String(settings.calDistanceUnit ?? 0.01);
   el.viewWidth.value = settings.viewWidth || '';
   el.viewWidthUnit.value = String(settings.viewWidthUnit);
   el.distance.value = settings.distance;
@@ -270,6 +344,8 @@ function collectSettings() {
   settings = {
     ...settings,
     slowFactor: parseFloat(el.slowFactor.value) || 1,
+    calDistance: parseFloat(el.calDistance.value) || 50,
+    calDistanceUnit: parseFloat(el.calDistanceUnit.value),
     viewWidth: parseFloat(el.viewWidth.value) || 0,
     viewWidthUnit: parseFloat(el.viewWidthUnit.value),
     distance: parseFloat(el.distance.value) || defaultSettings.distance,
@@ -744,6 +820,7 @@ function stopFileAnalysis({ keepFrame = false } = {}) {
 function redrawOverlayOnce() {
   resizeOverlay();
   octx.clearRect(0, 0, el.overlay.width, el.overlay.height);
+  drawCalibration(el.overlay.width, el.overlay.height);
   drawBanner(el.overlay.width, el.overlay.height);
 }
 
@@ -1143,6 +1220,54 @@ function recordsToCsv() {
   return [header, ...rows].join('\n');
 }
 
+/** 거리 맞추기용 점 두 개와 그 사이 선을 그린다. */
+function drawCalibration(W, H) {
+  if (!calibratingScale) return;
+  const pts = [
+    { p: settings.calA, label: '①' },
+    { p: settings.calB, label: '②' },
+  ];
+  octx.setLineDash([8, 8]);
+  octx.strokeStyle = '#4aa8ff';
+  octx.lineWidth = Math.max(2, W / 150);
+  octx.beginPath();
+  octx.moveTo(settings.calA.x * W, settings.calA.y * H);
+  octx.lineTo(settings.calB.x * W, settings.calB.y * H);
+  octx.stroke();
+  octx.setLineDash([]);
+
+  const r = Math.max(12, W / 22);
+  for (const { p, label } of pts) {
+    const x = p.x * W;
+    const y = p.y * H;
+    octx.fillStyle = 'rgba(6, 12, 18, 0.75)';
+    octx.beginPath();
+    octx.arc(x, y, r, 0, Math.PI * 2);
+    octx.fill();
+    octx.strokeStyle = '#4aa8ff';
+    octx.lineWidth = Math.max(2, W / 160);
+    octx.stroke();
+    octx.fillStyle = '#fff';
+    octx.font = `600 ${Math.round(r * 1.1)}px system-ui, sans-serif`;
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillText(label, x, y);
+  }
+
+  // 지금 입력된 실제 거리를 선 옆에 적어 준다
+  const mx = ((settings.calA.x + settings.calB.x) / 2) * W;
+  const my = ((settings.calA.y + settings.calB.y) / 2) * H;
+  const text = `${el.calDistance.value}${el.calDistanceUnit.value === '1' ? 'm' : 'cm'}`;
+  const size = Math.max(14, W / 24);
+  octx.font = `700 ${size}px system-ui, sans-serif`;
+  const tw = octx.measureText(text).width;
+  octx.fillStyle = 'rgba(6, 12, 18, 0.8)';
+  roundRect(octx, mx - tw / 2 - size * 0.4, my - r - size * 1.5, tw + size * 0.8, size * 1.4, size * 0.4);
+  octx.fill();
+  octx.fillStyle = '#4aa8ff';
+  octx.fillText(text, mx, my - r - size * 0.8);
+}
+
 /* ---------------- 카메라 화면 위 결과 표시 ---------------- */
 /**
  * 측정값은 **다음 측정이 나올 때까지** 계속 크게 남는다.
@@ -1358,6 +1483,7 @@ function drawOverlay(result) {
     octx.strokeRect(4, 4, W - 8, H - 8);
   }
 
+  drawCalibration(W, H);
   drawBanner(W, H);
 }
 
@@ -1413,6 +1539,15 @@ function pointerPos(evt) {
 }
 
 el.overlay.addEventListener('pointerdown', (evt) => {
+  if (calibratingScale) {
+    const { nx, ny } = pointerPos(evt);
+    const dA = Math.hypot(nx - settings.calA.x, ny - settings.calA.y);
+    const dB = Math.hypot(nx - settings.calB.x, ny - settings.calB.y);
+    dragging = dA <= dB ? 'calA' : 'calB';
+    el.overlay.setPointerCapture(evt.pointerId);
+    moveCalPoint(nx, ny);
+    return;
+  }
   if (mode === 'idle') return;
   const { nx, ny } = pointerPos(evt);
   const p = (settings.orientation === 'vertical' ? nx : ny) * 100;
@@ -1427,12 +1562,21 @@ el.overlay.addEventListener('pointerdown', (evt) => {
 el.overlay.addEventListener('pointermove', (evt) => {
   if (!dragging) return;
   const { nx, ny } = pointerPos(evt);
+  if (dragging === 'calA' || dragging === 'calB') { moveCalPoint(nx, ny); return; }
   moveGate((settings.orientation === 'vertical' ? nx : ny) * 100);
 });
 
 const endDrag = () => { dragging = null; };
 el.overlay.addEventListener('pointerup', endDrag);
 el.overlay.addEventListener('pointercancel', endDrag);
+
+function moveCalPoint(nx, ny) {
+  const point = { x: Math.min(1, Math.max(0, nx)), y: Math.min(1, Math.max(0, ny)) };
+  settings[dragging] = point;
+  saveJSON(SETTINGS_KEY, settings);
+  applyCalibration();
+  if (mode === 'idle') redrawOverlayOnce();
+}
 
 function moveGate(percent) {
   const v = Math.round(Math.min(98, Math.max(2, percent)));
@@ -1467,6 +1611,24 @@ el.btnFlip.addEventListener('click', () => {
   if (mode === 'camera') startCamera();
   else setStatus(settings.facingMode === 'environment' ? '후면 카메라 선택됨' : '전면 카메라 선택됨');
 });
+
+el.btnCalibrate2.addEventListener('click', () => {
+  calibratingScale = !calibratingScale;
+  el.btnCalibrate2.classList.toggle('on', calibratingScale);
+  el.btnCalibrate2.textContent = calibratingScale ? '맞추기 끝내기' : '화면에서 두 점 찍기';
+  if (calibratingScale) {
+    applyCalibration();
+    setStatus('화면의 점 ①②를 아는 거리 두 지점에 맞춰 주세요', 'warn');
+  } else {
+    setStatus(mode === 'idle' ? '' : '측정 중', 'ok');
+  }
+  redrawOverlayOnce();
+});
+
+for (const input of [el.calDistance, el.calDistanceUnit]) {
+  input.addEventListener('input', () => { applyCalibration(); redrawOverlayOnce(); });
+  input.addEventListener('change', () => { applyCalibration(); redrawOverlayOnce(); });
+}
 
 el.btnFile.addEventListener('click', () => {
   if (mode === 'file') { stopFileAnalysis(); setStatus('분석을 멈췄습니다'); return; }
@@ -1561,6 +1723,10 @@ applySettingsToDetector({ reset: true });
 renderRecords();
 el.version.textContent = APP_VERSION;
 renderDiag();
+if (viewWidthMeters() > 0) {
+  el.calState.textContent = '맞춰짐';
+  el.calResult.textContent = `화면 가로 ≈ ${(viewWidthMeters() * 100).toFixed(0)}cm 로 계산됩니다.`;
+}
 if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복원
 drawOverlay();
 setStatus('‘카메라 시작’을 눌러 주세요');

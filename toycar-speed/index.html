@@ -92,16 +92,30 @@
     </div>
 
     <div class="field auto-only" id="fieldView">
-      <label for="viewWidth">화면에 담긴 실제 가로 길이 <span class="val">선택</span></label>
-      <div class="row">
-        <input type="number" id="viewWidth" min="0" step="1" value="0" inputmode="decimal" placeholder="모르면 비워 두세요">
-        <select id="viewWidthUnit">
+      <label>km/h로 보려면 — 거리 맞추기 <span class="val" id="calState">안 됨</span></label>
+      <button type="button" id="btnCalibrate2" class="btn">화면에서 두 점 찍기</button>
+      <div class="row" style="margin-top:8px">
+        <input type="number" id="calDistance" min="1" step="1" value="50" inputmode="decimal">
+        <select id="calDistanceUnit">
           <option value="0.01" selected>cm</option>
           <option value="1">m</option>
         </select>
       </div>
-      <p class="hint">화면 왼쪽 끝에서 오른쪽 끝까지가 바닥에서 몇 cm인지 재서 넣으면 km/h로 바꿔 줍니다. (위아래로 움직여도 가로 길이를 넣으면 됩니다)
-      <b>비워 두면 상대 속도</b>(초당 화면폭 배수)로만 나오고, 그것만으로도 어느 쪽이 빠른지는 비교됩니다.</p>
+      <p class="hint">버튼을 누르면 화면에 <b>점 두 개</b>가 나타납니다. 자동차가 지나가는 길 위의 아는 거리
+      두 지점에 맞춰 놓고, 그 사이 실제 거리를 위에 넣으세요.
+      <b>퍼즐 매트 한 장이면 보통 50cm</b>입니다. 자로 잰 두 지점이어도 됩니다.
+      <br>맞춰 두지 않으면 상대 속도(초당 화면폭 배수)로 나오고, 그것만으로도 어느 쪽이 빠른지는 비교됩니다.</p>
+      <p class="hint" id="calResult"></p>
+      <details style="margin-top:6px">
+        <summary class="hint" style="cursor:pointer">직접 입력 (화면 가로 실제 길이)</summary>
+        <div class="row" style="margin-top:6px">
+          <input type="number" id="viewWidth" min="0" step="1" value="0" inputmode="decimal" placeholder="모르면 비워 두세요">
+          <select id="viewWidthUnit">
+            <option value="0.01" selected>cm</option>
+            <option value="1">m</option>
+          </select>
+        </div>
+      </details>
     </div>
 
     <div class="field gate-only">

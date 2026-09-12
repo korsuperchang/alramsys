@@ -1705,7 +1705,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v17 · 영상으로 측정';
+const APP_VERSION = 'v18 · 결과 계속 표시';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -2775,8 +2775,12 @@ function recordsToCsv() {
 }
 
 /* ---------------- 카메라 화면 위 결과 표시 ---------------- */
-const BANNER_BIG_MS = 7000;   // 크게 보여 주는 시간
-const BANNER_KEEP_MS = 90000; // 작게 남겨 두는 시간
+/**
+ * 측정값은 **다음 측정이 나올 때까지** 계속 크게 남는다.
+ * 폰은 트랙 옆에 두고 쓰는데 7초 만에 작아지면, 주우러 갔다 오는 사이에 사라진다.
+ * 다만 다음 자동차를 쫓는 동안에는 화면을 가리지 않도록 구석으로 물러난다.
+ */
+const BANNER_HINT_MS = 6000;    // 안내 문구만 잠깐 띄운다
 
 function showBanner({ value = null, unit = '', sub = '', kind = 'ok' }) {
   banner = { value, unit, sub, kind, at: performance.now() };
@@ -2800,9 +2804,14 @@ function roundRect(ctx, x, y, w, h, r) {
 function drawBanner(W, H) {
   if (!banner) return;
   const age = performance.now() - banner.at;
-  if (age > BANNER_KEEP_MS) { banner = null; return; }
-  const big = age < BANNER_BIG_MS;
-  if (!big && !banner.value) return; // 안내 문구는 잠깐만 띄운다
+  const isResult = !!banner.value;
+  if (!isResult) {
+    // 안내 문구(측정이 안 된 이유 등)는 잠깐만 띄운다
+    if (age > BANNER_HINT_MS) { banner = null; return; }
+  }
+  // 다음 자동차를 쫓는 중이면 구석으로 물러나 화면을 비워 준다
+  const chasing = settings.mode === 'auto' && (tracker.track?.samples?.length ?? 0) >= 2;
+  const big = isResult ? !chasing : true;
   const accent = banner.kind === 'warn' ? '#ffc857' : '#35d07f';
 
   const valueFont = (size) => `700 ${size}px ui-monospace, "IBM Plex Mono", Menlo, monospace`;
@@ -2868,7 +2877,7 @@ function drawBanner(W, H) {
     return;
   }
 
-  // 지난 값은 오른쪽 위에 작게 남긴다
+  // 쫓는 동안에는 오른쪽 위에 작게 물러난다
   const pad = W * 0.025;
   const line = fitLine(W * 0.5, W / 15);
   if (!line) return;

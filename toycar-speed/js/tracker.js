@@ -64,13 +64,19 @@ export const TRACKER_DEFAULTS = {
    * 폰을 집어 들거나 자세를 고치면 그 움직임이 통째로 "지나간 물체"로 잡혀서,
    * 방금 잰 자동차 속도를 밀어내고 엉뚱한 값이 자리를 차지한다.
    */
-  cameraSettleMs: 800,
+  cameraSettleMs: 400,
   /**
    * 몇 프레임 연속으로 카메라가 움직여야 "움직였다"로 볼지.
    * 한두 프레임 튀는 것은 보정으로 넘길 수 있다. 폰을 집어 드는 것처럼 연속으로
    * 움직일 때만 통과를 마감하고 쉬어 간다.
    */
   cameraMoveFrames: 3,
+  /**
+   * 화면의 이만큼이 한꺼번에 달라져야 "폰이 움직였다"로 본다.
+   * 이 문턱이 낮으면 방 안에서 누가 지나가거나 빨래가 흔들리기만 해도 쉬어 버려서,
+   * 정작 자동차가 지나갈 때 측정을 놓친다.
+   */
+  cameraMoveCoverage: 0.08,
   /** 이보다 크면 화면 전체가 움직인 것 — 흔들림으로 보고 버린다 */
   maxPixelRatio: 0.5,
   /** 비교할 과거 프레임이 쌓일 때까지 기다리는 프레임 수 */
@@ -447,7 +453,10 @@ export class MotionTracker {
     // 카메라가 움직였다면: 보던 통과는 여기서 마감해 값을 건지고(자동차는 이미 지나갔다),
     // 그 뒤 잠시 동안은 새 통과를 잡지 않는다. 폰을 집어 드는 움직임이 통과로 잡혀
     // 방금 잰 값을 밀어내는 것을 막는다.
-    if (shaking || cameraMoving) this.cameraMoveStreak++;
+    // 폰이 움직였다고 보려면: 보정 범위를 넘었거나(shaking), 뭉치지 않은 움직임이
+    // 화면을 크게 덮어야 한다. 배경에서 뭔가 조금 움직이는 정도로는 쉬지 않는다.
+    const grossMotion = shaking || (cameraMoving && total0 / total > o.cameraMoveCoverage);
+    if (grossMotion) this.cameraMoveStreak++;
     else this.cameraMoveStreak = 0;
 
     if (this.cameraMoveStreak >= o.cameraMoveFrames) {
@@ -458,6 +467,9 @@ export class MotionTracker {
       }
       this.settleUntil = timeMs + o.cameraSettleMs;
     }
+    // 물체가 제대로 잡히면 쉬기를 곧바로 끝낸다. 자동차가 이미 눈앞에 있는데
+    // 시간을 채우느라 놓치는 일이 없도록.
+    if (enough && !grossMotion) this.settleUntil = 0;
     const settling = timeMs < this.settleUntil;
 
     if (usable && !settling) {

@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v21 · 깜빡임 제거';
+const APP_VERSION = 'v22 · 쉬기 완화';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -144,6 +144,9 @@ let notice = null;
 let lastGray = null;
 let calib = null;
 const signal = { peaks: [], lastRender: 0, bothHotSince: 0, holdUntil: 0 };
+/** 진단용 누적 횟수 — 화면 한 장으로 무슨 일이 있었는지 알 수 있게 */
+const counters = { pass: 0, rejected: 0, settle: 0 };
+let settlingPrev = false;
 let wakeLock = null;
 let audioCtx = null;
 
@@ -622,6 +625,7 @@ function renderDiag(extra = '') {
     `${fps}fps`,
     size,
     `민감도 ${settings.sensitivity}`,
+    `측정${counters.pass}·거절${counters.rejected}·쉼${counters.settle}`,
   ];
   if (mode === 'file') parts.push(`영상${settings.slowFactor > 1 ? ` ×${settings.slowFactor}` : ''}`);
   if (extra) parts.push(extra);
@@ -998,11 +1002,17 @@ function processFrame(timeMs) {
   if (settings.mode === 'auto') {
     const result = tracker.update(grayBuf, pw, ph, timeMs);
     trackAutoSignal(result);
+    if (result.settling && !settlingPrev) counters.settle++;
+    settlingPrev = result.settling;
     if (result.pass) {
+      counters.pass++;
       handlePass(result.pass);
       flashUntil = performance.now() + 180;
     }
-    if (result.rejected) explainRejection(result.rejected);
+    if (result.rejected) {
+      counters.rejected++;
+      explainRejection(result.rejected);
+    }
     drawAutoOverlay(result);
     return;
   }

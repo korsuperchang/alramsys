@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v20 · 결과 보존';
+const APP_VERSION = 'v21 · 깜빡임 제거';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -1338,7 +1338,7 @@ function roundRect(ctx, x, y, w, h, r) {
 /**
  * 측정 결과를 카메라 화면 위에 직접 그린다.
  * 폰을 트랙 옆에 두고 멀리서 보게 되므로, 화면 아래 숫자만으로는 읽히지 않는다.
- * 방금 잰 값은 크게, 지난 값은 구석에 작게 남긴다.
+ * 값은 다음 측정이 나올 때까지 같은 자리에 같은 크기로 남는다.
  */
 function drawBanner(W, H) {
   if (!banner) return;
@@ -1348,9 +1348,8 @@ function drawBanner(W, H) {
     // 안내 문구(측정이 안 된 이유 등)는 잠깐만 띄운다
     if (age > BANNER_HINT_MS) { banner = null; return; }
   }
-  // 다음 자동차를 쫓는 중이면 구석으로 물러나 화면을 비워 준다
-  const chasing = settings.mode === 'auto' && (tracker.track?.samples?.length ?? 0) >= 2;
-  const big = isResult ? !chasing : true;
+  // 크기는 바꾸지 않는다. 추적 상태에 따라 크게/작게를 오가게 했더니 화면이 깜빡였다.
+  // 대신 배너를 낮고 반투명하게 두어 뒤가 비치도록 한다.
   const accent = banner.kind === 'warn' ? '#ffc857' : '#35d07f';
 
   const valueFont = (size) => `700 ${size}px ui-monospace, "IBM Plex Mono", Menlo, monospace`;
@@ -1375,66 +1374,42 @@ function drawBanner(W, H) {
 
   octx.textBaseline = 'middle';
 
-  if (big) {
-    const boxW = W * 0.88;
-    const boxX = (W - boxW) / 2;
-    const boxY = H * 0.05;
-    const pad = W * 0.04;
-    const line = banner.value ? fitLine(boxW - pad * 2, W / 6.2) : null;
-    const subSize = Math.round(W / 23);
-    const lineH = line ? line.size * 1.15 : 0;
-    const gapY = line && banner.sub ? line.size * 0.2 : 0;
-    const boxH = pad * 1.6 + lineH + gapY + (banner.sub ? subSize * 1.2 : 0);
+  const boxW = W * 0.88;
+  const boxX = (W - boxW) / 2;
+  const boxY = H * 0.04;
+  const pad = W * 0.032;
+  const line = banner.value ? fitLine(boxW - pad * 2, W / 6.8) : null;
+  const subSize = Math.round(W / 25);
+  const lineH = line ? line.size * 1.1 : 0;
+  const gapY = line && banner.sub ? line.size * 0.14 : 0;
+  const boxH = pad * 1.4 + lineH + gapY + (banner.sub ? subSize * 1.2 : 0);
 
-    octx.fillStyle = 'rgba(6, 12, 18, 0.8)';
-    roundRect(octx, boxX, boxY, boxW, boxH, W * 0.035);
-    octx.fill();
-    octx.strokeStyle = accent;
-    octx.lineWidth = Math.max(2, W / 170);
-    octx.stroke();
-
-    let y = boxY + pad * 0.8;
-    if (line) {
-      const startX = (W - line.total) / 2;
-      octx.textAlign = 'left';
-      octx.fillStyle = accent;
-      octx.font = valueFont(line.size);
-      octx.fillText(banner.value, startX, y + lineH / 2);
-      if (banner.unit) {
-        octx.fillStyle = 'rgba(255,255,255,0.75)';
-        octx.font = plainFont(line.unitSize);
-        octx.fillText(banner.unit, startX + line.vw + line.gap, y + lineH / 2 + line.size * 0.16);
-      }
-      y += lineH + gapY;
-    }
-    if (banner.sub) {
-      octx.textAlign = 'center';
-      octx.fillStyle = line ? 'rgba(255,255,255,0.8)' : accent;
-      octx.font = plainFont(subSize);
-      octx.fillText(banner.sub, W / 2, y + subSize * 0.6);
-    }
-    return;
-  }
-
-  // 쫓는 동안에는 오른쪽 위에 작게 물러난다
-  const pad = W * 0.025;
-  const line = fitLine(W * 0.5, W / 15);
-  if (!line) return;
-  const boxW = line.total + pad * 2;
-  const boxH = line.size * 1.9;
-  const boxX = W - boxW - W * 0.03;
-  const boxY = H * 0.035;
-  octx.fillStyle = 'rgba(6, 12, 18, 0.72)';
-  roundRect(octx, boxX, boxY, boxW, boxH, boxH * 0.32);
+  octx.fillStyle = 'rgba(6, 12, 18, 0.62)';
+  roundRect(octx, boxX, boxY, boxW, boxH, W * 0.035);
   octx.fill();
-  octx.textAlign = 'left';
-  octx.fillStyle = 'rgba(255,255,255,0.92)';
-  octx.font = valueFont(line.size);
-  octx.fillText(banner.value, boxX + pad, boxY + boxH / 2);
-  if (banner.unit) {
-    octx.fillStyle = 'rgba(255,255,255,0.6)';
-    octx.font = plainFont(line.unitSize);
-    octx.fillText(banner.unit, boxX + pad + line.vw + line.gap, boxY + boxH / 2 + line.size * 0.12);
+  octx.strokeStyle = accent;
+  octx.lineWidth = Math.max(2, W / 180);
+  octx.stroke();
+
+  let y = boxY + pad * 0.7;
+  if (line) {
+    const startX = (W - line.total) / 2;
+    octx.textAlign = 'left';
+    octx.fillStyle = accent;
+    octx.font = valueFont(line.size);
+    octx.fillText(banner.value, startX, y + lineH / 2);
+    if (banner.unit) {
+      octx.fillStyle = 'rgba(255,255,255,0.8)';
+      octx.font = plainFont(line.unitSize);
+      octx.fillText(banner.unit, startX + line.vw + line.gap, y + lineH / 2 + line.size * 0.16);
+    }
+    y += lineH + gapY;
+  }
+  if (banner.sub) {
+    octx.textAlign = 'center';
+    octx.fillStyle = line ? 'rgba(255,255,255,0.82)' : accent;
+    octx.font = plainFont(subSize);
+    octx.fillText(banner.sub, W / 2, y + subSize * 0.6);
   }
 }
 

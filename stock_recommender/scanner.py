@@ -56,8 +56,28 @@ BOX_MIN_CANDLES = 10          # 박스 판정에 필요한 최소 분봉 수
 # 오전 감시 (10:00~11:30)
 BREAKOUT_VOL_MULTIPLIER = 3.0                 # 거래량 3배 이상
 MAX_CHASE_PCT = 1.0           # 돌파 기준선 대비 +1% 이내에서만 진입 (추격 방지)
-STOP_LOSS_PCT = -3.0                          # 손절 -3% (돌파 후 눌림목 감안)
-TAKE_PROFIT_PCT = 5.0                         # 익절 +5%
+
+# 신규 진입 마감 — 이후에는 보유분 관리만 한다.
+# 11:12에 진입해 11:30에 청산된 사례가 있었다. 보유 18분으로는 어떤 목표도
+# 달성할 수 없어, 비용만 내고 동전 던지기를 하는 거래가 된다.
+MORNING_ENTRY_CUTOFF = (11, 0)                # 최소 30분 보유 확보
+AFTERNOON_ENTRY_CUTOFF = (15, 10)             # 최소 15분 보유 확보
+
+# ── 익절·손절 ──────────────────────────────
+# 모든 종목에 같은 %를 쓰면 종목마다 난이도가 전혀 달라진다. 실측 예:
+#   두산에너빌리티(박스폭 1.21%) → +5% 익절은 박스폭의 4.1배 (사실상 도달 불가)
+#   주성엔지니어링(박스폭 3.44%) → -3% 손절은 박스폭의 0.9배 (정상 변동에 손절)
+# 그래서 종목이 실제로 움직이는 폭(박스폭)에 비례시킨다.
+TAKE_PROFIT_BOX_MULT = 1.5
+STOP_LOSS_BOX_MULT = 1.0
+# 왕복 거래비용이 약 0.18%다. 목표가 이보다 크게 높지 않으면 맞아도 남지 않는다
+# (실제로 +0.10% 오른 거래가 비용 때문에 -0.08%로 기록된 적이 있다).
+ROUND_TRIP_COST_PCT = 0.18
+TAKE_PROFIT_MIN_PCT, TAKE_PROFIT_MAX_PCT = 1.5, 6.0
+STOP_LOSS_MIN_PCT, STOP_LOSS_MAX_PCT = 1.5, 4.0
+# 박스폭을 못 구한 경우의 보수적 기본값
+STOP_LOSS_PCT = -3.0
+TAKE_PROFIT_PCT = 5.0
 
 # 오후 스캔 (14:50)
 AFTERNOON_MIN_TRADE_VALUE = 50_000_000_000   # 거래대금 500억
@@ -70,6 +90,23 @@ POLL_INTERVAL = 60  # 폴링 간격 (초)
 
 # 탈락 종목 표본을 사유별로 몇 개까지 남길지
 REJECT_SAMPLE_PER_REASON = 6
+
+
+def exit_levels(box_width_pct: float | None) -> tuple[float, float]:
+    """
+    박스폭(%) → (익절 %, 손절 %). 둘 다 양수로 돌려준다.
+
+    박스폭은 그 종목이 최근 20분 동안 실제로 움직인 폭이다. 목표를 여기에
+    비례시키면 잘 안 움직이는 종목엔 작은 목표를, 크게 흔들리는 종목엔 넉넉한
+    손절 여유를 준다. 상·하한은 비용 대비 무의미한 목표와 과도한 손실을 막는다.
+    """
+    if not box_width_pct or box_width_pct <= 0:
+        return TAKE_PROFIT_PCT, abs(STOP_LOSS_PCT)
+    tp = min(max(box_width_pct * TAKE_PROFIT_BOX_MULT,
+                 TAKE_PROFIT_MIN_PCT), TAKE_PROFIT_MAX_PCT)
+    sl = min(max(box_width_pct * STOP_LOSS_BOX_MULT,
+                 STOP_LOSS_MIN_PCT), STOP_LOSS_MAX_PCT)
+    return round(tp, 2), round(sl, 2)
 
 
 class DayScanner:
@@ -189,6 +226,19 @@ class DayScanner:
             self._log(f"  [모의] 매수 {pos['qty']}주 × {price:,}원 "
                       f"= {pos['cost']:,}원")
 
+    def _record_miss(self, c: dict, price: int, kind: str,
+                     ratio: float | None):
+        """돌파했으나 조건에서 걸린 종목을 남긴다 (같은 날 사유당 1회)"""
+        if not self.paper:
+            return
+        added = self.paper.record_miss(
+            c["ticker"], c["name"], price, kind, c["blocked_by"],
+            {"vol_ratio": ratio, "gap_pct": c.get("gap_pct"),
+             "box_width_pct": c.get("box_width_pct"),
+             "market": c.get("market")})
+        if added:
+            self.paper.save()
+
     def _process_followups(self):
         """
         청산된 거래의 '이후 가격'을 기준시각이 지난 것부터 채운다.
@@ -202,12 +252,12 @@ class DayScanner:
         if not due:
             return
         filled = 0
-        for idx, key in due[:20]:      # 폭주 방지
-            t = self.paper.trades[idx]
-            price = self.kis.get_price(t["ticker"])
+        for kind, idx, key in due[:20]:      # 폭주 방지
+            row = self.paper._rows(kind)[idx]
+            price = self.kis.get_price(row["ticker"])
             if not price:
                 continue
-            self.paper.record_followup(idx, key, price["price"])
+            self.paper.record_followup(kind, idx, key, price["price"])
             filled += 1
         if filled:
             self.paper.save()
@@ -237,13 +287,17 @@ class DayScanner:
         c["pnl_pct"] = round(pnl, 2)
         c["last_price"] = current
 
-        if pnl <= STOP_LOSS_PCT:
+        # 진입 시 종목별로 계산해 둔 값 (없으면 고정 기본값)
+        tp = c.get("tp_pct", TAKE_PROFIT_PCT)
+        sl = -abs(c.get("sl_pct", abs(STOP_LOSS_PCT)))
+
+        if pnl <= sl:
             c["status"] = f"손절 ({pnl:+.1f}%)"
             c["exit_price"] = current
             self._log(f"  {c['name']} 손절 {current:,}원 ({pnl:+.1f}%)")
             self._paper_sell(c, current, "손절")
             return True
-        if pnl >= TAKE_PROFIT_PCT:
+        if pnl >= tp:
             c["status"] = f"익절 ({pnl:+.1f}%)"
             c["exit_price"] = current
             self._log(f"  {c['name']} 익절 {current:,}원 ({pnl:+.1f}%)")
@@ -268,7 +322,9 @@ class DayScanner:
 
     # ── 박스(횡보 구간) 계산 ──────────────────────
 
-    def _calc_box(self, ticker: str) -> tuple[int, int, float] | None:
+    def _calc_box(self, ticker: str, end_time: str = BOX_END_TIME,
+                  skip_open: int = BOX_SKIP_OPEN_MIN
+                  ) -> tuple[int, int, float] | None:
         """
         분봉으로 박스 저점·고점·폭을 계산 → (low, high, width)
 
@@ -276,16 +332,15 @@ class DayScanner:
         '하루 변동폭'이 된다. 09:00~09:10 구간을 버리고 그 뒤 BOX_WINDOW_MIN
         분(기본 09:10~09:30)만 본다.
 
-        구간을 BOX_END_TIME(09:30)에 고정해, 스캐너가 늦게 기동해 09:43에
-        스캔하더라도 09:10~09:30이라는 같은 박스를 본다.
+        기본값은 BOX_END_TIME(09:30) 고정이라, 스캐너가 늦게 기동해 09:43에
+        스캔하더라도 09:10~09:30이라는 같은 박스를 본다. 오후 스캔은 스캔
+        시각까지의 20분을 보도록 end_time/skip_open을 넘겨 쓴다.
         """
-        # 09:01~09:30 30개를 받아 앞 10분(시초가 변동)을 버린다
         candles = self.kis.get_minute_candles(
-            ticker, end_time=BOX_END_TIME,
-            count=BOX_SKIP_OPEN_MIN + BOX_WINDOW_MIN)
-        if len(candles) <= BOX_SKIP_OPEN_MIN:
+            ticker, end_time=end_time, count=skip_open + BOX_WINDOW_MIN)
+        if len(candles) <= skip_open:
             return None
-        window = candles[BOX_SKIP_OPEN_MIN:]
+        window = candles[skip_open:]
         if len(window) < BOX_MIN_CANDLES:
             return None
 
@@ -488,11 +543,18 @@ class DayScanner:
                     c["blocked_by"] = "돌파 대기"
                     continue
 
+                # 청산이 임박하면 신규 진입을 받지 않는다. 남은 보유 시간이
+                # 짧으면 목표에 닿을 수 없고 비용만 지불하게 된다.
+                if (now.hour, now.minute) >= MORNING_ENTRY_CUTOFF:
+                    c["blocked_by"] = "진입 마감"
+                    continue
+
                 # 추격 방지 — 돌파 기준선 대비 +MAX_CHASE_PCT% 초과면 이미 늦음.
                 # 후보를 죽이지는 않는다: 눌림목에서 박스 상단으로 되돌아오면
                 # 그때가 오히려 좋은 진입 자리이므로 다음 폴링에 다시 본다.
                 if gap > MAX_CHASE_PCT:
                     c["blocked_by"] = "추격 회피"
+                    self._record_miss(c, current, "오전 돌파", None)
                     if not c.get("chase_logged"):
                         c["chase_logged"] = True
                         self._log(f"  {c['name']} 박스 상단 대비 +{gap:.1f}% "
@@ -510,14 +572,19 @@ class DayScanner:
                     c["blocked_by"] = "기관 미확인"
                 else:
                     c["blocked_by"] = None
+                # 걸러낸 종목의 이후 가격을 추적해 그 조건이 옳았는지 본다
+                if c["blocked_by"]:
+                    self._record_miss(c, current, "오전 돌파", ratio)
 
                 if vol_ok and inst_ok:
                     c["entry_price"] = current
                     c["entry_time"] = now.strftime("%H:%M")
                     c["status"] = "진입"
-                    c["stop_loss"] = round(current * (1 + STOP_LOSS_PCT / 100))
-                    c["take_profit"] = round(
-                        current * (1 + TAKE_PROFIT_PCT / 100))
+                    # 종목의 실제 변동폭(박스폭)에 비례한 목표를 잡는다
+                    tp_pct, sl_pct = exit_levels(c.get("box_width_pct"))
+                    c["tp_pct"], c["sl_pct"] = tp_pct, sl_pct
+                    c["stop_loss"] = round(current * (1 - sl_pct / 100))
+                    c["take_profit"] = round(current * (1 + tp_pct / 100))
                     signal = {
                         "type": "오전 돌파",
                         "time": now.strftime("%H:%M"),
@@ -602,12 +669,20 @@ class DayScanner:
                 reject(stock, "낙폭 초과", dip_pct=round(dip_pct, 1))
                 continue
 
+            # 오전과 같은 길이(20분)의 실측 변동폭 — 익절·손절을 여기에 비례시킨다.
+            # 당일 전체 레인지를 쓰면 15:00~15:25 감시 창에 비해 너무 넓어진다.
+            box = self._calc_box(stock["ticker"],
+                                 end_time=kst.now().strftime("%H%M%S"),
+                                 skip_open=0)
+            box_width_pct = round(box[2] * 100, 2) if box else None
+
             candidate = {
                 "ticker": stock["ticker"],
                 "name": stock["name"],
                 "market": stock.get("market"),
                 "day_high": price["high"],
                 "current": price["price"],
+                "box_width_pct": box_width_pct,
                 "trade_value_억": round(tv / 1e8),
                 "change_pct": price["change_pct"],
                 "dip_pct": round(dip_pct, 1),
@@ -689,9 +764,14 @@ class DayScanner:
                     c["blocked_by"] = "돌파 대기"
                     continue
 
+                if (now.hour, now.minute) >= AFTERNOON_ENTRY_CUTOFF:
+                    c["blocked_by"] = "진입 마감"
+                    continue
+
                 # 추격 방지 (후보는 유지 — 되돌림 시 재진입 기회)
                 if gap > MAX_CHASE_PCT:
                     c["blocked_by"] = "추격 회피"
+                    self._record_miss(c, current, "오후 돌파", None)
                     if not c.get("chase_logged"):
                         c["chase_logged"] = True
                         self._log(f"  {c['name']} 전고점 대비 +{gap:.1f}% "
@@ -703,14 +783,18 @@ class DayScanner:
                 c["vol_ratio"] = ratio
                 vol_ok = ratio is not None and ratio >= AFTERNOON_VOL_MULTIPLIER
                 c["blocked_by"] = None if vol_ok else "거래량 부족"
+                if c["blocked_by"]:
+                    self._record_miss(c, current, "오후 돌파", ratio)
 
                 if vol_ok:
                     c["entry_price"] = current
                     c["entry_time"] = now.strftime("%H:%M")
                     c["status"] = "진입"
-                    c["stop_loss"] = round(current * (1 + STOP_LOSS_PCT / 100))
-                    c["take_profit"] = round(
-                        current * (1 + TAKE_PROFIT_PCT / 100))
+                    # 종목의 실제 변동폭(박스폭)에 비례한 목표를 잡는다
+                    tp_pct, sl_pct = exit_levels(c.get("box_width_pct"))
+                    c["tp_pct"], c["sl_pct"] = tp_pct, sl_pct
+                    c["stop_loss"] = round(current * (1 - sl_pct / 100))
+                    c["take_profit"] = round(current * (1 + tp_pct / 100))
                     signal = {
                         "type": "오후 돌파",
                         "time": now.strftime("%H:%M"),

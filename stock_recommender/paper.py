@@ -94,6 +94,7 @@ class PaperTrader:
         self.position_size = position_size
         self.trades: list[dict] = []      # 청산 완료된 거래
         self.open: dict[str, dict] = {}   # 보유 중 (ticker -> 포지션)
+        self.misses: list[dict] = []      # 돌파했으나 조건에서 탈락한 종목
         self._load()
 
     # ── 저장/로드 ──────────────────────────────
@@ -105,8 +106,9 @@ class PaperTrader:
             data = json.loads(TRADES_PATH.read_text(encoding="utf-8"))
             self.trades = data.get("trades", [])
             self.open = data.get("open", {})
+            self.misses = data.get("misses", [])
         except Exception:
-            self.trades, self.open = [], {}
+            self.trades, self.open, self.misses = [], {}, []
 
     def save(self):
         if len(self.trades) > MAX_TRADES:
@@ -115,8 +117,10 @@ class PaperTrader:
         TRADES_PATH.write_text(json.dumps({
             "trades": self.trades,
             "open": self.open,
+            "misses": self.misses,
             "stats": self.stats(),
             "followup": self.followup_summary(),
+            "miss_summary": self.miss_summary(),
             "updated": kst.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -189,17 +193,55 @@ class PaperTrader:
     def has(self, ticker: str) -> bool:
         return ticker in self.open
 
+    # ── 탈락 후보 기록 ────────────────────────────
+
+    def record_miss(self, ticker: str, name: str, price: int, kind: str,
+                    reason: str, detail: dict | None = None) -> bool:
+        """
+        돌파했지만 조건에서 걸린 종목을 남긴다 → 이후 가격을 추적해
+        "그 조건이 실제로 손실을 막아줬는지"를 판단한다.
+
+        진입한 거래만 추적하면 진입 조건 자체는 영영 평가할 수 없다.
+        거래량 2.78배로 탈락한 종목이 그 뒤 올랐다면 3배 기준이 과한 것이고,
+        내렸다면 기준이 제 역할을 한 것이다.
+        """
+        today = kst.now().strftime("%Y-%m-%d")
+        # 같은 날 같은 종목·사유는 한 번만 (폴링마다 쌓이는 것 방지)
+        for m in self.misses:
+            if (m["ticker"], m["date"], m["reason"]) == (ticker, today, reason):
+                return False
+        self.misses.append({
+            "ticker": ticker, "name": name, "kind": kind, "reason": reason,
+            "date": today, "exit_time": kst.now().strftime("%H:%M:%S"),
+            "exit_price": price, **(detail or {}),
+        })
+        if len(self.misses) > MAX_TRADES:
+            self.misses = self.misses[-MAX_TRADES:]
+        return True
+
     # ── 청산 후 추적 ──────────────────────────────
 
-    def due_followups(self, now: datetime | None = None) -> list[tuple[int, str]]:
-        """
-        기준시각이 지났는데 아직 안 채운 추적 항목 → [(거래 인덱스, 키)]
+    def _rows(self, kind: str) -> list[dict]:
+        return self.trades if kind == "trade" else self.misses
 
-        매매에는 영향을 주지 않는다. 청산된 거래의 '그 이후'만 관찰한다.
+    def due_followups(self, now: datetime | None = None
+                      ) -> list[tuple[str, int, str]]:
+        """
+        기준시각이 지났는데 아직 안 채운 추적 항목 → [(종류, 인덱스, 키)]
+
+        종류는 "trade"(체결된 모의거래) 또는 "miss"(조건에서 탈락한 종목).
+        매매에는 영향을 주지 않는다. 그 '이후'만 관찰한다.
         """
         now = (now or kst.now()).replace(tzinfo=None)
         out = []
-        for i, t in enumerate(self.trades):
+        for kind in ("trade", "miss"):
+            out += self._due_in(self._rows(kind), kind, now)
+        return out
+
+    def _due_in(self, rows: list[dict], kind: str,
+                now: datetime) -> list[tuple[str, int, str]]:
+        out = []
+        for i, t in enumerate(rows):
             exit_at = _exit_datetime(t)
             if exit_at is None:
                 continue
@@ -219,20 +261,47 @@ class PaperTrader:
                     t["followup"] = done
                     continue
                 if now >= target:
-                    out.append((i, key))
+                    out.append((kind, i, key))
         return out
 
-    def record_followup(self, index: int, key: str, price: int):
-        """추적 시점의 가격과 청산가 대비 변동률을 기록"""
-        if not (0 <= index < len(self.trades)):
+    def record_followup(self, kind: str, index: int, key: str, price: int):
+        """추적 시점의 가격과 기준가(청산가/탈락 시점가) 대비 변동률을 기록"""
+        rows = self._rows(kind)
+        if not (0 <= index < len(rows)):
             return
-        t = self.trades[index]
+        t = rows[index]
         exit_price = t.get("exit_price") or 0
         t.setdefault("followup", {})[key] = {
             "price": price,
             "pct": round((price - exit_price) / exit_price * 100, 2)
             if exit_price else None,
         }
+
+    def miss_summary(self) -> dict:
+        """
+        탈락 사유별로 '걸러낸 게 잘한 일이었는지' 집계.
+
+        탈락 후 평균 변동이 양수면 그 조건이 수익 기회를 막고 있다는 뜻이고,
+        음수면 손실을 피하게 해준 것이다. 진입 조건을 완화할지 판단하는 근거.
+        """
+        out: dict[str, dict] = {}
+        for m in self.misses:
+            slot = out.setdefault(m.get("reason", "기타"), {"n": 0})
+            slot["n"] += 1
+            for key, _label, _fn in FOLLOWUP_SPECS:
+                v = (m.get("followup") or {}).get(key)
+                if not v or v.get("pct") is None:
+                    continue
+                s = slot.setdefault(key, {"n": 0, "up": 0, "sum": 0.0})
+                s["n"] += 1
+                s["up"] += 1 if v["pct"] > 0 else 0
+                s["sum"] += v["pct"]
+        for slot in out.values():
+            for s in slot.values():
+                if isinstance(s, dict) and s.get("n"):
+                    s["avg"] = round(s["sum"] / s["n"], 2)
+                    del s["sum"]
+        return out
 
     def followup_summary(self) -> dict:
         """

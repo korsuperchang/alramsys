@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v19 · 두 점 거리 맞추기';
+const APP_VERSION = 'v20 · 결과 보존';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -139,6 +139,8 @@ let framePeriodMs = 1000 / 30;
 let flashUntil = 0;
 /** 카메라 화면 위에 띄우는 결과 배너 */
 let banner = null;
+/** 결과와 따로, 화면 아래쪽에 잠깐 띄우는 안내 (결과를 덮지 않는다) */
+let notice = null;
 let lastGray = null;
 let calib = null;
 const signal = { peaks: [], lastRender: 0, bothHotSince: 0, holdUntil: 0 };
@@ -477,6 +479,9 @@ function trackAutoSignal(result) {
   } else if (result.shaking) {
     hint = '흔들림이 너무 커서 <b>측정을 멈췄습니다</b> — 폰을 어딘가에 기대 주세요.';
     warn = true;
+  } else if (result.settling) {
+    hint = '카메라가 움직였습니다 — 잠잠해질 때까지 잠깐 쉽니다. <b>방금 잰 값은 그대로 남아 있습니다.</b>';
+    warn = true;
   } else if (result.cameraMoving) {
     hint = '화면 전체가 움직이고 있습니다 — <b>카메라를 고정</b>해 주세요. 지금은 자동차를 가려낼 수 없습니다.';
     warn = true;
@@ -535,7 +540,9 @@ function explainRejection(r) {
   el.signalHint.innerHTML = text;
   el.signalHint.className = 'signal-hint warn';
   signal.holdUntil = performance.now() + 6000;
-  setStatus(short[r.reason] || '측정 조건에 못 미쳤습니다', 'warn');
+  const line = short[r.reason] || '측정 조건에 못 미쳤습니다';
+  setStatus(line, 'warn');
+  showNotice(line);
 }
 
 /** 자동 추적 화면: 지금 잡고 있는 덩어리와 지나온 자취를 보여 준다. */
@@ -799,7 +806,7 @@ async function startFileAnalysis(file) {
       showSpeed(best);
     } else {
       setStatus('이 영상에서는 측정된 통과가 없습니다', 'warn');
-      showBanner({ sub: '이 영상에서는 측정된 통과가 없습니다', kind: 'warn' });
+      showNotice('이 영상에서는 측정된 통과가 없습니다');
     }
     redrawOverlayOnce();
   };
@@ -822,6 +829,7 @@ function redrawOverlayOnce() {
   octx.clearRect(0, 0, el.overlay.width, el.overlay.height);
   drawCalibration(el.overlay.width, el.overlay.height);
   drawBanner(el.overlay.width, el.overlay.height);
+  drawNotice(el.overlay.width, el.overlay.height);
 }
 
 /** 기록 하나의 비교용 값 (절대 속도를 알면 km/h, 아니면 상대 속도) */
@@ -1061,6 +1069,7 @@ function handlePass(p) {
     el.signalHint.className = 'signal-hint warn';
     el.signalHint.innerHTML = '재는 동안 <b>카메라가 크게 움직였습니다.</b> 그 구간은 건너뛰고 계산했기 때문에 값이 어긋났을 수 있습니다. 폰을 고정하고 다시 재 보세요.';
     signal.holdUntil = performance.now() + 6000;
+    showNotice('재는 동안 카메라가 움직였습니다');
   } else {
     setStatus(`측정됨 — 화면의 ${(p.travel * 100).toFixed(0)}% 구간, 표본 ${p.samples}개`, 'ok');
   }
@@ -1280,6 +1289,42 @@ function showBanner({ value = null, unit = '', sub = '', kind = 'ok' }) {
   banner = { value, unit, sub, kind, at: performance.now() };
 }
 
+/**
+ * 안내는 결과와 다른 자리에 띄운다.
+ * 같은 자리에 띄우면 "왜 못 쟀는지" 한 줄 때문에 방금 잰 자동차 속도가 사라진다.
+ */
+function showNotice(text, kind = 'warn') {
+  notice = { text, kind, at: performance.now() };
+}
+
+function drawNotice(W, H) {
+  if (!notice) return;
+  if (performance.now() - notice.at > BANNER_HINT_MS) { notice = null; return; }
+  const accent = notice.kind === 'warn' ? '#ffc857' : '#35d07f';
+  let size = Math.max(12, Math.round(W / 26));
+  octx.textBaseline = 'middle';
+  octx.textAlign = 'center';
+  for (let i = 0; i < 12; i++) {
+    octx.font = `600 ${size}px system-ui, sans-serif`;
+    if (octx.measureText(notice.text).width <= W * 0.84 || size < 11) break;
+    size *= 0.92;
+  }
+  const tw = octx.measureText(notice.text).width;
+  const padX = size * 0.7;
+  const boxW = Math.min(W * 0.94, tw + padX * 2);
+  const boxH = size * 2;
+  const boxX = (W - boxW) / 2;
+  const boxY = H - boxH - H * 0.03;
+  octx.fillStyle = 'rgba(6, 12, 18, 0.82)';
+  roundRect(octx, boxX, boxY, boxW, boxH, boxH * 0.35);
+  octx.fill();
+  octx.strokeStyle = accent;
+  octx.lineWidth = Math.max(1.5, W / 220);
+  octx.stroke();
+  octx.fillStyle = accent;
+  octx.fillText(notice.text, W / 2, boxY + boxH / 2);
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -1485,6 +1530,7 @@ function drawOverlay(result) {
 
   drawCalibration(W, H);
   drawBanner(W, H);
+  drawNotice(W, H);
 }
 
 function drawGateLabel(label, rawX, rawY, ratio, onRatio, color) {
@@ -1705,6 +1751,7 @@ el.btnClear.addEventListener('click', () => {
   records = [];
   lastRecord = null;
   banner = null;
+  notice = null;
   saveJSON(RECORDS_KEY, records);
   renderRecords();
   updateScaleLine();

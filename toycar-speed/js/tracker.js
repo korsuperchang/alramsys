@@ -59,6 +59,18 @@ export const TRACKER_DEFAULTS = {
    * (물체는 한곳에 뭉치고, 카메라가 움직이면 화면 전체가 넓게 달라진다)
    */
   spreadMotionRatio: 0.02,
+  /**
+   * 카메라가 움직인 뒤 이 시간 동안은 새 통과를 잡지 않는다.
+   * 폰을 집어 들거나 자세를 고치면 그 움직임이 통째로 "지나간 물체"로 잡혀서,
+   * 방금 잰 자동차 속도를 밀어내고 엉뚱한 값이 자리를 차지한다.
+   */
+  cameraSettleMs: 800,
+  /**
+   * 몇 프레임 연속으로 카메라가 움직여야 "움직였다"로 볼지.
+   * 한두 프레임 튀는 것은 보정으로 넘길 수 있다. 폰을 집어 드는 것처럼 연속으로
+   * 움직일 때만 통과를 마감하고 쉬어 간다.
+   */
+  cameraMoveFrames: 3,
   /** 이보다 크면 화면 전체가 움직인 것 — 흔들림으로 보고 버린다 */
   maxPixelRatio: 0.5,
   /** 비교할 과거 프레임이 쌓일 때까지 기다리는 프레임 수 */
@@ -219,6 +231,9 @@ export class MotionTracker {
     this.frames = 0;
     this.stabilizer = new Stabilizer();
     this.shake = 0;
+    /** 카메라가 움직인 직후 잠잠해지기를 기다리는 시각 */
+    this.settleUntil = 0;
+    this.cameraMoveStreak = 0;
     this.track = null;   // 진행 중인 통과 {samples, lastSeen, gap}
     this.coverage = 0;
     this.centroid = null;
@@ -232,6 +247,8 @@ export class MotionTracker {
     this.frames = 0;
     this.stabilizer.reset();
     this.shake = 0;
+    this.settleUntil = 0;
+    this.cameraMoveStreak = 0;
     this.track = null;
     this.coverage = 0;
     this.centroid = null;
@@ -426,7 +443,24 @@ export class MotionTracker {
 
     let pass = null;
     let rejected = null;
-    if (usable) {
+
+    // 카메라가 움직였다면: 보던 통과는 여기서 마감해 값을 건지고(자동차는 이미 지나갔다),
+    // 그 뒤 잠시 동안은 새 통과를 잡지 않는다. 폰을 집어 드는 움직임이 통과로 잡혀
+    // 방금 잰 값을 밀어내는 것을 막는다.
+    if (shaking || cameraMoving) this.cameraMoveStreak++;
+    else this.cameraMoveStreak = 0;
+
+    if (this.cameraMoveStreak >= o.cameraMoveFrames) {
+      if (this.track) {
+        const outcome = this._finishTrack();
+        if (outcome && outcome.reason) rejected = outcome;
+        else pass = outcome;
+      }
+      this.settleUntil = timeMs + o.cameraSettleMs;
+    }
+    const settling = timeMs < this.settleUntil;
+
+    if (usable && !settling) {
       // 직전에 보던 것과 너무 멀리 떨어져 나타났다면 다른 물체다.
       // 보던 통과를 여기서 끊고, 이 표본으로 새 통과를 시작한다.
       if (this.track && this.track.samples.length && this._isJump(this.centroid, timeMs)) {
@@ -452,8 +486,6 @@ export class MotionTracker {
         this.track = null;
       }
     } else if (this.track) {
-      // 이 통과가 이어지는 동안 카메라가 크게 움직였다면 결과에 표시해 준다.
-      if (shaking || cameraMoving) this.track.cameraMoved = true;
       this.track.gap++;
       if (this.track.gap >= o.gapFrames) {
         const outcome = this._finishTrack();
@@ -474,6 +506,7 @@ export class MotionTracker {
       box: this.box,
       shaking,
       cameraMoving,
+      settling,
       tracking: !!this.track,
       warmingUp: this.isWarmingUp,
       pass,

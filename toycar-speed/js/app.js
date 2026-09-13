@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v24 · 곡선 자취';
+const APP_VERSION = 'v25 · 카메라 안내';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -698,9 +698,56 @@ function setStatus(text, kind = '') {
 }
 
 /* ---------------- 카메라 ---------------- */
+
+/**
+ * 카메라가 막혔을 때 "왜" 막혔는지를 가려낸다.
+ *
+ * 브라우저는 어느 경우든 똑같이 NotAllowedError 하나만 던지지만, 사용자가 할 일은
+ * 경우마다 전혀 다르다. 물어보지도 않고 막힌 것인지(틀 안에 갇혔거나 이미 차단해 둔
+ * 것), 물어봤는데 거부한 것인지를 갈라 줘야 설정을 헤매지 않는다.
+ *
+ * @param promptedMs getUserMedia 가 거절될 때까지 걸린 시간.
+ *   권한 창이 떴다면 사람이 누르는 시간만큼 걸린다. 눈 깜짝할 새 거절됐다면
+ *   창은 아예 뜨지 않았다는 뜻이다.
+ */
+function cameraBlockHelp(promptedMs) {
+  const framed = window.self !== window.top;
+  // 크로미움 계열은 틀이 카메라를 막고 있는지 직접 알려 준다
+  const policyBlocked = document.featurePolicy?.allowsFeature?.('camera') === false;
+  const asked = promptedMs > 400;
+
+  if (policyBlocked || (framed && !asked)) {
+    return {
+      msg: '이 앱이 다른 페이지 안에 들어가 있어 카메라가 막혔습니다.',
+      help: '권한을 물어보지도 않고 막히는 건 미리보기 틀 때문입니다.'
+        + ' 주소를 <b>새 탭에 직접 붙여넣어</b> 열면 정상으로 물어봅니다.',
+    };
+  }
+  if (location.protocol === 'file:') {
+    return {
+      msg: '파일로 연 화면에서는 카메라를 쓸 수 없습니다.',
+      help: '브라우저가 <b>file://</b> 로 연 문서에는 카메라를 내주지 않습니다.'
+        + ' https 주소로 올려 두고 그 주소로 여세요.',
+    };
+  }
+  if (!asked) {
+    return {
+      msg: '이 사이트의 카메라가 이미 차단되어 있습니다.',
+      help: '전에 한 번 거부했던 기록이 남아 다시 묻지 않는 것입니다.'
+        + ' <b>아이폰 사파리</b>는 주소창 왼쪽 <b>ᴀA</b> → 웹사이트 설정 → 카메라 → 허용,'
+        + ' <b>크롬</b>은 주소창 자물쇠 → 권한에서 바꾼 뒤 새로 고치세요.',
+    };
+  }
+  return {
+    msg: '카메라 권한이 거부되었습니다.',
+    help: '방금 뜬 창에서 <b>허용</b>을 눌러 주세요. 창을 다시 띄우려면 새로 고치면 됩니다.',
+  };
+}
+
 async function startCamera() {
   stopDemo();
   setStatus('카메라 여는 중…');
+  const askedAt = performance.now();
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('이 브라우저는 카메라를 지원하지 않습니다.');
@@ -735,15 +782,21 @@ async function startCamera() {
     mode = 'idle';
     const name = err?.name || '';
     let msg = err?.message || '카메라를 열지 못했습니다.';
-    if (name === 'NotAllowedError') msg = '카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.';
-    else if (name === 'NotFoundError') msg = '사용 가능한 카메라를 찾지 못했습니다.';
-    else if (!window.isSecureContext) msg = 'HTTPS(또는 localhost)에서만 카메라를 쓸 수 있습니다.';
+    let help = '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      ({ msg, help } = cameraBlockHelp(performance.now() - askedAt));
+    } else if (name === 'NotFoundError') {
+      msg = '사용 가능한 카메라를 찾지 못했습니다.';
+    } else if (name === 'NotReadableError') {
+      msg = '다른 앱이 카메라를 쓰고 있습니다.';
+      help = '카메라를 쓰는 다른 앱이나 탭을 닫고 다시 눌러 주세요.';
+    } else if (!window.isSecureContext) {
+      msg = 'HTTPS(또는 localhost)에서만 카메라를 쓸 수 있습니다.';
+    }
     setStatus(msg, 'err');
     el.stageHint.hidden = false;
-    const framed = window.self !== window.top
-      ? '<br>이 화면이 다른 페이지 안에 들어가 있으면 카메라가 차단될 수 있습니다. <b>새 탭에서 열기</b>로 열어 보세요.'
-      : '';
-    el.stageHint.innerHTML = `<p>${msg}${framed}<br>‘데모 모드’로 동작을 먼저 확인해 볼 수 있습니다.</p>`;
+    el.stageHint.innerHTML = `<p><b>${msg}</b>${help ? `<br>${help}` : ''}`
+      + '<br>‘데모 모드’나 ‘영상 파일 분석’은 카메라 없이도 됩니다.</p>';
   }
 }
 

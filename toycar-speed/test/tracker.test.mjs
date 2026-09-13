@@ -327,6 +327,36 @@ test('빠른 자동차가 진행 방향으로 번져 보여도 한 번의 통과
   assert.ok(err < 0.2, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
 });
 
+test('옆에서 반짝이는 것에 점을 빼앗기지 않는다', () => {
+  // 커튼·그림자·빛 반사처럼 여기저기 한두 프레임 반짝이는 것이 있어도,
+  // 쫓던 자동차를 계속 따라가야 한다. (매 프레임 "가장 큰 덩어리"를 새로 고르면
+  // 점이 그쪽으로 옮겨 붙어 궤적이 널을 뛴다)
+  const tr = new MotionTracker();
+  const speed = 6;
+  const flicker = (g, i) => {
+    // 자동차가 지나는 띠(y 50~66)에서 떨어진 위와 아래에서 가끔 번쩍인다
+    if (i % 3) return g;
+    const x0 = i % 2 ? 20 : 110;
+    const y0 = i % 6 ? 14 : 96;
+    for (let y = y0; y < y0 + 12; y++) {
+      for (let x = x0; x < x0 + 12; x++) g[y * W + x] = i % 2 ? 250 : 60;
+    }
+    return g;
+  };
+  const frames = [...Array.from({ length: 20 }, (_, i) => flicker(frame(), i))];
+  for (let i = 0; i < 24; i++) {
+    frames.push(flicker(frame({ carX: 10 + i * speed, carW: 16, carTop: 52, carH: 12 }), i));
+  }
+  frames.push(...Array.from({ length: 8 }, (_, i) => flicker(frame(), i)));
+
+  const passes = run(tr, frames);
+  assert.equal(passes.length, 1, `통과 ${passes.length}건 — 반짝임이 헛측정을 만들었다`);
+  const expected = (speed / (W - 1)) * FPS;
+  const err = Math.abs(passes[0].fwps - expected) / expected;
+  assert.ok(err < 0.2, `속도 오차 ${(err * 100).toFixed(0)}% (측정 ${passes[0].fwps.toFixed(2)}, 기대 ${expected.toFixed(2)})`);
+  assert.ok(passes[0].r2 > 0.9, `궤적이 흔들렸다 (R²=${passes[0].r2.toFixed(2)})`);
+});
+
 test('굴려 주는 손과 자동차를 다른 것으로 구분한다', () => {
   // 실제 촬영에서 측정이 실패하던 또 다른 상황:
   // 화면 왼쪽에서 손이 20프레임쯤 꼼지락거린 뒤, 자동차가 오른쪽에서 나타나 가로지른다.

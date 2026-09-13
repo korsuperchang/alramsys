@@ -55,6 +55,18 @@ export const TRACKER_DEFAULTS = {
   /** 한 축으로도 이보다 넓으면 덩어리로 보지 않는다 */
   blobAbsoluteMaxRatio: 0.85,
   /**
+   * 쫓는 중일 때 다음 덩어리를 찾을 범위 (예상 위치 기준, 축 길이 대비).
+   * 이게 없으면 매 프레임 "화면에서 가장 큰 덩어리"를 새로 고르기 때문에, 커튼이
+   * 흔들리거나 그림자가 지나가면 점이 그쪽으로 옮겨 붙는다.
+   */
+  gateRadiusRatio: 0.14,
+  /**
+   * 통과 하나에서 물체 크기가 이 배수 넘게 들쭉날쭉하면 한 물체가 아니라고 본다.
+   * 커튼·그림자가 여기저기 반짝이면 크기가 제각각인데, 자동차는 지나가는 동안
+   * 크기가 거의 그대로다.
+   */
+  sizeConsistency: 3.5,
+  /**
    * 덩어리로 뭉치지 않는 움직임이 화면의 이만큼을 넘으면 카메라가 움직인 것으로 본다.
    * (물체는 한곳에 뭉치고, 카메라가 움직이면 화면 전체가 넓게 달라진다)
    */
@@ -97,8 +109,12 @@ export const TRACKER_DEFAULTS = {
   peakWindowSamples: 5,
   /** 화면 폭의 이 비율 이상 이동해야 통과로 인정한다 */
   minTravelRatio: 0.1,
-  /** 직선 적합도(R²) 하한 — 흔들림·그림자처럼 제멋대로 움직이는 것을 걸러낸다 */
-  minR2: 0.8,
+  /**
+   * 직선 적합도(R²) 하한 — 흔들림·그림자처럼 제멋대로 움직이는 것을 걸러낸다.
+   * 실제 촬영에서 자동차의 궤적은 0.97~1.00, 방해 요소가 있어도 0.92쯤 나온다.
+   * 반짝이는 잡음이 우연히 줄지어 만든 가짜 궤적은 0.9 아래에 머문다.
+   */
+  minR2: 0.9,
   /** 한 번의 통과가 이보다 길면 버린다 */
   maxDurationMs: 8000,
   /**
@@ -240,7 +256,8 @@ export class MotionTracker {
     /** 카메라가 움직인 직후 잠잠해지기를 기다리는 시각 */
     this.settleUntil = 0;
     this.cameraMoveStreak = 0;
-    this.track = null;   // 진행 중인 통과 {samples, lastSeen, gap}
+    this.track = null;      // 진행 중인 통과 {samples, gap, cameraMoved}
+    this.candidate = null;  // 아직 확인 중인 물체 (연달아 보여야 추적을 시작한다)
     this.coverage = 0;
     this.centroid = null;
     this.box = null;
@@ -262,6 +279,51 @@ export class MotionTracker {
   }
 
   get isWarmingUp() { return this.frames < this.opts.warmupFrames; }
+
+  /** 지금 프레임의 위치·크기를 표본 하나로 만든다. */
+  _makeSample(timeMs) {
+    const b = this.box;
+    // 화면 가장자리에 걸친 프레임은 크기 판단에서 뺀다 (들어오고 나가는 중이라 잘려 보인다)
+    const whole = b.x0 > 0.02 && b.x1 < 0.98 && b.y0 > 0.02 && b.y1 < 0.98;
+    return {
+      t: timeMs / 1000,
+      x: this.centroid.x,
+      y: this.centroid.y,
+      sizeX: whole ? b.x1 - b.x0 : null,
+      sizeY: whole ? b.y1 - b.y0 : null,
+    };
+  }
+
+  /**
+   * 쫓는 중인 물체가 이번 프레임에 어디쯤 있을지 예상한다.
+   * 속도를 알면 그만큼 앞을 보고, 모르면 마지막 위치 근처를 본다.
+   */
+  _predict(timeMs, width, height, aspect) {
+    const samples = this.track?.samples;
+    if (!samples || !samples.length) return null;
+    const last = samples[samples.length - 1];
+    const t = timeMs / 1000;
+    let px = last.x;
+    let py = last.y;
+    let speed = 0;
+    if (samples.length >= 2) {
+      const prev = samples[samples.length - 2];
+      const dt = last.t - prev.t;
+      if (dt > 0) {
+        const vx = (last.x - prev.x) / dt;
+        const vy = (last.y - prev.y) / dt;
+        px = last.x + vx * (t - last.t);
+        py = last.y + vy * (t - last.t);
+        speed = Math.hypot(vx, vy) * (t - last.t);
+      }
+    }
+    // 빠를수록 예상이 덜 정확하므로 찾는 범위를 조금 넓힌다
+    const radius = Math.min(0.35, this.opts.gateRadiusRatio + speed * 0.8);
+    return {
+      x: { at: px * (width - 1), radius: radius * (width - 1) },
+      y: { at: (py / aspect) * (height - 1), radius: radius * (width - 1) },
+    };
+  }
 
   /** 지금 본 위치가 보던 물체의 다음 위치로 볼 수 없을 만큼 동떨어져 있는가 */
   _isJump(centroid, timeMs) {
@@ -293,7 +355,7 @@ export class MotionTracker {
    * 진행 축 방향 분포에서 가장 두꺼운 덩어리 하나를 골라낸다.
    * 잡음은 얇게 퍼지고 물체는 뭉치므로, 봉우리 주변만 취하면 물체만 남는다.
    */
-  _dominantBlob(profile, axisLen) {
+  _dominantBlob(profile, axisLen, prefer = null) {
     const o = this.opts;
     const radius = Math.max(1, Math.round(axisLen * o.blobSmoothRatio));
     // 누적합으로 이동 평균 (O(n))
@@ -330,17 +392,23 @@ export class MotionTracker {
       else merged.push(segments[i]);
     }
 
-    // 합친 구간 중 움직임이 가장 많이 담긴 것을 고른다
+    // 합친 구간 중 하나를 고른다.
+    // 쫓는 중이면 "예상 위치 근처"에서만 고른다 — 그래야 옆에서 반짝인 것에
+    // 점이 옮겨 붙지 않는다. 근처에 아무것도 없으면 놓친 것으로 본다.
     const massOf = ([a, b]) => {
       let m = 0;
       for (let i = a; i <= b; i++) m += profile[i];
       return m;
     };
-    let best = merged[0];
+    const candidates = prefer
+      ? merged.filter(([a, b]) => Math.abs((a + b) / 2 - prefer.at) <= prefer.radius)
+      : merged;
+    if (!candidates.length) return null;
+    let best = candidates[0];
     let bestMass = massOf(best);
-    for (let i = 1; i < merged.length; i++) {
-      const m = massOf(merged[i]);
-      if (m > bestMass) { bestMass = m; best = merged[i]; }
+    for (let i = 1; i < candidates.length; i++) {
+      const m = massOf(candidates[i]);
+      if (m > bestMass) { bestMass = m; best = candidates[i]; }
     }
     const [lo, hi] = best;
     if (hi - lo > axisLen * o.blobAbsoluteMaxRatio) return null; // 축 전체에 퍼졌다
@@ -412,8 +480,11 @@ export class MotionTracker {
     }
 
     const total = Math.max(1, (y1 - y0) * (x1 - x0));
-    const blobX = this._dominantBlob(profileX, width);
-    const blobY = this._dominantBlob(profileY, height);
+    // 쫓는 중이면 다음 위치를 예상해 그 근처에서만 덩어리를 찾는다
+    const aspectNow = (height - 1) / (width - 1);
+    const prefer = this._predict(timeMs, width, height, aspectNow);
+    const blobX = this._dominantBlob(profileX, width, prefer?.x ?? null);
+    const blobY = this._dominantBlob(profileY, height, prefer?.y ?? null);
     // 가로로도 세로로도 넓게 퍼졌다면 물체가 아니라 화면 전체가 움직인 것이다.
     const spreadOut = blobX && blobY
       && (blobX.hi - blobX.lo) > width * o.blobMaxWidthRatio
@@ -481,21 +552,14 @@ export class MotionTracker {
         else pass = outcome;
       }
       if (!this.track) this.track = { samples: [], gap: 0, cameraMoved: false };
-      this.track.gap = 0;
-      // 화면 가장자리에 걸친 프레임은 크기 판단에서 뺀다 (들어오고 나가는 중이라 잘려 보인다).
-      const b = this.box;
-      const whole = b.x0 > 0.02 && b.x1 < 0.98 && b.y0 > 0.02 && b.y1 < 0.98;
-      this.track.samples.push({
-        t: timeMs / 1000,
-        x: this.centroid.x,
-        y: this.centroid.y,
-        sizeX: whole ? b.x1 - b.x0 : null,
-        sizeY: whole ? b.y1 - b.y0 : null,
-      });
-      if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
-        // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
-        rejected = { reason: 'tooLong', samples: this.track.samples.length };
-        this.track = null;
+      {
+        this.track.gap = 0;
+        this.track.samples.push(this._makeSample(timeMs));
+        if (timeMs / 1000 - this.track.samples[0].t > o.maxDurationMs / 1000) {
+          // 화면 안에서 뭔가 계속 움직이고 있어 한 번의 통과를 잘라낼 수 없다
+          rejected = { reason: 'tooLong', samples: this.track.samples.length };
+          this.track = null;
+        }
       }
     } else if (this.track) {
       this.track.gap++;
@@ -519,6 +583,7 @@ export class MotionTracker {
       shaking,
       cameraMoving,
       settling,
+      confirmed: !!this.track,
       tracking: !!this.track,
       warmingUp: this.isWarmingUp,
       pass,
@@ -554,7 +619,17 @@ export class MotionTracker {
       return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
     }
     // 진행 방향과 직각인 쪽의 폭으로 본다 (가로로 지나가면 세로 폭)
-    const growth = measureGrowth(kept, o.minDepthSamples, Math.abs(vx) >= Math.abs(vy) ? 'sizeY' : 'sizeX');
+    // 지나가는 동안 크기가 널을 뛰면 한 물체가 아니다 (여기저기 반짝이는 잡음)
+    const key = Math.abs(vx) >= Math.abs(vy) ? 'sizeY' : 'sizeX';
+    const sizes = kept.map((sm) => sm[key]).filter((v) => typeof v === 'number' && v > 0).sort((a, b) => a - b);
+    if (sizes.length >= 4) {
+      const lo = sizes[Math.floor(sizes.length * 0.15)];
+      const hi = sizes[Math.floor(sizes.length * 0.85)];
+      if (lo > 0 && hi / lo > o.sizeConsistency) {
+        return { reason: 'notSteady', samples: kept.length, travel, r2, durationMs };
+      }
+    }
+    const growth = measureGrowth(kept, o.minDepthSamples, key);
     if (growth !== null && (growth > o.depthGrowthRatio || growth < 1 / o.depthGrowthRatio)) {
       return { reason: 'towardCamera', samples: kept.length, travel, growth, durationMs };
     }

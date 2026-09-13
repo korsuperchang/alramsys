@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v22 · 쉬기 완화';
+const APP_VERSION = 'v23 · 추적 안정화';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -573,7 +573,10 @@ function drawAutoOverlay(result) {
     octx.stroke();
   }
 
-  if (result.box) {
+  // 한 프레임 반짝인 것에는 상자를 그리지 않는다 — 화면이 어지럽고, 무엇을 쫓는지
+  // 오해하게 만든다. 두 프레임 이상 이어진 것만 보여 준다.
+  const persisted = (tracker.track?.samples?.length ?? 0) >= 2;
+  if (result.box && persisted) {
     const bx = result.box.x0 * W;
     const by = result.box.y0 * H;
     const bw = (result.box.x1 - result.box.x0) * W;
@@ -585,7 +588,7 @@ function drawAutoOverlay(result) {
     octx.strokeRect(bx, by, bw, bh);
   }
 
-  if (result.centroid) {
+  if (result.centroid && persisted) {
     const cx = result.centroid.x * W;
     const cy = (result.centroid.y / aspect) * H;
     octx.strokeStyle = '#fff';

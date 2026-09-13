@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MotionTracker, fitLine, peakSpeed, passToSpeed } from '../js/tracker.js';
+import {
+  MotionTracker, fitLine, fitQuadratic, peakSpeed, peakSpeedCurve, pathPoints, passToSpeed,
+} from '../js/tracker.js';
 
 const W = 160;
 const H = 120;
@@ -525,4 +527,57 @@ test('passToSpeed: 화면 가로 1.2m를 초당 0.5배 속도로 지나면 0.6m/
   assert.ok(Math.abs(s.mps - 0.6) < 1e-9);
   assert.ok(Math.abs(s.kmh - 2.16) < 1e-9);
   assert.equal(passToSpeed(0.5, 0), null);
+});
+
+/** 감속하는 통과: 처음 9px/프레임에서 매 프레임 0.9배로 느려진다 */
+function deceleratingSamples(count = 16) {
+  const out = [];
+  let x = 4;
+  let step = 9;
+  for (let i = 0; i < count; i++) {
+    out.push({ t: i / FPS, x: x / (W - 1), y: 0 });
+    x += step;
+    step *= 0.9;
+  }
+  return out;
+}
+
+test('fitQuadratic: 포물선을 정확히 되찾는다', () => {
+  // p(t) = 0.2 + 0.5t − 0.1t², 시각을 크게 잡아도(영상 재생 시각) 무너지지 않아야 한다
+  const f = (t) => 0.2 + 0.5 * t - 0.1 * t * t;
+  const samples = [0, 1, 2, 3, 4, 5].map((i) => ({ t: 1000 + i * 0.1, p: f(1000 + i * 0.1) }));
+  const q = fitQuadratic(samples, 'p');
+  assert.ok(Math.abs(q.at(1000.25) - f(1000.25)) < 1e-6, `${q.at(1000.25)}`);
+  assert.ok(Math.abs(q.slopeAt(1000.25) - (0.5 - 0.2 * 1000.25)) < 1e-5);
+  assert.ok(q.ssRes < 1e-12);
+  assert.equal(fitQuadratic(samples.slice(0, 2), 'p'), null);
+});
+
+test('peakSpeedCurve: 감속하는 통과의 최고속도를 구간 최대보다 잘 잡는다', () => {
+  const samples = deceleratingSamples();
+  const truth = (9 / (W - 1)) * FPS;
+  const window = peakSpeed(samples, 5);
+  const curve = peakSpeedCurve(samples);
+  assert.ok(curve != null, '곡선이 쓰이지 않았다');
+  assert.ok(curve > window, `곡선 ${curve} 이 구간 최대 ${window} 보다 크지 않다`);
+  assert.ok(curve <= truth * 1.05, `참값 ${truth} 을 넘겼다: ${curve}`);
+  assert.ok(Math.abs(curve - truth) < Math.abs(window - truth), '참값에 더 가깝지 않다');
+});
+
+test('peakSpeedCurve: 일정한 속도에는 곡선을 쓰지 않는다', () => {
+  const samples = Array.from({ length: 12 }, (_, i) => ({ t: i / FPS, x: 0.05 + i * 0.06, y: 0 }));
+  assert.equal(peakSpeedCurve(samples), null);
+  // 표본이 적으면 잡음이 휘어 보이므로 아예 쓰지 않는다
+  assert.equal(peakSpeedCurve(deceleratingSamples(5)), null);
+});
+
+test('pathPoints: 표본 구간 안에서 자취를 그려 낸다', () => {
+  const samples = deceleratingSamples();
+  const pts = pathPoints(samples, 8);
+  assert.equal(pts.length, 9);
+  assert.ok(Math.abs(pts[0].x - samples[0].x) < 0.02);
+  assert.ok(Math.abs(pts[8].x - samples[samples.length - 1].x) < 0.02);
+  // 진행 방향으로만 나아간다 — 자취가 앞뒤로 왔다갔다 하면 안 된다
+  for (let i = 1; i < pts.length; i++) assert.ok(pts[i].x >= pts[i - 1].x - 1e-9);
+  assert.deepEqual(pathPoints([{ t: 0, x: 0, y: 0 }]), []);
 });

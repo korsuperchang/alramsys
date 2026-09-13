@@ -132,6 +132,16 @@ export const TRACKER_DEFAULTS = {
    * 이 둘을 한 통과로 묶어 버려서 아무것도 측정하지 못한다.
    */
   maxJumpRatio: 0.3,
+
+  /**
+   * 2차 곡선으로 최고 순간속도를 읽으려면 표본이 이만큼은 있어야 한다.
+   * 적은 표본에 곡선을 맞추면 잡음이 그대로 휘어져 값이 부풀어 오른다.
+   */
+  curveMinSamples: 7,
+  /** 곡선이 직선보다 이만큼(잔차 비율)은 잘 맞아야 곡선 쪽을 쓴다 */
+  curveMinImprove: 0.3,
+  /** 곡선이 읽어낸 값이 구간 최대의 이 배를 넘으면 믿지 않는다 */
+  curveMaxGain: 1.6,
 };
 
 /** 표본 (t초, 위치)에 직선을 맞춘다. 기울기가 곧 속도(화면폭/초). */
@@ -241,6 +251,109 @@ export function peakSpeed(samples, windowSamples = 5) {
     if (speed > best) best = speed;
   }
   return best;
+}
+
+/**
+ * 표본에 2차 곡선을 맞춘다: p(t) = a + b·(t−t0) + c·(t−t0)².
+ * 평균 시각 t0를 기준으로 삼는다. 영상 재생 시각처럼 t가 큰 값일 때
+ * t⁴까지 그냥 더하면 자릿수가 밀려 답이 무너진다.
+ */
+export function fitQuadratic(samples, key = 'p') {
+  const n = samples.length;
+  if (n < 3) return null;
+  let t0 = 0;
+  for (const s of samples) t0 += s.t;
+  t0 /= n;
+  let s1 = 0; let s2 = 0; let s3 = 0; let s4 = 0;
+  let sp = 0; let spt = 0; let spt2 = 0;
+  for (const s of samples) {
+    const t = s.t - t0;
+    const p = s[key];
+    const t2 = t * t;
+    s1 += t; s2 += t2; s3 += t2 * t; s4 += t2 * t2;
+    sp += p; spt += p * t; spt2 += p * t2;
+  }
+  // 3원 1차 연립방정식(정규방정식)을 가우스 소거로 푼다
+  const m = [[n, s1, s2, sp], [s1, s2, s3, spt], [s2, s3, s4, spt2]];
+  for (let i = 0; i < 3; i++) {
+    let piv = i;
+    for (let r = i + 1; r < 3; r++) if (Math.abs(m[r][i]) > Math.abs(m[piv][i])) piv = r;
+    [m[i], m[piv]] = [m[piv], m[i]];
+    if (Math.abs(m[i][i]) < 1e-12) return null; // 시각이 겹쳐 풀 수 없다
+    for (let r = 0; r < 3; r++) {
+      if (r === i) continue;
+      const f = m[r][i] / m[i][i];
+      for (let c = i; c < 4; c++) m[r][c] -= f * m[i][c];
+    }
+  }
+  const a = m[0][3] / m[0][0];
+  const b = m[1][3] / m[1][1];
+  const c = m[2][3] / m[2][2];
+  let ssRes = 0;
+  for (const s of samples) {
+    const t = s.t - t0;
+    ssRes += (s[key] - (a + b * t + c * t * t)) ** 2;
+  }
+  return { a, b, c, t0, ssRes, at: (t) => a + b * (t - t0) + c * (t - t0) ** 2, slopeAt: (t) => b + 2 * c * (t - t0) };
+}
+
+/**
+ * 감속까지 감안한 최고 순간속도.
+ *
+ * 굴러가는 자동차는 지나가는 동안 계속 느려지므로 위치-시간 그래프가 직선이 아니라
+ * 포물선이다. 직선으로만 재면 평균이 나오고, 짧은 구간으로 재도 그 구간 안의 평균이라
+ * 실제로 가장 빨랐던 순간보다 낮게 나온다. 곡선을 맞추면 그 순간을 바로 읽을 수 있다.
+ *
+ * 두 가지를 지킨다.
+ * - 곡선이 직선보다 **뚜렷하게** 잘 맞을 때만 쓴다. 아니면 잡음에 휘어진 것일 뿐이다.
+ * - 표본이 실제로 있는 시간 안에서만 훑는다. 포물선을 밖으로 늘리면 금방 터무니없어진다.
+ */
+export function peakSpeedCurve(samples, { minSamples = 6, minImprove = 0.3 } = {}) {
+  if (!samples || samples.length < minSamples) return null;
+  const qx = fitQuadratic(samples, 'x');
+  const qy = fitQuadratic(samples, 'y');
+  if (!qx || !qy) return null;
+  const lx = fitLine(samples, 'x');
+  const ly = fitLine(samples, 'y');
+  let lineRes = 0;
+  for (const s of samples) {
+    lineRes += (s.x - (lx.slope * s.t + lx.intercept)) ** 2
+      + (s.y - (ly.slope * s.t + ly.intercept)) ** 2;
+  }
+  if (!(lineRes > 0)) return null;
+  const curveRes = qx.ssRes + qy.ssRes;
+  if (1 - curveRes / lineRes < minImprove) return null;
+  let best = 0;
+  for (const s of samples) {
+    const speed = Math.hypot(qx.slopeAt(s.t), qy.slopeAt(s.t));
+    if (speed > best) best = speed;
+  }
+  return best;
+}
+
+/**
+ * 맞춘 경로 위의 점들을 돌려준다 — 화면에 자취를 그릴 때 쓴다.
+ * 잡은 점을 그대로 이으면 한 점씩 흔들리는 게 그대로 보여 어지럽다.
+ * 실제로 재는 데 쓰는 경로를 그려 주는 편이 보기도 낫고 솔직하다.
+ */
+export function pathPoints(samples, steps = 24) {
+  if (!samples || samples.length < 2) return [];
+  const raw = samples.map((s) => ({ x: s.x, y: s.y }));
+  const t0 = samples[0].t;
+  const t1 = samples[samples.length - 1].t;
+  if (!(t1 > t0)) return raw;
+  const quad = samples.length >= 6;
+  const fx = quad ? fitQuadratic(samples, 'x') : null;
+  const fy = quad ? fitQuadratic(samples, 'y') : null;
+  const lx = fitLine(samples, 'x');
+  const ly = fitLine(samples, 'y');
+  const at = (t) => ({
+    x: fx ? fx.at(t) : lx.slope * t + lx.intercept,
+    y: fy ? fy.at(t) : ly.slope * t + ly.intercept,
+  });
+  const out = [];
+  for (let i = 0; i <= steps; i++) out.push(at(t0 + ((t1 - t0) * i) / steps));
+  return out;
 }
 
 export class MotionTracker {
@@ -639,12 +752,22 @@ export class MotionTracker {
       return { reason: 'noTime', samples: kept.length, travel, durationMs };
     }
 
-    const peak = peakSpeed(kept, o.peakWindowSamples);
+    // 최고 순간속도는 두 가지로 읽고 큰 쪽을 쓴다.
+    // 구간 최대는 어떤 통과에서도 흔들리지 않고, 곡선은 감속이 큰 통과에서
+    // 구간 최대가 놓치는 처음의 빠른 순간을 잡아낸다.
+    const windowPeak = peakSpeed(kept, o.peakWindowSamples);
+    let peak = Math.max(speed, windowPeak != null ? windowPeak : 0);
+    const curvePeak = peakSpeedCurve(kept, {
+      minSamples: o.curveMinSamples,
+      minImprove: o.curveMinImprove,
+    });
+    // 곡선이 구간 최대보다 터무니없이 크면 표본이 휘어진 것이지 자동차가 빨랐던 게 아니다
+    if (curvePeak != null && curvePeak > peak) peak = Math.min(curvePeak, peak * o.curveMaxGain);
     return {
       /** 통과 전체의 평균 속도 (초당 화면 폭의 몇 배) */
       fwps: speed,
-      /** 통과 중 가장 빨랐던 구간의 속도 */
-      fwpsPeak: peak != null && peak > speed ? peak : speed,
+      /** 통과 중 가장 빨랐던 순간의 속도 */
+      fwpsPeak: peak,
       vx,
       vy,
       /** 주된 진행 방향 */

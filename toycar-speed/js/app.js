@@ -1,5 +1,5 @@
 import { GateSpeedDetector, rgbaToGray, computeSpeed, scaleSpeed } from './detector.js';
-import { MotionTracker, passToSpeed } from './tracker.js';
+import { MotionTracker, passToSpeed, pathPoints } from './tracker.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -79,7 +79,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v23 · 추적 안정화';
+const APP_VERSION = 'v24 · 곡선 자취';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -558,19 +558,30 @@ function drawAutoOverlay(result) {
 
   const aspect = H / W;
 
-  // 지나온 자취 (가로·세로 모두)
+  // 지나온 자취. 잡은 점을 그대로 이으면 한 점씩 흔들리는 게 그대로 보여 어지럽다.
+  // 실제로 속도를 재는 데 쓰는 매끄러운 경로를 굵게 그리고, 잡은 점은 작은 점으로
+  // 곁들인다 — 어디가 얼마나 흔들렸는지는 그대로 보이되 자취 자체는 흔들리지 않는다.
   const samples = tracker.track?.samples;
   if (samples && samples.length > 1) {
+    const curve = pathPoints(samples);
     octx.strokeStyle = 'rgba(74, 168, 255, 0.85)';
     octx.lineWidth = 3;
+    octx.lineJoin = 'round';
     octx.beginPath();
-    samples.forEach((sample, i) => {
-      const x = sample.x * W;
-      const y = (sample.y / aspect) * H;
+    curve.forEach((pt, i) => {
+      const x = pt.x * W;
+      const y = (pt.y / aspect) * H;
       if (i === 0) octx.moveTo(x, y);
       else octx.lineTo(x, y);
     });
     octx.stroke();
+
+    octx.fillStyle = 'rgba(74, 168, 255, 0.5)';
+    for (const sample of samples) {
+      octx.beginPath();
+      octx.arc(sample.x * W, (sample.y / aspect) * H, 2.5, 0, Math.PI * 2);
+      octx.fill();
+    }
   }
 
   // 한 프레임 반짝인 것에는 상자를 그리지 않는다 — 화면이 어지럽고, 무엇을 쫓는지

@@ -36,7 +36,8 @@ const body = bodyMatch[1].trim();
 const FONT_LINK =
   '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
   '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' +
-  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">';
+  '<link rel="stylesheet" media="print" onload="this.media=\'all\'"\n' +
+  '      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">';
 
 const TITLE = '장난감 자동차 속도 측정기';
 const script = `<script type="module">\n${stabilizer}\n${detector}\n${tracker}\n${app}</script>`;

@@ -7,7 +7,8 @@
 <title>장난감 자동차 속도 측정기</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap">
 <style>
 :root {
   --bg: #0b0f14;
@@ -1967,7 +1968,7 @@ const el = {
 };
 
 /** 화면 아래에 표시되는 버전. 올릴 때 sw.js 의 VERSION 도 같이 올린다. */
-const APP_VERSION = 'v25 · 카메라 안내';
+const APP_VERSION = 'v26 · 열면 바로 카메라';
 const SETTINGS_KEY = 'toycar-speed/settings-v2';
 const RECORDS_KEY = 'toycar-speed/records';
 const PROC_MAX_WIDTH = 200; // 감지용 축소 해상도 (성능 확보)
@@ -2618,6 +2619,19 @@ function cameraBlockHelp(promptedMs) {
         + ' https 주소로 올려 두고 그 주소로 여세요.',
     };
   }
+  if (!window.isSecureContext) {
+    return {
+      msg: 'https 주소가 아니면 카메라를 쓸 수 없습니다.',
+      help: '주소가 <b>http://</b> 로 시작하면 <b>https://</b> 로 바꿔서 열어 보세요.',
+    };
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return {
+      msg: '이 브라우저에서는 카메라를 쓸 수 없습니다.',
+      help: '카카오톡·인스타그램 안에서 열면 카메라가 막힙니다.'
+        + ' 오른쪽 아래 메뉴에서 <b>사파리(크롬)로 열기</b>를 눌러 주세요.',
+    };
+  }
   if (!asked) {
     return {
       msg: '이 사이트의 카메라가 이미 차단되어 있습니다.',
@@ -2632,7 +2646,7 @@ function cameraBlockHelp(promptedMs) {
   };
 }
 
-async function startCamera() {
+async function startCamera({ auto = false } = {}) {
   stopDemo();
   setStatus('카메라 여는 중…');
   const askedAt = performance.now();
@@ -2671,8 +2685,18 @@ async function startCamera() {
     const name = err?.name || '';
     let msg = err?.message || '카메라를 열지 못했습니다.';
     let help = '';
+    const elapsed = performance.now() - askedAt;
+    // 화면을 열자마자 물어본 게 거절됐다면, 정말 막힌 게 아니라 브라우저가
+    // "사람이 누른 다음에 물어보라"고 미룬 것일 수 있다. 겁주지 말고 버튼을 내민다.
+    if (auto && (name === 'NotAllowedError' || name === 'SecurityError') && elapsed < 400) {
+      mode = 'idle';
+      setStatus('‘카메라 시작’을 눌러 주세요');
+      el.stageHint.hidden = false;
+      el.stageHint.innerHTML = '<p>아래 <b>카메라 시작</b>을 누르면 카메라 권한을 물어봅니다.</p>';
+      return;
+    }
     if (name === 'NotAllowedError' || name === 'SecurityError') {
-      ({ msg, help } = cameraBlockHelp(performance.now() - askedAt));
+      ({ msg, help } = cameraBlockHelp(elapsed));
     } else if (name === 'NotFoundError') {
       msg = '사용 가능한 카메라를 찾지 못했습니다.';
     } else if (name === 'NotReadableError') {
@@ -3716,7 +3740,29 @@ if (viewWidthMeters() > 0) {
 }
 if (lastRecord) showSpeed(lastRecord, { flash: false }); // 지난 측정값 복원
 drawOverlay();
-setStatus('‘카메라 시작’을 눌러 주세요');
+
+/**
+ * 열자마자 카메라를 연다 — 버튼을 한 번 더 누르게 할 이유가 없다.
+ *
+ * 다만 카메라를 내줄 수 없는 자리에서는 열어 봐야 빨간 글씨만 뜬다.
+ * 그런 자리는 미리 알 수 있으므로, 열기 전에 무엇이 문제인지부터 말해 준다.
+ *  - 틀(iframe) 안: 브라우저가 아예 권한을 묻지 않는다
+ *  - http/file: 보안 컨텍스트가 아니라 카메라를 쓸 수 없다
+ */
+function autoStartCamera() {
+  const framed = window.self !== window.top;
+  const policyBlocked = document.featurePolicy?.allowsFeature?.('camera') === false;
+  if (framed || policyBlocked || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    const { msg, help } = cameraBlockHelp(0);
+    setStatus(msg, 'err');
+    el.stageHint.hidden = false;
+    el.stageHint.innerHTML = `<p><b>${msg}</b><br>${help}`
+      + '<br>‘데모 모드’나 ‘영상 파일 분석’은 여기서도 됩니다.</p>';
+    return;
+  }
+  startCamera({ auto: true });
+}
+autoStartCamera();
 
 </script>
 </body>

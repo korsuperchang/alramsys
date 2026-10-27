@@ -211,7 +211,8 @@ td.neg{color:var(--bad)}
           <li><b>사갱 방향.</b> 한 구간은 정한 경사로 편 간격만큼 내려가므로 수평 거리 = 편 간격 ÷ tan(경사)입니다. 그 거리에서 아랫편 광체에 닿는 지점 중 갱구와 그 편 광체 중심에 함께 가까운 곳으로 방향을 잡습니다(갱구 부근에서 내리되 광체를 벗어나지 않게). 광체에 못 닿으면 모자라는 거리만큼 편 갱도를 더 팝니다. 사갱 경사는 시추공으로 추정한 층 경사를 넘을 수 없게 했습니다. 운반 방식별 경사 한계(일반값, 가정): 벨트 컨베이어 16°, 궤도 권양 25°, 트럭 8°.</li>
           <li><b>편 갱도와 보호 광주.</b> 편 갱도는 진입점에서 주향 방향으로 냅니다(평면도 파란 선). 사갱 양쪽 「보호 폭」 안에서 사갱이 지나가는 높이의 판넬은 보호 광주로 남깁니다.</li>
           <li><b>채굴 순서.</b> 위 편부터, 동시에 최대 N개 편. 편 안에서는 진입점에서 가까운 판넬부터(전진식). 다음 편이 늦게 열리면 그 사이 생산이 목표에 못 미칩니다. 깊은 편 광석은 사갱을 여러 구간 거쳐 올라오므로 운영비에 「편당 운반비 증가」 × (편 번호 − 1)을 더합니다.</li>
-          <li><b>한계.</b> 수직공만 가정, 블록 모델·변동성 분석 없음, 사갱 굴진 중 나오는 광석·필러 회수(후퇴 채굴)·충전·환기·배수 미반영, 편 갱도 굴진비 미포함. 단가는 모두 가정값이라 슬라이더로 바꿔 보는 용도입니다.</li>
+          <li><b>수지 판단.</b> 판넬 원가 = 운영비 + 편당 운반비 증가 × (편 번호 − 1) + 편 내 운반비 × 진입점에서 거리. 상하좌우로 붙은 판넬을 한 블록으로 묶고, 블록 순이익 = Σ톤 × (판매가 − 원가) − 진입점에서 블록까지 더 파야 할 편 갱도 × 굴진비. 진입점에 붙은 블록은 손해만 아니면 캐고, 떨어져 있는 블록은 「최소 블록 크기」 이상이면서 순이익이 「블록 최소 순이익」 이상일 때만 캡니다(못 미치면 평면도 주황 점선). 순이익은 할인 전 값입니다. 편 갱도 굴진비는 그 블록을 처음 캘 때 현금흐름에서 뺍니다.</li>
+          <li><b>한계.</b> 수직공만 가정, 블록 모델·변동성 분석 없음, 사갱 굴진 중 나오는 광석·필러 회수(후퇴 채굴)·충전·환기·배수 미반영, 진입점 근처 편 갱도 굴진비 미포함. 단가는 모두 가정값이라 슬라이더로 바꿔 보는 용도입니다.</li>
         </ul>
       </div>
     </section>
@@ -345,6 +346,10 @@ const PARAMS = [
   { id: "opex", g: "econ", label: "운영비 (채광·운반·관리)", min: 4000, max: 16000, step: 250, v: 8500, u: "원/t" },
   { id: "devc", g: "econ", label: "굴진비 (수평갱·사갱)", min: 100, max: 600, step: 10, v: 250, u: "만원/m" },
   { id: "hinc", g: "econ", label: "편당 운반비 증가", min: 0, max: 1500, step: 50, v: 300, u: "원/t" },
+  { id: "hcost", g: "econ", label: "편 내 운반비 (진입점에서 거리)", min: 0, max: 300, step: 10, v: 60, u: "원/t·100m" },
+  { id: "dcost", g: "econ", label: "편 갱도 굴진비", min: 50, max: 400, step: 10, v: 150, u: "만원/m" },
+  { id: "minblk", g: "econ", label: "최소 블록 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
+  { id: "minval", g: "econ", label: "블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
   { id: "capex", g: "econ", label: "초기 투자", min: 0, max: 500, step: 10, v: 150, u: "억원" },
   { id: "disc", g: "econ", label: "할인율", min: 3, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
   { id: "y0", g: "econ", label: "착공 연도", min: 2026, max: 2035, step: 1, v: 2027, u: "", raw: true },
@@ -360,12 +365,13 @@ for (const [g, title] of GROUPS) {
   }
   if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
   if (g === "haul") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-haul">운반 방식 <select id="p-haul">${Object.entries(HAUL).map(([k, h]) => `<option value="${k}"${k === "rail" ? " selected" : ""}>${h.name} (≤${h.max}°)</option>`).join("")}</select></label><div class="derived" id="incl"></div>`);
+  if (g === "econ") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 곳은 캐지 않음</label>`);
   if (g === "ground") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx" checked>안전율 미달 판넬은 캐지 않음</label>`);
   form.appendChild(fs);
 }
 function readP() {
   const P = {}; for (const p of PARAMS) P[p.id] = +$("p-" + p.id).value;
-  P.sfx = $("p-sfx").checked; P.haul = $("p-haul").value; return P;
+  P.sfx = $("p-sfx").checked; P.econ = $("p-econ").checked; P.haul = $("p-haul").value; return P;
 }
 function showOutputs() {
   for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); }
@@ -454,6 +460,24 @@ function design(P) {
       else if (P.sfx && p.sf < P.sfmin) { p.why = "sf"; L.rej.push(p); }
       else L.panels.push(p);
     }
+    // 수지 판단: 진입점에서 먼 판넬일수록 편 내 운반비가 붙고, 떨어져 있는 블록(상하좌우로 붙은 판넬 묶음)은
+    // 그곳까지 편 갱도를 더 파야 한다. 블록 순이익 = Σ톤 × (판매가 − 원가) − 편 갱도 길이 × 굴진비
+    const base = P.opex + Math.max(0, used.indexOf(L)) * P.hinc;
+    if (L.J) {
+      for (const p of L.panels) { p.dist = Math.hypot(p.x - L.J.x, p.y - L.J.y); p.cost = base + P.hcost * p.dist / 100; p.blk = null; }
+      let keep = [];
+      for (const p of L.panels) { if (P.econ && P.price - p.cost <= 0) { p.why = "econ"; L.rej.push(p); } else keep.push(p); }
+      const idx = new Map(keep.map(p => [p.i + "," + p.j, p])), seen = new Set(), out = [];
+      for (const p0 of keep) {
+        if (seen.has(p0)) continue; const blk = [], st = [p0]; seen.add(p0);
+        while (st.length) { const p = st.pop(); blk.push(p); for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = idx.get((p.i + di) + "," + (p.j + dj)); if (q && !seen.has(q)) { seen.add(q); st.push(q); } } }
+        const dmin = Math.min(...blk.map(p => p.dist)), drive = Math.max(0, dmin - S);
+        const info = { n: blk.length, t: blk.reduce((a, p) => a + p.t, 0), drive, val: blk.reduce((a, p) => a + p.t * (P.price - p.cost), 0) - drive * P.dcost * 1e4, paid: false };
+        const ok = !P.econ || (dmin < S * 1.5 ? info.val > 0 : info.val >= P.minval * 1e8 && blk.length >= P.minblk);   // 진입점에 붙은 블록은 손해만 아니면 캠
+        for (const p of blk) { p.blk = info; if (ok) out.push(p); else { p.why = "econ"; L.rej.push(p); } }
+      }
+      L.panels = out;
+    }
     let a0 = 0, a1 = 0;
     if (L.J) for (const p of L.panels) { p.dist = Math.hypot(p.x - L.J.x, p.y - L.J.y); const a = (p.x - L.J.x) * vx + (p.y - L.J.y) * vy; a0 = Math.min(a0, a); a1 = Math.max(a1, a); }
     L.span = [a0, a1];
@@ -473,7 +497,7 @@ function schedule(D, P) {
   seq.forEach((L, k) => {
     L.seq = k; L.no = k + 1; L.name = `${k + 1}편(EL.${L.zf})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity;
     L.cost = P.opex + k * P.hinc;                                    // 깊은 편일수록 사갱을 여러 번 거쳐 올라옴
-    for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; }
+    for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; if (p.blk) p.blk.paid = false; }
   });
   // 굴진 작업: 1편 수평갱, 그 아래는 편마다 연층 사갱 한 구간
   const jobs = seq.map((L, k) => k ? { kind: "incline", k, a: seq[k - 1].J, b: L.J, len: Math.hypot(Math.hypot(L.J.x - seq[k - 1].J.x, L.J.y - seq[k - 1].J.y), seq[k - 1].zf - L.zf) + L.xc, start: null }
@@ -495,13 +519,13 @@ function schedule(D, P) {
         let used = 0;
         while (used < take - 1e-6 && L.ptr < L.panels.length) {
           const p = L.panels[L.ptr], d = Math.min(p.t - p.done, take - used);
-          if (p.s0 === null) p.s0 = m + used / take;
+          if (p.s0 === null) { p.s0 = m + used / take; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
+          cf += d * (P.price - p.cost);
           p.done += d; used += d;
           Y.cao += d * p.cao; Y.mgo += d * p.mgo; Y.sio2 += d * p.sio2;
           if (p.done >= p.t - 1e-6) { p.s1 = m + used / take; L.ptr++; }
         }
         L.rem -= used; left -= used; target -= used; Y.t += used; Y.lv[L.seq] += used;
-        cf += used * (P.price - L.cost);
         end = m + 1;
       }
     }
@@ -533,13 +557,14 @@ function recompute() {
   const I = M.INC, dd = DIPEST.dip * 180 / Math.PI;
   $("incl").innerHTML = `층 자세(추정) 주향 <b>${bearing(DIPEST.az - Math.PI / 2)}</b> · 경사 <b>${fmt(dd, 1)}° → ${bearing(DIPEST.az)}</b><br>1편 수평갱 <b>${fmt(I.aditLen)} m</b> · 갱구 EL.${fmt(I.zTop)} (산 사면)<br>연층 사갱 경사 <b>${fmt(I.ia, 1)}°</b> (${fmt(I.ti * 100)}%, 1:${fmt(1 / I.ti, 1)}) · 구간 ${I.segs.length}개<br>방향: 다음 편 광체 중 갱구 쪽<br>편 간격 ${fmt(P.lv)}m당 사갱 <b>${fmt(P.lv / Math.sin(I.iaR))} m</b> · 굴진 합계 <b>${fmt(M.devTot)} m</b>`;
   // 제외 집계
-  const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0] };
+  const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0], econ: [0, 0] };
   for (const L of M.all) for (const p of L.rej) { ex[p.why][0]++; ex[p.why][1] += p.t; }
   const st = $("status"); st.innerHTML = "";
   const chip = (txt, cls = "", col = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.innerHTML = (col ? `<i style="background:${col}"></i>` : "") + txt; st.appendChild(s); };
   chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
   if (ex.sf[0]) chip(`안전율 ${fmt(P.sfmin, 1)} 미달 ${fmt(ex.sf[0])}판넬 (${fmt(ex.sf[1] / 1e4)}만t) 제외`, "warn");
   else if (!P.sfx) { let n = 0; for (const L of M.seq) for (const p of L.panels) if (p.sf < P.sfmin) n++; if (n) chip(`안전율 미달 ${fmt(n)}판넬도 채굴 계획에 포함됨`, "warn"); }
+  if (ex.econ[0]) chip(`수지 안 맞는 곳 ${fmt(ex.econ[0])}판넬 (${fmt(ex.econ[1] / 1e4)}만t) 제외`, "", PAL.muted);
   if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);
   if (ex.incline[0]) chip(`사갱 보호 광주 ${fmt(ex.incline[0])}판넬 (${fmt(ex.incline[1] / 1e4)}만t) 제외`);
   chip(`다음 편 개설: 윗편 ${fmt(P.trig)}% 채굴 시 연층 사갱 착수`);
@@ -738,8 +763,9 @@ function drawPlan() {
   const L = planLevel(), S = M.S, Pw = M.Pw;
   if (L) {
     for (const p of L.rej) {
-      c.strokeStyle = p.why === "sf" ? PAL.bad : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "sf" ? 0.9 : 0.5;
-      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2; c.strokeRect(x0, y0, w, w);
+      c.strokeStyle = p.why === "sf" ? PAL.bad : p.why === "econ" ? PAL.accent : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "sf" ? 0.9 : p.why === "econ" ? 0.75 : 0.5;
+      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2;
+      if (p.why === "econ") c.setLineDash([2, 2]); c.strokeRect(x0, y0, w, w); c.setLineDash([]);
       if (p.why === "sf") { c.beginPath(); c.moveTo(x0, y0 + w); c.lineTo(x0 + w, y0); c.stroke(); }
     }
     c.globalAlpha = 1;
@@ -793,11 +819,13 @@ function planTip(e) {
   const p = L && L.map.get(Math.floor(x / M.S) + "," + Math.floor(y / M.S));
   if (!p) { tip.hidden = true; return; }
   const when = m => { const y = P.y0 + Math.floor(m / 12), mo = Math.floor(m % 12) + 1; return `${y}.${String(mo).padStart(2, "0")}`; };
-  const why = { sf: `<b style="color:var(--bad)">제외 · 안전율 미달</b>`, cover: "<b>제외 · 지표 피복 부족</b>", incline: "<b>제외 · 사갱 보호 광주</b>" }[p.why];
+  const why = { sf: `<b style="color:var(--bad)">제외 · 안전율 미달</b>`, cover: "<b>제외 · 지표 피복 부족</b>", incline: "<b>제외 · 사갱 보호 광주</b>", econ: "<b>제외 · 수지 안 맞음</b>" }[p.why];
+  const bk = p.blk ? `<br>블록 ${fmt(p.blk.n)}판넬 · ${fmt(p.blk.t / 1e4, 1)}만t · 편 갱도 ${fmt(p.blk.drive)}m · 순이익 <b style="color:${p.blk.val < 0 ? "var(--bad)" : "inherit"}">${fmt(p.blk.val / 1e8, 1)}억원</b>` : "";
+  const cs = p.cost !== undefined ? `<br>진입점에서 ${fmt(p.dist)}m · 원가 ${fmt(p.cost)}원/t` : "";
   tip.innerHTML = (why ? why + "<br>" : "") +
     `CaO <b>${fmt(p.cao, 1)}</b> · MgO <b>${fmt(p.mgo, 1)}</b> · SiO₂ <b>${fmt(p.sio2, 1)}</b> %<br>` +
     `층 안 비율 ${fmt(p.frac * 100)}% · ${fmt(p.t / 1e4, 2)}만t<br>깊이 ${fmt(p.depth)}m · 안전율 <b style="color:${p.sf < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(p.sf, 2)}</b>` +
-    (p.s0 !== null && p.s0 !== undefined ? `<br>채굴 ${when(p.s0)} ~ ${p.s1 !== null ? when(p.s1) : "—"}` : (p.why ? "" : "<br>계획 기간 안에 채굴 안 됨"));
+    cs + bk + (p.s0 !== null && p.s0 !== undefined ? `<br>채굴 ${when(p.s0)} ~ ${p.s1 !== null ? when(p.s1) : "—"}` : (p.why ? "" : "<br>계획 기간 안에 채굴 안 됨"));
   tip.hidden = false;
   const wr = cv.parentElement.getBoundingClientRect(); let lx = e.clientX - wr.left + 14, ly = e.clientY - wr.top + 14;
   if (lx + tip.offsetWidth > wr.width - 4) lx = e.clientX - wr.left - tip.offsetWidth - 10;

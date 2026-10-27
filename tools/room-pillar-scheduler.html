@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>주방식 채굴 스케줄러</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* 작업대 레이아웃: 왼쪽 입력판 + 오른쪽 3D·편 평면도·연차 계획. 갱내 측량도처럼 차분한 석회암 회색에 안전 주황 하나 */
+:root{
+  --bg:#eceeec; --panel:#f9faf9; --sunk:#e3e7e5; --ink:#1b2225; --muted:#5b676b; --line:#d3d9d6;
+  --accent:#d9480f; --ore:#1f6f8b; --ramp:#3b4447; --scene:#dfe4e1; --ghost:#c5ccc9; --pillar:#8d9692; --bad:#c92a2a; --ok:#2f7d4f;
+  --y0:#27346a; --y1:#2c7c97; --y2:#5db095; --y3:#e2c94f;
+  --lvA:#b9cbd3; --lvB:#1f4e5f;
+  --f-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121618; --panel:#1a1f22; --sunk:#14191b; --ink:#e2e8e5; --muted:#95a19d; --line:#2b3337;
+    --accent:#ff7b3a; --ore:#56b3d3; --ramp:#c9d1ce; --scene:#171c1f; --ghost:#353e42; --pillar:#6f7975; --bad:#ff6b6b; --ok:#5cc489;
+    --y0:#4a5fb0; --y1:#3a9cb8; --y2:#6cc3a3; --y3:#f0d865;
+    --lvA:#2f4a55; --lvB:#9fd0e0;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121618; --panel:#1a1f22; --sunk:#14191b; --ink:#e2e8e5; --muted:#95a19d; --line:#2b3337;
+  --accent:#ff7b3a; --ore:#56b3d3; --ramp:#c9d1ce; --scene:#171c1f; --ghost:#353e42; --pillar:#6f7975; --bad:#ff6b6b; --ok:#5cc489;
+  --y0:#4a5fb0; --y1:#3a9cb8; --y2:#6cc3a3; --y3:#f0d865;
+  --lvA:#2f4a55; --lvB:#9fd0e0;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 32px}
+.num,output,td,.kpi .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin-bottom:12px}
+header.top h1{font-size:20px;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.top p{margin:0;color:var(--muted);font-size:13px}
+.tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:1px 7px;border-radius:999px;border:1px solid var(--accent);color:var(--accent)}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;min-width:0}
+.kpi .k{font-size:11.5px;color:var(--muted)}
+.kpi .v{font-size:19px;font-weight:500;white-space:nowrap}
+.kpi .d{font-size:11.5px;color:var(--muted)}
+.status{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;font-size:12.5px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;background:var(--sunk);border:1px solid var(--line);color:var(--muted)}
+.chip.warn{border-color:var(--bad);color:var(--bad)}
+.chip i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px;align-items:start}
+aside.inputs{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:4px 12px 12px;position:sticky;top:max(8px,env(safe-area-inset-top,0px));max-height:calc(100vh - 16px);overflow:auto}
+fieldset{border:0;border-top:1px solid var(--line);margin:8px 0 0;padding:8px 0 0}
+fieldset:first-child{border-top:0}
+legend{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--muted);padding:0}
+.sl{display:grid;grid-template-columns:1fr 100px;grid-template-rows:auto auto;column-gap:8px;margin-top:6px}
+.sl label{font-size:13px;grid-column:1}
+.sl output{grid-column:2;grid-row:1;text-align:right;font-size:12.5px}
+.sl input{grid-column:1/3;width:100%;margin:2px 0 0;accent-color:var(--accent)}
+.derived{font-size:12px;color:var(--muted);margin-top:8px;background:var(--sunk);border-radius:4px;padding:6px 8px}
+.derived b{color:var(--ink);font-weight:600}
+.opt{display:flex;align-items:center;gap:6px;font-size:13px;margin-top:8px}
+select{font:inherit;font-size:13px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px}
+main.work{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.card h2{font-size:14px;font-weight:600;margin:0}
+.card .head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;padding:10px 12px 0}
+.card .sub{font-size:12px;color:var(--muted)}
+.stage{position:relative;height:min(62vh,560px);min-height:340px;border-radius:var(--r) var(--r) 0 0;overflow:hidden;background:var(--scene)}
+#view{width:100%;height:100%;display:block;touch-action:none}
+.hud{position:absolute;top:8px;left:8px;right:8px;display:flex;flex-wrap:wrap;gap:4px;pointer-events:none}
+.hud>*{pointer-events:auto}
+button,.tg{font:inherit;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:3px 9px;cursor:pointer}
+button:hover,.tg:hover{border-color:var(--muted)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tg{display:inline-flex;align-items:center;gap:4px}
+.tg input{margin:0;accent-color:var(--accent)}
+.legend{position:absolute;left:8px;bottom:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:11.5px;max-width:calc(100% - 16px)}
+.legend .bar{height:8px;width:180px;max-width:100%;border-radius:2px;margin:3px 0 1px}
+.legend .ends{display:flex;justify-content:space-between;font-family:var(--f-mono)}
+.legend .cats{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px}
+.legend .cats span{display:inline-flex;align-items:center;gap:4px}
+.legend .cats i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.timebar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.timebar .when{font-size:16px;font-weight:600}
+.timebar .when small{display:block;font-size:12px;font-weight:400;color:var(--muted)}
+.timebar input{width:100%;accent-color:var(--accent)}
+.timebar .now{grid-column:1/3;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--muted)}
+.timebar .now b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+.grid2{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px}
+.planwrap{position:relative;padding:8px 12px 12px}
+#plan{width:100%;display:block;border-radius:4px;cursor:crosshair}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:12px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.12);min-width:150px}
+.tip b{font-weight:600}
+.chartwrap{padding:8px 12px 12px}
+#chart{width:100%;height:220px;display:block}
+.tablewrap{overflow:auto;max-height:340px;margin:8px 12px 12px;border:1px solid var(--line);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:4px 8px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--sunk);font-weight:600;font-size:12px;color:var(--muted)}
+th:first-child,td:first-child,th.lvls{text-align:left}
+td.lvls{text-align:left;font-family:var(--f-body)}
+tr.cur td{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+td.neg{color:var(--bad)}
+.notes{padding:4px 12px 12px;font-size:12.5px;color:var(--muted)}
+.notes ul{margin:6px 0 0;padding-left:18px;display:grid;gap:3px}
+.notes b{color:var(--ink);font-weight:600}
+.err{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--muted)}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid2{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:820px){
+  .layout{grid-template-columns:minmax(0,1fr)}
+  aside.inputs{position:static;max-height:none;order:2}
+  main.work{order:1}
+}
+@media (max-width:480px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:17px}.stage{height:56vh}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>주방식 채굴 스케줄러</h1>
+  <span class="tag">가상 자료</span>
+  <p>석회석 갱내 광산 · 시추 42공 → 광체 추정 → 필러·편 설계 → 월 단위 채굴 순서 → 현금흐름</p>
+</header>
+
+<div class="kpis" aria-live="polite">
+  <div class="kpi"><div class="k">가채 광량</div><div class="v" id="k-ton">—</div><div class="d" id="k-ton-d"></div></div>
+  <div class="kpi"><div class="k">평균 품위 (CaO)</div><div class="v" id="k-cao">—</div><div class="d" id="k-cao-d"></div></div>
+  <div class="kpi"><div class="k">가행 기간</div><div class="v" id="k-life">—</div><div class="d" id="k-life-d"></div></div>
+  <div class="kpi"><div class="k">총 회수율</div><div class="v" id="k-rec">—</div><div class="d" id="k-rec-d"></div></div>
+  <div class="kpi"><div class="k">최저 필러 안전율</div><div class="v" id="k-sf">—</div><div class="d" id="k-sf-d"></div></div>
+  <div class="kpi"><div class="k">NPV</div><div class="v" id="k-npv">—</div><div class="d" id="k-npv-d"></div></div>
+</div>
+<div class="status" id="status"></div>
+
+<div class="layout">
+  <aside class="inputs" aria-label="설계 입력값">
+    <form id="params" onsubmit="return false"></form>
+  </aside>
+
+  <main class="work">
+    <section class="card">
+      <div class="stage">
+        <canvas id="view" aria-label="갱내 채굴 3D 화면. 끌어서 돌리고 휠로 확대"></canvas>
+        <div class="hud" role="group" aria-label="보기">
+          <button type="button" id="v-iso" aria-pressed="true">비스듬히</button>
+          <button type="button" id="v-strike">주향 방향(단면)</button>
+          <button type="button" id="v-top">위에서</button>
+          <label class="tg"><input type="checkbox" id="t-terrain" checked>지형</label>
+          <label class="tg"><input type="checkbox" id="t-holes" checked>시추공</label>
+          <label class="tg"><input type="checkbox" id="t-future">남은 판넬</label>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="timebar">
+        <button type="button" id="play" aria-label="재생">▶ 재생</button>
+        <div>
+          <div class="when" id="when">—</div>
+          <input type="range" id="time" min="0" max="100" step="1" value="0" aria-label="시점(월)">
+        </div>
+        <div class="now" id="now"></div>
+      </div>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <div class="head">
+          <h2>편 평면도</h2>
+          <label class="sub" for="lvsel">편 <select id="lvsel"></select></label>
+        </div>
+        <div class="planwrap">
+          <canvas id="plan" aria-label="선택한 편의 판넬과 필러 배치"></canvas>
+          <div class="tip" id="tip" hidden></div>
+        </div>
+      </section>
+      <section class="card">
+        <div class="head">
+          <h2>연도별 생산량</h2>
+          <span class="sub">편별 누적 막대 · 점선 = 목표</span>
+        </div>
+        <div class="chartwrap"><svg id="chart" role="img" aria-label="연도별 편별 생산량"></svg></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="head"><h2>연차 채굴 계획</h2><span class="sub">행을 누르면 그해 말로 이동</span></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>연도</th><th>생산 (만t)</th><th class="lvls">작업 편</th><th>CaO %</th><th>MgO %</th><th>SiO₂ %</th><th>누계 (만t)</th><th>램프 굴진 (m)</th><th>현금흐름 (억원)</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="head"><h2>모델 가정</h2></div>
+      <div class="notes">
+        <ul>
+          <li><b>가상 자료.</b> 숨은 '참' 광체(주향 N30°E, 남동 16° 경사, 두께 40~75m 석회석층, 상·하반 셰일)에서 시추 42공을 3m 구간으로 뽑았습니다. 남동부에 백운석화(MgO↑) 구역, 서부 층 중간에 셰일 협재(SiO₂↑)를 넣었습니다. 화면의 광체는 '참' 모델이 아니라 시추공으로 추정한 결과입니다.</li>
+          <li><b>광체 추정.</b> 시추공마다 CaO 40% 이상 구간으로 상·하반 경계를 읽고, 하반면 = 평면 추세 + 역거리 잔차, 두께 = 역거리 보간. 품위는 층 안 상대 위치(하반 0 ~ 상반 1)가 같은 시료끼리 역거리 가중(최대 8공, 450m).</li>
+          <li><b>희석.</b> 채굴고 중 층 밖으로 나간 부분은 셰일(CaO 6, MgO 2.4, SiO₂ 56)로 섞어 품위를 다시 계산합니다. 층 안 비율이 50% 미만이면 판넬을 만들지 않습니다.</li>
+          <li><b>판넬 = 필러 1개 + 둘레 갱도.</b> 필러 간격이 격자, 모든 편이 같은 격자를 써서 상·하 필러가 수직으로 겹칩니다. 판넬 톤 = (간격² − 필러²) × 채굴고 × 비중.</li>
+          <li><b>필러 안전율.</b> 하중 = 지류면적법 σp = ρgh × 간격²/필러². 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러폭/채굴고) (Obert–Duvall). 깊이 h는 판넬 중심의 지표에서 채굴고 중간까지.</li>
+          <li><b>램프.</b> 갱구에서 광체 무게중심까지 진입 후 반경 25m 나선으로 편마다 연결(개념 배치). 편당 접속 갱도 40m 가산. 편은 램프가 닿고 「편 개발 선행」 개월이 지나야 채굴 시작.</li>
+          <li><b>채굴 순서.</b> 편은 하향식(위→아래) 또는 상향식, 동시에 N개 편. 편 안에서는 램프에서 가까운 판넬부터(전진식). 매달 목표량을 위 편부터 편당 상한까지 배분.</li>
+          <li><b>한계.</b> 수직공만 가정, 블록 모델·변동성 분석 없음, 필러 회수(후퇴 채굴)·충전·환기·배수 미반영. 단가는 모두 가정값이라 슬라이더로 바꿔 보는 용도입니다.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+// ── 0. 공통 ──
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 0) => v.toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const cssv = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const X1 = 1200, Y1 = 1000;                                  // 작업 범위(m) — 동 0~1200, 북 0~1000
+const CLAIM = { x0: 100, x1: 1150, y0: 80, y1: 940 };          // 광구(경위도선 구획이라 직사각형)
+const BASE_EL = 140, TOP_EL = 600;                            // 편 바닥 표고 기준·상한
+const SHALE = { cao: 6, mgo: 2.4, sio2: 56 };                  // 희석 물질(셰일) 평균 품위
+
+// ── 1. 가상 자료: 숨은 '참' 모델 → 지형·시추공 ──
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(20261027);
+const gn = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+function terrainZ(x, y) {
+  const g = Math.exp(-0.5 * (((x - 640) / 380) ** 2 + ((y - 560) / 300) ** 2));
+  return 250 + 250 * g + 22 * Math.sin(x / 150 + 0.7) * Math.cos(y / 190 - 0.3) + 12 * Math.sin((x + y) / 95);
+}
+const DIP = 16 * Math.PI / 180, DAZ = 120 * Math.PI / 180, DDX = Math.sin(DAZ), DDY = Math.cos(DAZ);
+const fwTrue = (x, y) => 330 - Math.tan(DIP) * ((x - 600) * DDX + (y - 500) * DDY) + 9 * Math.sin(x / 110 + 1.3) + 7 * Math.cos(y / 130);
+const thTrue = (x, y) => 58 + 16 * Math.sin(x / 260 + 0.4) * Math.cos(y / 200) + 6 * Math.sin(y / 90);
+function gradeTrue(x, y, z) {
+  const fw = fwTrue(x, y), r = (z - fw) / thTrue(x, y);
+  if (r < 0 || r > 1) return { cao: Math.max(0.5, SHALE.cao + 2 * gn()), mgo: Math.max(0.3, SHALE.mgo + 0.4 * gn()), sio2: SHALE.sio2 + 3 * gn() };
+  let cao = 52.8, mgo = 0.9, sio2 = 2.2;
+  const m = 7.5 * Math.exp(-((x - 860) ** 2 + (y - 640) ** 2) / (2 * 120 * 120)) * (0.65 + 0.35 * Math.sin(r * 3));
+  mgo += m; cao -= 1.45 * m;                                                    // 백운석화
+  const wib = clamp((720 - x) / 150, 0, 1);
+  if (wib > 0 && r > 0.46 && r < 0.54) { sio2 += 20 * wib; cao -= 26 * wib; mgo += 0.8 * wib; }   // 셰일 협재
+  const e = Math.min(r, 1 - r); if (e < 0.07) { const f = (0.07 - e) / 0.07; sio2 += 7 * f; cao -= 9 * f; }  // 접촉부 불순
+  cao += 0.9 * gn(); mgo += 0.25 * Math.abs(gn()); sio2 += 0.6 * gn();
+  return { cao: Math.min(55.5, cao), mgo: Math.max(0.2, mgo), sio2: Math.max(0.3, sio2) };
+}
+const HOLES = [];
+for (let i = 0, n = 1; i < 7; i++) for (let j = 0; j < 6; j++, n++) {
+  const x = 170 + i * 150 + (rnd() - 0.5) * 70, y = 140 + j * 150 + (rnd() - 0.5) * 70, z = terrainZ(x, y);
+  const bot = Math.min(z - 60, fwTrue(x, y) - 20), depth = Math.ceil((z - bot) / 3) * 3, s = [];
+  for (let d = 0; d < depth; d += 3) { const g = gradeTrue(x, y, z - d - 1.5); s.push({ from: d, to: d + 3, cao: +g.cao.toFixed(1), mgo: +g.mgo.toFixed(2), sio2: +g.sio2.toFixed(1) }); }
+  HOLES.push({ id: "DH-" + String(n).padStart(2, "0"), x, y, z, depth, s });
+}
+
+// ── 2. 시추 해석 · 광체 추정 ──
+for (const h of HOLES) {
+  const ok = h.s.map(q => q.cao >= 40); let a = -1, b = -1;
+  for (let i = 0; i < ok.length - 1; i++) if (ok[i] && ok[i + 1]) { a = i; break; }
+  for (let i = ok.length - 1; i > 0; i--) if (ok[i] && ok[i - 1]) { b = i; break; }
+  h.hasOre = a >= 0;
+  if (h.hasOre) { h.a = a; h.b = b; h.hwZ = h.z - h.s[a].from; h.fwZ = h.z - h.s[b].to; h.trunc = a === 0; }
+}
+const ORE_HOLES = HOLES.filter(h => h.hasOre);
+function solve3(A, b) {
+  const M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < 3; c++) { let p = c; for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < 3; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; } }
+  return M.map((r, i) => r[3] / r[i]);
+}
+function fitPlane(pts) {
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
+  for (const p of pts) { const v = [1, p.x, p.y]; for (let i = 0; i < 3; i++) { b[i] += v[i] * p.v; for (let j = 0; j < 3; j++) A[i][j] += v[i] * v[j]; } }
+  const c = solve3(A, b); return (x, y) => c[0] + c[1] * x + c[2] * y;
+}
+function idw(x, y, pts, fallback, range = 500, nmax = 8) {
+  const c = []; for (const p of pts) { const d = Math.hypot(p.x - x, p.y - y); if (d <= range) c.push([d, p.v]); }
+  if (!c.length) return fallback; c.sort((a, b) => a[0] - b[0]);
+  let w = 0, s = 0; for (const [d, v] of c.slice(0, nmax)) { const wi = 1 / Math.max(20, d) ** 2; w += wi; s += wi * v; } return s / w;
+}
+const fwPlane = fitPlane(ORE_HOLES.map(h => ({ x: h.x, y: h.y, v: h.fwZ })));
+const fwRes = ORE_HOLES.map(h => ({ x: h.x, y: h.y, v: h.fwZ - fwPlane(h.x, h.y) }));
+const thPts = ORE_HOLES.filter(h => !h.trunc).map(h => ({ x: h.x, y: h.y, v: h.hwZ - h.fwZ }));
+const thMean = thPts.reduce((a, p) => a + p.v, 0) / thPts.length;
+const fwEst = (x, y) => fwPlane(x, y) + idw(x, y, fwRes, 0);
+const thEst = (x, y) => idw(x, y, thPts, thMean);
+for (const h of ORE_HOLES) {                                   // 층 안 상대 위치별 품위 단면
+  const th = h.trunc ? Math.max(h.hwZ - h.fwZ, thEst(h.x, h.y)) : h.hwZ - h.fwZ, pr = [];
+  for (let i = h.a; i <= h.b; i++) { const q = h.s[i]; pr.push({ r: (h.z - (q.from + q.to) / 2 - h.fwZ) / th, cao: q.cao, mgo: q.mgo, sio2: q.sio2 }); }
+  pr.sort((p, q) => p.r - q.r); h.prof = pr;
+}
+function holeGrade(h, r) {
+  const p = h.prof; if (r < p[0].r - 0.04 || r > p[p.length - 1].r + 0.04) return null;
+  if (r <= p[0].r) return p[0]; if (r >= p[p.length - 1].r) return p[p.length - 1];
+  let i = 1; while (p[i].r < r) i++; const f = (r - p[i - 1].r) / (p[i].r - p[i - 1].r), L = (k) => p[i - 1][k] + f * (p[i][k] - p[i - 1][k]);
+  return { cao: L("cao"), mgo: L("mgo"), sio2: L("sio2") };
+}
+function estimate(c, zf, H) {
+  const hw = c.fw + c.th, lo = Math.max(zf, c.fw), hi = Math.min(zf + H, hw), ov = hi - lo;
+  if (ov <= 0 || ov / H < 0.5) return null;
+  const frac = ov / H, r = ((lo + hi) / 2 - c.fw) / c.th, cand = [];
+  for (const h of c.near) { const g = holeGrade(h.h, r); if (g) cand.push([h.d, g]); if (cand.length >= 8) break; }
+  if (!cand.length) return null;
+  let w = 0, cao = 0, mgo = 0, sio2 = 0;
+  for (const [d, g] of cand) { const wi = 1 / Math.max(20, d) ** 2; w += wi; cao += wi * g.cao; mgo += wi * g.mgo; sio2 += wi * g.sio2; }
+  return { frac, cao: frac * cao / w + (1 - frac) * SHALE.cao, mgo: frac * mgo / w + (1 - frac) * SHALE.mgo, sio2: frac * sio2 / w + (1 - frac) * SHALE.sio2 };
+}
+
+// ── 3. 입력값 ──
+const GROUPS = [["design", "설계 · 필러와 편"], ["ground", "지반 · 안전"], ["quality", "품질 기준 (판넬 평균, 희석 후)"], ["prod", "생산 계획"], ["econ", "경제성 (가정)"]];
+const PARAMS = [
+  { id: "lv", g: "design", label: "편 간격", min: 12, max: 40, step: 1, v: 20, u: "m" },
+  { id: "h", g: "design", label: "채굴고 (갱도 높이)", min: 5, max: 20, step: 0.5, v: 12, u: "m" },
+  { id: "s", g: "design", label: "필러 간격 (중심)", min: 15, max: 45, step: 1, v: 25, u: "m" },
+  { id: "p", g: "design", label: "필러 폭", min: 6, max: 30, step: 0.5, v: 12, u: "m" },
+  { id: "ucs", g: "ground", label: "일축압축강도", min: 30, max: 150, step: 5, v: 80, u: "MPa" },
+  { id: "kf", g: "ground", label: "규모 효과 계수", min: 0.3, max: 0.8, step: 0.05, v: 0.5, u: "", d: 2 },
+  { id: "sfmin", g: "ground", label: "최소 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
+  { id: "rho", g: "ground", label: "비중", min: 2.5, max: 2.9, step: 0.01, v: 2.7, u: "", d: 2 },
+  { id: "cover", g: "ground", label: "최소 지표 피복", min: 10, max: 80, step: 5, v: 30, u: "m" },
+  { id: "bnd", g: "ground", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
+  { id: "rp", g: "ground", label: "램프 보호 반경", min: 20, max: 100, step: 5, v: 50, u: "m" },
+  { id: "cao", g: "quality", label: "CaO 이상", min: 40, max: 54, step: 0.5, v: 48, u: "%", d: 1 },
+  { id: "mgo", g: "quality", label: "MgO 이하", min: 1, max: 8, step: 0.1, v: 3.0, u: "%", d: 1 },
+  { id: "sio2", g: "quality", label: "SiO₂ 이하", min: 2, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
+  { id: "ann", g: "prod", label: "연간 생산량", min: 20, max: 300, step: 5, v: 100, u: "만t" },
+  { id: "nlv", g: "prod", label: "동시 작업 편 수", min: 1, max: 5, step: 1, v: 2, u: "개" },
+  { id: "lcap", g: "prod", label: "편당 최대 생산", min: 10, max: 150, step: 5, v: 60, u: "만t/년" },
+  { id: "ramp1", g: "prod", label: "첫해 생산 비율", min: 20, max: 100, step: 5, v: 60, u: "%" },
+  { id: "grade", g: "prod", label: "램프 경사", min: 8, max: 17, step: 0.5, v: 12, u: "%", d: 1 },
+  { id: "rate", g: "prod", label: "램프 굴진 속도", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
+  { id: "lead", g: "prod", label: "편 개발 선행", min: 0, max: 12, step: 1, v: 4, u: "개월" },
+  { id: "price", g: "econ", label: "판매가", min: 8000, max: 25000, step: 500, v: 14000, u: "원/t" },
+  { id: "opex", g: "econ", label: "운영비 (채광·운반·관리)", min: 4000, max: 16000, step: 250, v: 8500, u: "원/t" },
+  { id: "devc", g: "econ", label: "램프 굴진비", min: 100, max: 600, step: 10, v: 250, u: "만원/m" },
+  { id: "capex", g: "econ", label: "초기 투자", min: 0, max: 500, step: 10, v: 150, u: "억원" },
+  { id: "disc", g: "econ", label: "할인율", min: 3, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
+  { id: "y0", g: "econ", label: "착공 연도", min: 2026, max: 2035, step: 1, v: 2027, u: "", raw: true },
+];
+const form = $("params");
+for (const [g, title] of GROUPS) {
+  const fs = document.createElement("fieldset"); fs.innerHTML = `<legend>${title}</legend>`;
+  for (const p of PARAMS.filter(q => q.g === g)) {
+    const row = document.createElement("div"); row.className = "sl";
+    row.innerHTML = `<label for="p-${p.id}">${p.label}</label><output id="o-${p.id}" for="p-${p.id}"></output><input type="range" id="p-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}">`;
+    fs.appendChild(row);
+  }
+  if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
+  if (g === "ground") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx" checked>안전율 미달 판넬은 캐지 않음</label>`);
+  if (g === "prod") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-order">편 순서 <select id="p-order"><option value="down">하향식 (위 편부터)</option><option value="up">상향식 (아래 편부터)</option></select></label>`);
+  form.appendChild(fs);
+}
+function readP() {
+  const P = {}; for (const p of PARAMS) P[p.id] = +$("p-" + p.id).value;
+  P.sfx = $("p-sfx").checked; P.order = $("p-order").value; return P;
+}
+function showOutputs() {
+  for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); }
+}
+
+// ── 4. 설계: 편 · 판넬 · 필러 · 램프 ──
+let COLS = null, COLS_S = 0, COLS_B = -1;
+function columns(S, bnd) {
+  if (COLS && COLS_S === S && COLS_B === bnd) return COLS;
+  const out = [], nx = Math.floor(X1 / S), ny = Math.floor(Y1 / S);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+    const x = (i + 0.5) * S, y = (j + 0.5) * S;
+    if (x - S / 2 < CLAIM.x0 + bnd || x + S / 2 > CLAIM.x1 - bnd || y - S / 2 < CLAIM.y0 + bnd || y + S / 2 > CLAIM.y1 - bnd) continue;
+    const near = ORE_HOLES.map(h => ({ h, d: Math.hypot(h.x - x, h.y - y) })).filter(o => o.d <= 450).sort((a, b) => a.d - b.d);
+    out.push({ i, j, x, y, fw: fwEst(x, y), th: thEst(x, y), tz: terrainZ(x, y), near });
+  }
+  COLS = out; COLS_S = S; COLS_B = bnd; return out;
+}
+function design(P) {
+  const warn = []; let H = P.h, S = P.s, Pw = P.p;
+  if (H > P.lv - 3) { H = P.lv - 3; warn.push(`채굴고를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 3m)`); }
+  if (Pw > S - 4) { Pw = S - 4; warn.push(`필러 폭을 ${fmt(Pw, 1)}m로 줄여 계산 (갱도 폭 최소 4m)`); }
+  const cols = columns(S, P.bnd), all = [];
+  for (let zf = BASE_EL; zf <= TOP_EL; zf += P.lv) {
+    const cand = [], rej = [];
+    for (const c of cols) {
+      if (c.tz < zf + H) continue;
+      const e = estimate(c, zf, H); if (!e) continue;
+      if (!(e.cao >= P.cao && e.mgo <= P.mgo && e.sio2 <= P.sio2)) continue;
+      const depth = c.tz - (zf + H / 2), p = { i: c.i, j: c.j, x: c.x, y: c.y, zf, ...e, depth, t: (S * S - Pw * Pw) * H * P.rho };
+      const sp = P.rho * 9.81 * depth / 1000 * S * S / (Pw * Pw), st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H); p.sf = st / sp;
+      if (c.tz - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
+    }
+    if (cand.length || rej.length) all.push({ zf, cand, rej });
+  }
+  let sx = 0, sy = 0, sw = 0; for (const L of all) for (const p of L.cand) { sx += p.x * p.t; sy += p.y * p.t; sw += p.t; }
+  const R = sw ? { x: sx / sw, y: sy / sw } : { x: 600, y: 500 };
+  let px = 0; while (px < R.x - 150 && terrainZ(px, R.y) < 370) px += 5;   // 갱구: 서쪽 사면 EL.370 부근
+  const PORTAL = { x: px, y: R.y, z: terrainZ(px, R.y) };
+  for (const L of all) {
+    L.panels = []; L.map = new Map();
+    for (const p of L.cand) {
+      if (Math.hypot(p.x - R.x, p.y - R.y) < P.rp) { p.why = "ramp"; L.rej.push(p); }
+      else if (P.sfx && p.sf < P.sfmin) { p.why = "sf"; L.rej.push(p); }
+      else L.panels.push(p);
+    }
+    for (const p of L.panels) p.dist = Math.hypot(p.x - R.x, p.y - R.y);
+    L.panels.sort((a, b) => a.dist - b.dist);
+    for (const p of [...L.panels, ...L.rej]) L.map.set(p.i + "," + p.j, p);
+    L.tot = L.panels.reduce((a, p) => a + p.t, 0);
+  }
+  return { S, H, Pw, all, levels: all.filter(L => L.panels.length), R, PORTAL, warn };
+}
+
+// ── 5. 스케줄: 월 단위 ──
+function schedule(D, P) {
+  const seq = [...D.levels].sort((a, b) => P.order === "down" ? b.zf - a.zf : a.zf - b.zf), g = P.grade / 100;
+  let cum = 0;
+  seq.forEach((L, k) => {
+    const len = k === 0 ? Math.max(Math.hypot(D.PORTAL.x - D.R.x, D.PORTAL.y - D.R.y), Math.abs(D.PORTAL.z - L.zf) / g) : Math.abs(L.zf - seq[k - 1].zf) / g + 40;
+    cum += len; L.devCum = cum; L.access = cum / P.rate; L.ready = L.access + P.lead; L.rem = L.tot; L.ptr = 0; L.seq = k;
+    L.name = `EL.${L.zf}`;
+    for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; }
+  });
+  const devTot = cum, start = seq.length ? Math.ceil(seq[0].ready) : 0, years = [];
+  const yr = y => years[y] || (years[y] = { y, cal: P.y0 + y, t: 0, cao: 0, mgo: 0, sio2: 0, lv: new Float64Array(seq.length), dev: 0, cf: 0, target: 0 });
+  const r = P.disc / 100; let npv = -P.capex * 1e8, m = 0, end = start, left = seq.reduce((a, L) => a + L.tot, 0);
+  const MAXM = 12 * 80;
+  for (; m < MAXM; m++) {
+    const Y = yr(Math.floor(m / 12)), devM = clamp(devTot - P.rate * m, 0, P.rate);
+    Y.dev += devM; let cf = -devM * P.devc * 1e4;
+    if (m >= start && left > 1) {
+      let target = P.ann * 1e4 / 12 * (m < start + 12 ? P.ramp1 / 100 : 1); Y.target += target;
+      const act = seq.filter(L => L.ready <= m && L.rem > 1).slice(0, P.nlv);
+      for (const L of act) {
+        const take = Math.min(P.lcap * 1e4 / 12, target, L.rem); if (take <= 0) continue;
+        let used = 0;
+        while (used < take - 1e-6 && L.ptr < L.panels.length) {
+          const p = L.panels[L.ptr], d = Math.min(p.t - p.done, take - used);
+          if (p.s0 === null) p.s0 = m + used / take;
+          p.done += d; used += d;
+          Y.cao += d * p.cao; Y.mgo += d * p.mgo; Y.sio2 += d * p.sio2;
+          if (p.done >= p.t - 1e-6) { p.s1 = m + used / take; L.ptr++; }
+        }
+        L.rem -= used; left -= used; target -= used; Y.t += used; Y.lv[L.seq] += used;
+        cf += used * (P.price - P.opex);
+        end = m + 1;
+      }
+    }
+    Y.cf += cf; npv += cf / Math.pow(1 + r, (m + 0.5) / 12);
+    if (left <= 1 && m >= Math.ceil(devTot / P.rate)) break;
+  }
+  let lastP = start; for (const L of seq) for (const p of L.panels) if (p.s1 !== null) lastP = Math.max(lastP, p.s1);
+  const ys = years.slice(0, Math.floor((lastP - 1e-6) / 12) + 1).map((Y, i) => Y || yr(i));
+  ys[0].cf -= P.capex * 1e8;
+  let c = 0, pay = null; ys.forEach(Y => { const prev = c; c += Y.cf; Y.cum = c; if (pay === null && prev < 0 && c >= 0) pay = Y.cal; });
+  return { seq, years: ys, start, end: lastP, devTot, npv, pay };
+}
+
+// ── 6. 계산 묶음 ──
+let M = null, T = 0, P = null;
+function recompute() {
+  P = readP();
+  const D = design(P), S = schedule(D, P);
+  M = { ...D, ...S };
+  const tot = M.seq.reduce((a, L) => a + L.tot, 0), mined = M.seq.reduce((a, L) => a + L.tot - Math.max(0, L.rem), 0);
+  let gc = 0, minSF = Infinity, minAt = null;
+  for (const L of M.seq) for (const p of L.panels) { gc += p.t * p.cao; if (p.sf < minSF) { minSF = p.sf; minAt = L.name; } }
+  M.tot = tot; M.mined = mined; M.avgCao = tot ? gc / tot : 0; M.minSF = minSF; M.minAt = minAt;
+  const ext = 1 - (D.Pw * D.Pw) / (D.S * D.S), vert = D.H / P.lv; M.ext = ext; M.vert = vert;
+  $("derived").innerHTML = `갱도 폭 <b>${fmt(D.S - D.Pw, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>평면 회수 <b>${fmt(ext * 100)}%</b> × 수직 회수 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
+  // 제외 집계
+  const ex = { sf: [0, 0], cover: [0, 0], ramp: [0, 0] };
+  for (const L of M.all) for (const p of L.rej) { ex[p.why][0]++; ex[p.why][1] += p.t; }
+  const st = $("status"); st.innerHTML = "";
+  const chip = (txt, cls = "", col = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.innerHTML = (col ? `<i style="background:${col}"></i>` : "") + txt; st.appendChild(s); };
+  chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
+  if (ex.sf[0]) chip(`안전율 ${fmt(P.sfmin, 1)} 미달 ${fmt(ex.sf[0])}판넬 (${fmt(ex.sf[1] / 1e4)}만t) 제외`, "warn");
+  else if (!P.sfx) { let n = 0; for (const L of M.seq) for (const p of L.panels) if (p.sf < P.sfmin) n++; if (n) chip(`안전율 미달 ${fmt(n)}판넬도 채굴 계획에 포함됨`, "warn"); }
+  if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);
+  if (ex.ramp[0]) chip(`램프 보호 ${fmt(ex.ramp[0])}판넬 (${fmt(ex.ramp[1] / 1e4)}만t) 제외`);
+  for (const w of M.warn) chip(w, "warn");
+  const short = M.years.filter((Y, i) => i > 0 && i < M.years.length - 1 && Y.target > 0 && Y.t < Y.target * 0.97).length;
+  if (short) chip(`목표 미달 ${short}개 연도 (작업 편 수·편당 상한 또는 개발 속도 부족)`, "warn");
+  kpis(); buildLevels(); build3D();
+  const sl = $("time"); sl.max = Math.max(1, Math.ceil(M.end) + 1);
+  if (!recompute.did) { T = Math.round(M.start + 0.4 * (M.end - M.start)); recompute.did = true; }
+  T = clamp(T, 0, +sl.max); sl.value = T; applyTime();
+}
+function kpis() {
+  const lifeY = (M.end - M.start) / 12;
+  $("k-ton").textContent = fmt(M.tot / 1e4) + " 만t"; $("k-ton-d").textContent = `판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`;
+  $("k-cao").textContent = fmt(M.avgCao, 1) + " %"; $("k-cao-d").textContent = `기준 ${fmt(P.cao, 1)}% 이상`;
+  $("k-life").textContent = fmt(lifeY, 1) + " 년"; $("k-life-d").textContent = M.seq.length ? `${P.y0 + Math.floor(M.start / 12)} ~ ${P.y0 + Math.floor((M.end - 1e-6) / 12)}년` : "—";
+  $("k-rec").textContent = fmt(M.ext * M.vert * 100) + " %"; $("k-rec-d").textContent = `평면 ${fmt(M.ext * 100)}% × 수직 ${fmt(M.vert * 100)}%`;
+  $("k-sf").textContent = isFinite(M.minSF) ? fmt(M.minSF, 2) : "—"; $("k-sf-d").textContent = M.minAt ? `${M.minAt} · 기준 ${fmt(P.sfmin, 1)}` : "";
+  $("k-sf").style.color = M.minSF < P.sfmin ? "var(--bad)" : "";
+  $("k-npv").textContent = fmt(M.npv / 1e8) + " 억원"; $("k-npv").style.color = M.npv < 0 ? "var(--bad)" : "";
+  $("k-npv-d").textContent = `할인율 ${fmt(P.disc, 1)}%` + (M.pay ? ` · 회수 ${M.pay}년` : " · 회수 못 함");
+}
+
+// ── 7. 색 ──
+function hex2rgb(h) { const n = parseInt(h.replace("#", ""), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }
+let PAL = {};
+function readPal() {
+  for (const k of ["bg", "panel", "sunk", "ink", "muted", "line", "accent", "ore", "ramp", "scene", "ghost", "pillar", "bad", "ok", "y0", "y1", "y2", "y3", "lvA", "lvB"]) PAL[k] = cssv("--" + k) || "#888888";
+}
+function yearRGB(f) {
+  const st = [PAL.y0, PAL.y1, PAL.y2, PAL.y3].map(hex2rgb), x = clamp(f, 0, 1) * 3, i = Math.min(2, Math.floor(x)), t = x - i;
+  return st[i].map((v, k) => v + t * (st[i + 1][k] - v));
+}
+const rgbCss = c => `rgb(${c.map(v => Math.round(v * 255)).join(",")})`;
+function lvRGB(k, n) { const a = hex2rgb(PAL.lvA), b = hex2rgb(PAL.lvB), t = n > 1 ? k / (n - 1) : 0.5; return a.map((v, i) => v + t * (b[i] - v)); }
+const panelYearF = p => (p.s1 - M.start) / Math.max(1, M.end - M.start);
+
+// ── 8. 3D ──
+const W3 = { ok: false };
+const P3 = (x, y, z) => new THREE.Vector3(x - 600, z - 300, -(y - 500));
+function init3D() {
+  try {
+    const cv = $("view");
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(36, 1, 5, 20000);
+    const controls = new THREE.OrbitControls(camera, cv); controls.enableDamping = true; controls.dampingFactor = 0.12;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x5d665f, 0.8));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(-700, 900, 400); scene.add(sun);
+    Object.assign(W3, { ok: true, renderer, scene, camera, controls });
+    // 지형
+    const n = 61, m = 51, pos = [], idx = [];
+    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) { const x = i * 20, y = j * 20, p = P3(x, y, terrainZ(x, y)); pos.push(p.x, p.y, p.z); }
+    for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) { const a = i * m + j, b = (i + 1) * m + j; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    const tg = new THREE.BufferGeometry(); tg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); tg.setIndex(idx); tg.computeVertexNormals();
+    W3.terrainMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
+    W3.terrain = new THREE.Mesh(tg, W3.terrainMat); W3.terrain.renderOrder = 10; scene.add(W3.terrain);
+    const wl = new THREE.LineSegments(new THREE.WireframeGeometry(tg), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.12 }));
+    W3.terrainWire = wl; W3.terrain.add(wl);
+    // 광구
+    const cp = [], edge = [[CLAIM.x0, CLAIM.y0], [CLAIM.x1, CLAIM.y0], [CLAIM.x1, CLAIM.y1], [CLAIM.x0, CLAIM.y1], [CLAIM.x0, CLAIM.y0]];
+    for (let k = 0; k < 4; k++) { const [ax, ay] = edge[k], [bx, by] = edge[k + 1], L = Math.hypot(bx - ax, by - ay); for (let s = 0; s <= L; s += 20) { const x = ax + (bx - ax) * s / L, y = ay + (by - ay) * s / L; cp.push(P3(x, y, terrainZ(x, y) + 2)); } }
+    W3.claim = new THREE.Line(new THREE.BufferGeometry().setFromPoints(cp), new THREE.LineDashedMaterial({ dashSize: 12, gapSize: 8 })); W3.claim.computeLineDistances(); scene.add(W3.claim);
+    // 시추공
+    const hp = []; for (const h of HOLES) for (const q of h.s) { const a = P3(h.x, h.y, h.z - q.from), b = P3(h.x, h.y, h.z - q.to); hp.push(a.x, a.y, a.z, b.x, b.y, b.z); }
+    const hg = new THREE.BufferGeometry(); hg.setAttribute("position", new THREE.Float32BufferAttribute(hp, 3)); hg.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(hp.length), 3));
+    W3.holes = new THREE.LineSegments(hg, new THREE.LineBasicMaterial({ vertexColors: true })); scene.add(W3.holes);
+    new ResizeObserver(resize3D).observe(cv);
+    resize3D(); setView("v-iso");
+    (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+  } catch (e) {
+    $("view").hidden = true; const d = document.createElement("div"); d.className = "err";
+    d.textContent = "이 브라우저에서 3D 화면을 열 수 없습니다. 평면도·표·그래프는 그대로 쓸 수 있습니다."; $("view").parentElement.appendChild(d);
+  }
+}
+function resize3D() {
+  if (!W3.ok) return; const cv = W3.renderer.domElement, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+  W3.renderer.setSize(w, h, false); W3.camera.aspect = w / h; W3.camera.updateProjectionMatrix();
+}
+function theme3D() {
+  if (!W3.ok) return;
+  W3.renderer.setClearColor(new THREE.Color(PAL.scene));
+  W3.terrainMat.color.set(PAL.pillar); W3.terrainWire.material.color.set(PAL.ink);
+  W3.claim.material.color.set(PAL.accent);
+  if (W3.ramp) W3.ramp.material.color.set(PAL.ramp);
+  if (W3.portal) W3.portal.material.color.set(PAL.accent);
+}
+function holeColors() {
+  if (!P) return;
+  if (!W3.ok) return; const a = W3.holes.geometry.getAttribute("color"), ore = hex2rgb(PAL.ore), no = hex2rgb(PAL.muted); let k = 0;
+  for (const h of HOLES) for (const q of h.s) { const c = (q.cao >= P.cao && q.mgo <= P.mgo && q.sio2 <= P.sio2) ? ore : no; for (let r = 0; r < 2; r++) { a.array[k++] = c[0]; a.array[k++] = c[1]; a.array[k++] = c[2]; } }
+  a.needsUpdate = true;
+}
+function build3D() {
+  if (!W3.ok) return;
+  const { scene } = W3;
+  for (const o of [W3.rooms, W3.pillars, W3.ramp, W3.portal]) if (o) { scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
+  const list = []; for (const L of M.seq) for (const p of L.panels) list.push(p);
+  W3.list = list; const n = list.length, S = M.S, Pw = M.Pw, H = M.H, g = 0.5, wR = (S - Pw) / 2, off = Pw / 2 + wR / 2;
+  const box = new THREE.BoxGeometry(1, 1, 1), mat = new THREE.MeshLambertMaterial();
+  W3.rooms = new THREE.InstancedMesh(box, mat, Math.max(1, 4 * n)); W3.pillars = new THREE.InstancedMesh(box.clone(), new THREE.MeshLambertMaterial(), Math.max(1, n));
+  W3.roomM = new Float32Array(16 * 4 * n); W3.pilM = new Float32Array(16 * n);
+  const o = new THREE.Object3D(), put = (arr, k, x, y, z, sx, sy, sz) => { o.position.copy(P3(x, y, z)); o.scale.set(sx, sy, sz); o.updateMatrix(); o.matrix.toArray(arr, k * 16); };
+  list.forEach((p, k) => {
+    const zc = p.zf + H / 2;
+    put(W3.roomM, 4 * k, p.x, p.y + off, zc, S - g, H, wR - g);
+    put(W3.roomM, 4 * k + 1, p.x, p.y - off, zc, S - g, H, wR - g);
+    put(W3.roomM, 4 * k + 2, p.x + off, p.y, zc, wR - g, H, Pw);
+    put(W3.roomM, 4 * k + 3, p.x - off, p.y, zc, wR - g, H, Pw);
+    put(W3.pilM, k, p.x, p.y, zc, Pw, H, Pw);
+  });
+  const c = new THREE.Color(); for (let k = 0; k < 4 * n; k++) W3.rooms.setColorAt(k, c); for (let k = 0; k < n; k++) W3.pillars.setColorAt(k, c);
+  scene.add(W3.rooms, W3.pillars);
+  // 램프: 갱구 → 무게중심 → 편 순서대로 나선
+  const R = M.R, rad = 25, gr = P.grade / 100, pts = [P3(M.PORTAL.x, M.PORTAL.y, M.PORTAL.z - 3)], marks = [0];
+  let th = Math.PI, len = 0; const push = v => { len += v.distanceTo(pts[pts.length - 1]); pts.push(v); };
+  if (M.seq.length) {
+    const z0 = M.seq[0].zf, a = pts[0].clone(), b = P3(R.x + rad * Math.cos(th), R.y + rad * Math.sin(th), z0);
+    for (let s = 1; s <= 12; s++) push(a.clone().lerp(b, s / 12));
+    marks.push(len);
+    for (let k = 1; k < M.seq.length; k++) {
+      const za = M.seq[k - 1].zf, zb = M.seq[k].zf, ang = Math.abs(zb - za) / (rad * gr), steps = Math.max(4, Math.ceil(ang / 0.25));
+      for (let s = 1; s <= steps; s++) { th += ang / steps; push(P3(R.x + rad * Math.cos(th), R.y + rad * Math.sin(th), za + (zb - za) * s / steps)); }
+      marks.push(len);
+    }
+  }
+  W3.rampMarks = marks; W3.rampLen = len;
+  const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal"), segs = Math.max(16, pts.length * 2);
+  W3.ramp = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, 3.2, 6, false), new THREE.MeshLambertMaterial()); W3.rampSegs = segs; scene.add(W3.ramp);
+  W3.portal = new THREE.Mesh(new THREE.SphereGeometry(9, 16, 12), new THREE.MeshLambertMaterial()); W3.portal.position.copy(pts[0]); scene.add(W3.portal);
+  theme3D(); holeColors();
+}
+function time3D() {
+  if (!W3.ok || !W3.list) return;
+  const showF = $("t-future").checked, R = W3.rooms, Pm = W3.pillars, rm = R.instanceMatrix.array, pm = Pm.instanceMatrix.array, rc = R.instanceColor.array, pc = Pm.instanceColor.array;
+  const ac = hex2rgb(PAL.accent), gh = hex2rgb(PAL.ghost), pl = hex2rgb(PAL.pillar);
+  W3.list.forEach((p, k) => {
+    const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined, vis = mined || act || showF;
+    const col = mined ? yearRGB(panelYearF(p)) : act ? ac : gh;
+    for (let q = 0; q < 4; q++) { const base = (4 * k + q) * 16; if (vis) rm.set(W3.roomM.subarray(base, base + 16), base); else rm.fill(0, base, base + 16); rc.set(col, (4 * k + q) * 3); }
+    if (vis) pm.set(W3.pilM.subarray(16 * k, 16 * k + 16), 16 * k); else pm.fill(0, 16 * k, 16 * k + 16);
+    pc.set(mined || act ? pl : gh, 3 * k);
+  });
+  R.instanceMatrix.needsUpdate = Pm.instanceMatrix.needsUpdate = true; R.instanceColor.needsUpdate = Pm.instanceColor.needsUpdate = true;
+  // 램프 굴진 진행
+  let L = 0; const mk = W3.rampMarks;
+  for (let k = 0; k < M.seq.length; k++) { const a0 = k ? M.seq[k - 1].access : 0, a1 = M.seq[k].access; if (T >= a1) L = mk[k + 1]; else { L = mk[k] + (mk[k + 1] - mk[k]) * clamp((T - a0) / Math.max(1e-6, a1 - a0), 0, 1); break; } }
+  const f = W3.rampLen ? L / W3.rampLen : 0; W3.ramp.geometry.setDrawRange(0, Math.floor(f * W3.rampSegs) * 6 * 6);
+}
+const VIEWS = {
+  "v-iso": () => [new THREE.Vector3(-0.75, 0.62, 0.55), 1.25],
+  "v-strike": () => [new THREE.Vector3(-Math.sin(30 * Math.PI / 180), 0.08, Math.cos(30 * Math.PI / 180)), 1.25],
+  "v-top": () => [new THREE.Vector3(0.001, 1, 0.0001), 1.15],
+};
+function setView(id) {
+  if (!W3.ok) return;
+  const [dir, k] = VIEWS[id](), tgt = M ? P3(M.R.x, M.R.y, 330) : P3(600, 500, 330);
+  W3.controls.target.copy(tgt); W3.camera.position.copy(tgt).add(dir.normalize().multiplyScalar(1300 * k)); W3.controls.update();
+  for (const b of Object.keys(VIEWS)) $(b).setAttribute("aria-pressed", String(b === id));
+}
+
+// ── 9. 편 평면도 ──
+let planManual = false;
+function buildLevels() {
+  const sel = $("lvsel"), keep = sel.value; sel.innerHTML = `<option value="auto">지금 캐는 편</option>`;
+  for (const L of [...M.all].sort((a, b) => b.zf - a.zf)) { const o = document.createElement("option"); o.value = String(L.zf); o.textContent = `EL.${L.zf}` + (L.panels.length ? ` · ${fmt(L.tot / 1e4)}만t` : " · 채굴 없음"); sel.appendChild(o); }
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "auto";
+}
+function planLevel() {
+  const v = $("lvsel").value;
+  if (v !== "auto") return M.all.find(L => String(L.zf) === v);
+  const act = M.seq.find(L => L.panels.some(p => p.s0 !== null && p.s0 <= T && (p.s1 === null || p.s1 > T)));
+  if (act) return act;
+  const done = M.seq.filter(L => L.panels.some(p => p.s1 !== null && p.s1 <= T));
+  return done.length ? done[done.length - 1] : M.seq[0];
+}
+let CONT = null;
+function contours() {
+  if (CONT) return CONT; const d = 20, n = 61, m = 51, Z = (i, j) => terrainZ(i * d, j * d), segs = [];
+  for (let lv = 260; lv <= 540; lv += 20) for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) {
+    const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], z = c.map(([a, b]) => Z(a, b)), pts = [];
+    for (let e = 0; e < 4; e++) { const a = e, b = (e + 1) % 4; if ((z[a] < lv) !== (z[b] < lv)) { const t = (lv - z[a]) / (z[b] - z[a]); pts.push([(c[a][0] + t * (c[b][0] - c[a][0])) * d, (c[a][1] + t * (c[b][1] - c[a][1])) * d]); } }
+    if (pts.length >= 2) segs.push([lv, pts[0], pts[1]]); if (pts.length === 4) segs.push([lv, pts[2], pts[3]]);
+  }
+  return CONT = segs;
+}
+function drawPlan() {
+  const cv = $("plan"), W = cv.parentElement.clientWidth - 24; if (W <= 0) return;
+  const H = Math.round(W * Y1 / X1), dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.style.height = H + "px"; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sc = W / X1, X = x => x * sc, Y = y => (Y1 - y) * sc; cv._sc = sc;
+  c.fillStyle = PAL.sunk; c.fillRect(0, 0, W, H);
+  // 지형 등고선
+  for (const [lv, a, b] of contours()) { c.strokeStyle = PAL.muted; c.globalAlpha = lv % 100 === 0 ? 0.45 : 0.18; c.lineWidth = lv % 100 === 0 ? 1 : 0.7; c.beginPath(); c.moveTo(X(a[0]), Y(a[1])); c.lineTo(X(b[0]), Y(b[1])); c.stroke(); }
+  c.globalAlpha = 1;
+  // 광구
+  c.setLineDash([6, 4]); c.strokeStyle = PAL.accent; c.lineWidth = 1.2; c.strokeRect(X(CLAIM.x0), Y(CLAIM.y1), (CLAIM.x1 - CLAIM.x0) * sc, (CLAIM.y1 - CLAIM.y0) * sc); c.setLineDash([]);
+  c.fillStyle = PAL.accent; c.font = `600 11px ${cssv("--f-body")}`; c.fillText("광구 경계", X(CLAIM.x0) + 4, Y(CLAIM.y1) + 13);
+  const L = planLevel(), S = M.S, Pw = M.Pw;
+  if (L) {
+    for (const p of L.rej) {
+      c.strokeStyle = p.why === "sf" ? PAL.bad : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "sf" ? 0.9 : 0.5;
+      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2; c.strokeRect(x0, y0, w, w);
+      if (p.why === "sf") { c.beginPath(); c.moveTo(x0, y0 + w); c.lineTo(x0 + w, y0); c.stroke(); }
+    }
+    c.globalAlpha = 1;
+    const ac = PAL.accent, gh = PAL.ghost, pl = PAL.pillar;
+    for (const p of L.panels) {
+      const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined;
+      c.fillStyle = mined ? rgbCss(yearRGB(panelYearF(p))) : act ? ac : gh;
+      c.fillRect(X(p.x - S / 2) + 0.5, Y(p.y + S / 2) + 0.5, S * sc - 1, S * sc - 1);
+      c.fillStyle = mined || act ? pl : PAL.sunk; c.globalAlpha = mined || act ? 1 : 0.7;
+      c.fillRect(X(p.x - Pw / 2), Y(p.y + Pw / 2), Pw * sc, Pw * sc); c.globalAlpha = 1;
+    }
+  }
+  // 램프·갱구
+  const R = M.R; c.strokeStyle = PAL.ramp; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(X(M.PORTAL.x), Y(M.PORTAL.y)); c.lineTo(X(R.x - 25), Y(R.y)); c.stroke();
+  c.beginPath(); c.arc(X(R.x), Y(R.y), 25 * sc, 0, Math.PI * 2); c.stroke();
+  c.setLineDash([3, 3]); c.lineWidth = 1; c.beginPath(); c.arc(X(R.x), Y(R.y), P.rp * sc, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+  c.fillStyle = PAL.accent; c.beginPath(); const gx = X(M.PORTAL.x), gy = Y(M.PORTAL.y); c.moveTo(gx, gy - 7); c.lineTo(gx + 6, gy + 5); c.lineTo(gx - 6, gy + 5); c.closePath(); c.fill();
+  c.fillStyle = PAL.ink; c.font = `500 11px ${cssv("--f-body")}`; c.fillText(`갱구 EL.${Math.round(M.PORTAL.z)}`, gx + 8, gy + 4); c.fillText("램프", X(R.x) + 28 * sc + 2, Y(R.y) - 4);
+  // 시추공
+  for (const h of HOLES) { c.fillStyle = h.hasOre ? PAL.ore : PAL.muted; c.beginPath(); c.arc(X(h.x), Y(h.y), 2.6, 0, Math.PI * 2); c.fill(); }
+  // 축척·방위
+  const bar = 200 * sc, bx = W - bar - 14, by = H - 14;
+  c.strokeStyle = PAL.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + bar, by); c.moveTo(bx, by - 4); c.lineTo(bx, by); c.moveTo(bx + bar, by - 4); c.lineTo(bx + bar, by); c.stroke();
+  c.fillStyle = PAL.ink; c.font = `500 10.5px ${cssv("--f-mono")}`; c.fillText("200 m", bx + bar / 2 - 15, by - 6);
+  c.beginPath(); c.moveTo(W - 18, 12); c.lineTo(W - 23, 26); c.lineTo(W - 13, 26); c.closePath(); c.fill(); c.fillText("N", W - 22, 38);
+  c.font = `600 12px ${cssv("--f-body")}`; c.fillStyle = PAL.ink;
+  if (L) c.fillText(`EL.${L.zf} 편  ·  ${L.panels.length ? `판넬 ${L.panels.length}개 · ${fmt(L.tot / 1e4)}만t` : "채굴 판넬 없음"}`, 8, H - 10);
+}
+function planTip(e) {
+  const cv = $("plan"), tip = $("tip"), r = cv.getBoundingClientRect(), sc = cv._sc; if (!sc || !M) return;
+  const x = (e.clientX - r.left) / sc, y = Y1 - (e.clientY - r.top) / sc, L = planLevel();
+  const p = L && L.map.get(Math.floor(x / M.S) + "," + Math.floor(y / M.S));
+  if (!p) { tip.hidden = true; return; }
+  const when = m => { const y = P.y0 + Math.floor(m / 12), mo = Math.floor(m % 12) + 1; return `${y}.${String(mo).padStart(2, "0")}`; };
+  const why = { sf: `<b style="color:var(--bad)">제외 · 안전율 미달</b>`, cover: "<b>제외 · 지표 피복 부족</b>", ramp: "<b>제외 · 램프 보호 구역</b>" }[p.why];
+  tip.innerHTML = (why ? why + "<br>" : "") +
+    `CaO <b>${fmt(p.cao, 1)}</b> · MgO <b>${fmt(p.mgo, 1)}</b> · SiO₂ <b>${fmt(p.sio2, 1)}</b> %<br>` +
+    `층 안 비율 ${fmt(p.frac * 100)}% · ${fmt(p.t / 1e4, 2)}만t<br>깊이 ${fmt(p.depth)}m · 안전율 <b style="color:${p.sf < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(p.sf, 2)}</b>` +
+    (p.s0 !== null && p.s0 !== undefined ? `<br>채굴 ${when(p.s0)} ~ ${p.s1 !== null ? when(p.s1) : "—"}` : (p.why ? "" : "<br>계획 기간 안에 채굴 안 됨"));
+  tip.hidden = false;
+  const wr = cv.parentElement.getBoundingClientRect(); let lx = e.clientX - wr.left + 14, ly = e.clientY - wr.top + 14;
+  if (lx + tip.offsetWidth > wr.width - 4) lx = e.clientX - wr.left - tip.offsetWidth - 10;
+  if (ly + tip.offsetHeight > wr.height - 4) ly = e.clientY - wr.top - tip.offsetHeight - 10;
+  tip.style.left = lx + "px"; tip.style.top = ly + "px";
+}
+
+// ── 10. 그래프 · 표 · 범례 ──
+function drawChart() {
+  const svg = $("chart"), Wd = svg.clientWidth || 600, Hd = 220, pad = { l: 44, r: 10, t: 20, b: 24 }, ys = M.years, n = ys.length;
+  if (!n) { svg.innerHTML = ""; return; }
+  const maxV = Math.max(P.ann * 1.1, ...ys.map(Y => Y.t / 1e4)) * 1.08;
+  const x = i => pad.l + (Wd - pad.l - pad.r) * (i + 0.5) / n, y = v => pad.t + (Hd - pad.t - pad.b) * (1 - v / maxV), bw = Math.max(2, (Wd - pad.l - pad.r) / n * 0.72);
+  const step = maxV > 400 ? 100 : maxV > 160 ? 50 : 25; let s = "";
+  for (let v = 0; v <= maxV; v += step) s += `<line x1="${pad.l}" x2="${Wd - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="${PAL.line}" stroke-width="1"/><text x="${pad.l - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="10.5" fill="${PAL.muted}" font-family="${cssv("--f-mono")}">${v}</text>`;
+  s += `<text x="${pad.l}" y="10" text-anchor="start" font-size="10" fill="${PAL.muted}">단위 만t</text>`;
+  const cy = Math.floor(T / 12), nl = M.seq.length;
+  ys.forEach((Y, i) => {
+    let acc = 0;
+    for (let k = 0; k < nl; k++) { const v = Y.lv[k] / 1e4; if (v <= 0) continue; s += `<rect x="${x(i) - bw / 2}" y="${y(acc + v)}" width="${bw}" height="${Math.max(0.5, y(acc) - y(acc + v))}" fill="${rgbCss(lvRGB(k, nl))}"><title>${Y.cal}년 · ${M.seq[k].name} ${fmt(v, 1)}만t</title></rect>`; acc += v; }
+    if (i === cy) s += `<rect x="${x(i) - bw / 2 - 2}" y="${y(acc) - 2}" width="${bw + 4}" height="${y(0) - y(acc) + 2}" fill="none" stroke="${PAL.accent}" stroke-width="1.5"/>`;
+    if (n <= 12 || i % Math.ceil(n / 10) === 0) s += `<text x="${x(i)}" y="${Hd - 6}" text-anchor="middle" font-size="10.5" fill="${PAL.muted}" font-family="${cssv("--f-mono")}">${Y.cal}</text>`;
+  });
+  const tp = ys.map((Y, i) => Y.target > 0 ? `${x(i) - bw / 2},${y(Y.target / 1e4)} ${x(i) + bw / 2},${y(Y.target / 1e4)}` : null);
+  tp.forEach(p => { if (p) s += `<polyline points="${p}" fill="none" stroke="${PAL.ink}" stroke-width="1.2" stroke-dasharray="3 2"/>`; });
+  svg.setAttribute("viewBox", `0 0 ${Wd} ${Hd}`); svg.innerHTML = s;
+}
+function drawTable() {
+  const tb = $("tbody"), cy = Math.floor(T / 12); let cum = 0, h = "";
+  M.years.forEach((Y, i) => {
+    cum += Y.t; const lv = M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.zf).join(", ");
+    const g = k => Y.t ? fmt(Y[k] / Y.t, k === "mgo" ? 2 : 1) : "—";
+    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv ? "EL." + lv : (Y.dev ? "개발" : "—")}</td><td>${g("cao")}</td><td>${g("mgo")}</td><td>${g("sio2")}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
+  });
+  tb.innerHTML = h;
+}
+function drawLegend() {
+  const el = $("legend"), y0 = P.y0 + Math.floor(M.start / 12), y1 = P.y0 + Math.floor((M.end - 1e-6) / 12);
+  const grad = `linear-gradient(90deg,${[0, 1 / 3, 2 / 3, 1].map(f => rgbCss(yearRGB(f))).join(",")})`;
+  el.innerHTML = `<div>캔 연도</div><div class="bar" style="background:${grad}"></div><div class="ends"><span>${y0}</span><span>${y1}</span></div>
+  <div class="cats"><span><i style="background:${PAL.accent}"></i>채굴 중</span><span><i style="background:${PAL.pillar}"></i>필러</span><span><i style="background:${PAL.ghost}"></i>남은 판넬</span><span><i style="background:${PAL.ore}"></i>시추 품위 충족</span></div>`;
+}
+
+// ── 11. 시간 ──
+function applyTime() {
+  if (!M) return;
+  const y = P.y0 + Math.floor(T / 12), mo = Math.floor(T % 12) + 1, py = Math.floor((T - M.start) / 12) + 1;
+  const phase = T < M.start ? "램프 개발" : T >= M.end ? "채굴 종료" : `생산 ${py}년차`;
+  $("when").innerHTML = `${y}년 ${mo}월<small>${phase}</small>`;
+  let cum = 0, act = new Set(); for (const L of M.seq) for (const p of L.panels) { if (p.s1 !== null && p.s1 <= T) cum += p.t; else if (p.s0 !== null && p.s0 <= T) { cum += p.t * clamp((T - p.s0) / Math.max(1e-6, p.s1 - p.s0), 0, 1); act.add(L.zf); } }
+  const dev = Math.min(M.devTot, P.rate * T);
+  $("now").innerHTML = `누적 생산 <b>${fmt(cum / 1e4)}만t</b> · 남은 광량 <b>${fmt((M.tot - cum) / 1e4)}만t</b> · 작업 편 <b>${act.size ? [...act].sort((a, b) => b - a).map(z => "EL." + z).join(", ") : "—"}</b> · 램프 <b>${fmt(dev)} / ${fmt(M.devTot)}m</b>`;
+  time3D(); drawPlan(); drawChart(); drawTable(); drawLegend();
+}
+const slider = $("time"), playBtn = $("play"); let timer = null;
+slider.addEventListener("input", () => { T = +slider.value; applyTime(); });
+function stop() { clearInterval(timer); timer = null; playBtn.textContent = "▶ 재생"; }
+playBtn.addEventListener("click", () => {
+  if (timer) return stop();
+  if (T >= +slider.max) T = 0;
+  playBtn.textContent = "❚❚ 멈춤";
+  timer = setInterval(() => { T = Math.min(+slider.max, T + 1); slider.value = T; applyTime(); if (T >= +slider.max) stop(); }, 70);
+});
+$("tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr) return; T = clamp(+tr.dataset.y * 12 + 11.99, 0, +slider.max); slider.value = Math.round(T); applyTime(); });
+$("lvsel").addEventListener("change", drawPlan);
+$("plan").addEventListener("mousemove", planTip); $("plan").addEventListener("mouseleave", () => { $("tip").hidden = true; });
+for (const id of Object.keys(VIEWS)) $(id).addEventListener("click", () => setView(id));
+$("t-terrain").addEventListener("change", e => { if (W3.ok) W3.terrain.visible = e.target.checked; });
+$("t-holes").addEventListener("change", e => { if (W3.ok) W3.holes.visible = e.target.checked; });
+$("t-future").addEventListener("change", time3D);
+let pend = null;
+form.addEventListener("input", () => { showOutputs(); clearTimeout(pend); pend = setTimeout(recompute, 90); });
+form.addEventListener("change", () => { clearTimeout(pend); pend = setTimeout(recompute, 30); });
+new ResizeObserver(() => { if (M) { drawPlan(); drawChart(); } }).observe(document.querySelector("main.work"));
+function onTheme() { readPal(); theme3D(); holeColors(); if (M) applyTime(); }
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
+new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+readPal(); showOutputs(); init3D(); recompute(); setView("v-iso");
+</script>
+</body>
+</html>

@@ -203,9 +203,9 @@ td.neg{color:var(--bad)}
         <ul>
           <li><b>가상 자료.</b> 숨은 '참' 광체(주향 N30°E, 남동 16° 경사, 두께 40~75m 석회석층, 상·하반 셰일)에서 시추 42공을 3m 구간으로 뽑았습니다. 남동부에 백운석화(MgO↑) 구역, 서부 층 중간에 셰일 협재(SiO₂↑)를 넣었습니다. 화면의 광체는 '참' 모델이 아니라 시추공으로 추정한 결과입니다.</li>
           <li><b>광체 추정.</b> 시추공마다 CaO 40% 이상 구간으로 상·하반 경계를 읽고, 하반면 = 평면 추세 + 역거리 잔차, 두께 = 역거리 보간. 품위는 층 안 상대 위치(하반 0 ~ 상반 1)가 같은 시료끼리 역거리 가중(최대 8공, 450m).</li>
-          <li><b>희석.</b> 채굴고 중 층 밖으로 나간 부분은 셰일(CaO 6, MgO 2.4, SiO₂ 56)로 섞어 품위를 다시 계산합니다. 층 안 비율이 50% 미만이면 판넬을 만들지 않습니다.</li>
-          <li><b>판넬 = 필러 1개 + 둘레 갱도.</b> 필러 간격이 격자, 모든 편이 같은 격자를 써서 상·하 필러가 수직으로 겹칩니다. 판넬 톤 = (간격² − 필러²) × 채굴고 × 비중.</li>
-          <li><b>필러 안전율.</b> 하중 = 지류면적법 σp = ρgh × 간격²/필러². 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러폭/채굴고) (Obert–Duvall). 깊이 h는 판넬 중심의 지표에서 채굴고 중간까지.</li>
+          <li><b>희석.</b> 갱도 높이 중 층 밖으로 나간 부분은 셰일(CaO 6, MgO 2.4, SiO₂ 56)로 섞어 품위를 다시 계산합니다. 층 안 비율이 50% 미만이면 판넬을 만들지 않습니다.</li>
+          <li><b>판넬 = 필러 1개 + 둘레 갱도.</b> 필러 간격(필러 폭 + 갱도 폭)이 격자, 모든 편이 같은 격자를 써서 상·하 필러가 수직으로 겹칩니다. 판넬 톤 = (간격² − 필러²) × 갱도 높이 × 비중.</li>
+          <li><b>필러 안전율.</b> 하중 = 지류면적법 σp = ρgh × 간격²/필러². 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러폭/갱도 높이) (Obert–Duvall). 깊이 h는 판넬 중심의 지표에서 갱도 높이 중간까지.</li>
           <li><b>1편 진입 = 수평갱.</b> 맨 위 채굴 편을 1편으로 하고, 산 사면에서 1편 표고와 같은 높이(광구 안)에서 1편 광체까지 가장 짧은 수평갱을 뚫습니다. 수평갱이 닿는 곳이 1편 진입점입니다.</li>
           <li><b>아래 편 = 연층 사갱으로 개설.</b> 윗편 채굴률이 「다음 편 개설」 값을 넘으면 다음 달부터 윗편 진입점(갱구 쪽)에서 광체 안으로 층을 따라 사갱을 내려 다음 편을 엽니다. 편 간격 ÷ sin(사갱 경사)만큼 굴진하고, 막장이 닿은 뒤 「편 개발 선행」 개월이 지나야 채굴합니다. 사갱은 편마다 한 구간씩 이어져 진입점이 경사 아래로 내려갑니다.</li>
           <li><b>사갱 방향.</b> 한 구간은 정한 경사로 편 간격만큼 내려가므로 수평 거리 = 편 간격 ÷ tan(경사)입니다. 그 거리에서 아랫편 광체에 닿는 지점 중 갱구와 그 편 광체 중심에 함께 가까운 곳으로 방향을 잡습니다(갱구 부근에서 내리되 광체를 벗어나지 않게). 광체에 못 닿으면 모자라는 거리만큼 편 갱도를 더 팝니다. 사갱 경사는 시추공으로 추정한 층 경사를 넘을 수 없게 했습니다. 운반 방식별 경사 한계(일반값, 가정): 벨트 컨베이어 16°, 궤도 권양 25°, 트럭 8°.</li>
@@ -319,10 +319,10 @@ function estimate(c, zf, H) {
 // ── 3. 입력값 ──
 const GROUPS = [["design", "설계 · 필러와 편"], ["haul", "편 개설 · 수평갱과 연층 사갱"], ["ground", "지반 · 안전"], ["quality", "품질 기준 (판넬 평균, 희석 후)"], ["prod", "생산 계획"], ["econ", "경제성 (가정)"]];
 const PARAMS = [
-  { id: "lv", g: "design", label: "편 간격", min: 12, max: 40, step: 1, v: 20, u: "m" },
-  { id: "h", g: "design", label: "채굴고 (갱도 높이)", min: 5, max: 20, step: 0.5, v: 12, u: "m" },
-  { id: "s", g: "design", label: "필러 간격 (중심)", min: 15, max: 45, step: 1, v: 25, u: "m" },
   { id: "p", g: "design", label: "필러 폭", min: 6, max: 30, step: 0.5, v: 12, u: "m" },
+  { id: "h", g: "design", label: "갱도 높이", min: 5, max: 20, step: 0.5, v: 12, u: "m" },
+  { id: "w", g: "design", label: "갱도 폭", min: 4, max: 25, step: 0.5, v: 13, u: "m" },
+  { id: "lv", g: "design", label: "편 간격", min: 12, max: 40, step: 1, v: 20, u: "m" },
   { id: "trig", g: "haul", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
   { id: "ia", g: "haul", label: "사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
   { id: "iw", g: "haul", label: "사갱 보호 폭 (한쪽)", min: 10, max: 50, step: 5, v: 20, u: "m" },
@@ -387,9 +387,8 @@ function columns(S, bnd) {
   COLS = out; COLS_S = S; COLS_B = bnd; return out;
 }
 function design(P) {
-  const warn = []; let H = P.h, S = P.s, Pw = P.p;
-  if (H > P.lv - 3) { H = P.lv - 3; warn.push(`채굴고를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 3m)`); }
-  if (Pw > S - 4) { Pw = S - 4; warn.push(`필러 폭을 ${fmt(Pw, 1)}m로 줄여 계산 (갱도 폭 최소 4m)`); }
+  const warn = []; let H = P.h; const Pw = P.p, S = P.p + P.w;            // 필러 간격(중심) = 필러 폭 + 갱도 폭
+  if (H > P.lv - 3) { H = P.lv - 3; warn.push(`갱도 높이를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 3m)`); }
   const cols = columns(S, P.bnd), all = [];
   for (let zf = BASE_EL; zf <= TOP_EL; zf += P.lv) {
     const cand = [], rej = [];
@@ -530,7 +529,7 @@ function recompute() {
   for (const L of M.seq) for (const p of L.panels) { gc += p.t * p.cao; if (p.sf < minSF) { minSF = p.sf; minAt = L.name; } }
   M.tot = tot; M.mined = mined; M.avgCao = tot ? gc / tot : 0; M.minSF = minSF; M.minAt = minAt;
   const ext = 1 - (D.Pw * D.Pw) / (D.S * D.S), vert = D.H / P.lv; M.ext = ext; M.vert = vert;
-  $("derived").innerHTML = `갱도 폭 <b>${fmt(D.S - D.Pw, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>평면 회수 <b>${fmt(ext * 100)}%</b> × 수직 회수 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
+  $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>평면 회수 <b>${fmt(ext * 100)}%</b> × 수직 회수 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
   const I = M.INC, dd = DIPEST.dip * 180 / Math.PI;
   $("incl").innerHTML = `층 자세(추정) 주향 <b>${bearing(DIPEST.az - Math.PI / 2)}</b> · 경사 <b>${fmt(dd, 1)}° → ${bearing(DIPEST.az)}</b><br>1편 수평갱 <b>${fmt(I.aditLen)} m</b> · 갱구 EL.${fmt(I.zTop)} (산 사면)<br>연층 사갱 경사 <b>${fmt(I.ia, 1)}°</b> (${fmt(I.ti * 100)}%, 1:${fmt(1 / I.ti, 1)}) · 구간 ${I.segs.length}개<br>방향: 다음 편 광체 중 갱구 쪽<br>편 간격 ${fmt(P.lv)}m당 사갱 <b>${fmt(P.lv / Math.sin(I.iaR))} m</b> · 굴진 합계 <b>${fmt(M.devTot)} m</b>`;
   // 제외 집계

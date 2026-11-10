@@ -119,41 +119,69 @@ td.neg{color:var(--bad)}
 }
 @media (max-width:480px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:17px}.stage{height:56vh}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+
+.filebar{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.btn{font:inherit;font-size:12.5px;color:var(--panel);background:var(--ink);border:1px solid var(--ink);border-radius:4px;padding:3px 10px;cursor:pointer;display:inline-block}
+.btn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.laywrap{margin-top:8px;border:1px solid var(--line);border-radius:4px;max-height:210px;overflow:auto}
+table.lay{font-size:12px}
+table.lay td,table.lay th{padding:3px 6px;text-align:left;white-space:normal}
+table.lay td.n{font-family:var(--f-mono);color:var(--muted);font-size:11px}
+table.lay select{font-size:12px;padding:1px 3px;max-width:96px}
+details.adv{border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+details.adv>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--muted);padding:2px 0}
+details.adv fieldset:first-of-type{border-top:0}
+.portalbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+#plan.pick{cursor:copy;outline:2px solid var(--accent);outline-offset:-2px}
+.msg{font-size:12px;color:var(--bad);margin-top:6px}
+.step{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:var(--ink);color:var(--panel);font-size:11px;font-family:var(--f-mono);margin-right:5px}
 </style>
 </head>
 <body>
 <header class="top">
   <h1>주방식 채굴 스케줄러</h1>
-  <span class="tag">가상 자료</span>
-  <p>석회석 갱내 광산 · 시추 42공 → 광체 추정 → 필러·편 설계 → 수평갱·연층 사갱으로 편 개설 → 월 단위 채굴 순서 → 현금흐름</p>
+  <span class="tag" id="datatag">예시 자료</span>
+  <p>DXF 지형·광체 불러오기 → 갱구 지정 → 필러·편 설계 → 편별 매장량 → 월 단위 채굴 일정</p>
 </header>
 
 <div class="kpis" aria-live="polite">
+  <div class="kpi"><div class="k">광체 광량 (솔리드)</div><div class="v" id="k-res">—</div><div class="d" id="k-res-d"></div></div>
   <div class="kpi"><div class="k">가채 광량</div><div class="v" id="k-ton">—</div><div class="d" id="k-ton-d"></div></div>
-  <div class="kpi"><div class="k">평균 품위 (CaO)</div><div class="v" id="k-cao">—</div><div class="d" id="k-cao-d"></div></div>
+  <div class="kpi"><div class="k">실제 회수율</div><div class="v" id="k-rec">—</div><div class="d" id="k-rec-d"></div></div>
   <div class="kpi"><div class="k">가행 기간</div><div class="v" id="k-life">—</div><div class="d" id="k-life-d"></div></div>
-  <div class="kpi"><div class="k">실제 회수율 (원광량 대비)</div><div class="v" id="k-rec">—</div><div class="d" id="k-rec-d"></div></div>
-  <div class="kpi"><div class="k">최저 필러 안전율</div><div class="v" id="k-sf">—</div><div class="d" id="k-sf-d"></div></div>
+  <div class="kpi"><div class="k">연평균 생산</div><div class="v" id="k-prod">—</div><div class="d" id="k-prod-d"></div></div>
   <div class="kpi"><div class="k">NPV</div><div class="v" id="k-npv">—</div><div class="d" id="k-npv-d"></div></div>
 </div>
 <div class="status" id="status"></div>
 
 <div class="layout">
-  <aside class="inputs" aria-label="설계 입력값">
+  <aside class="inputs" aria-label="입력">
+    <fieldset>
+      <legend><span class="step">1</span>자료 (DXF)</legend>
+      <div class="filebar">
+        <label class="btn" for="dxf">DXF 불러오기</label><input type="file" id="dxf" accept=".dxf,.DXF" multiple hidden>
+        <button type="button" id="demo">예시 자료</button>
+      </div>
+      <div class="msg" id="filemsg" hidden></div>
+      <div class="laywrap"><table class="lay"><thead><tr><th>레이어</th><th>내용</th><th>쓰임</th></tr></thead><tbody id="layers"></tbody></table></div>
+      <div class="derived" id="datainfo"></div>
+    </fieldset>
     <form id="params" onsubmit="return false"></form>
   </aside>
 
   <main class="work">
     <section class="card">
       <div class="stage">
-        <canvas id="view" aria-label="갱내 채굴 3D 화면. 끌어서 돌리고 휠로 확대"></canvas>
+        <canvas id="view" aria-label="3D 화면. 끌어서 돌리고 휠로 확대"></canvas>
         <div class="hud" role="group" aria-label="보기">
           <button type="button" id="v-iso" aria-pressed="true">비스듬히</button>
-          <button type="button" id="v-strike">주향 방향(단면)</button>
+          <button type="button" id="v-side">옆에서</button>
           <button type="button" id="v-top">위에서</button>
           <label class="tg"><input type="checkbox" id="t-terrain" checked>지형</label>
-          <label class="tg"><input type="checkbox" id="t-holes" checked>시추공</label>
+          <label class="tg"><input type="checkbox" id="t-ore" checked>광체</label>
+          <label class="tg"><input type="checkbox" id="t-cad" checked>지적·광구</label>
           <label class="tg"><input type="checkbox" id="t-future">남은 판넬</label>
+          <label class="tg"><input type="checkbox" id="t-sf">안전율 색</label>
         </div>
         <div class="legend" id="legend"></div>
       </div>
@@ -174,7 +202,7 @@ td.neg{color:var(--bad)}
           <label class="sub" for="lvsel">편 <select id="lvsel"></select></label>
         </div>
         <div class="planwrap">
-          <canvas id="plan" aria-label="선택한 편의 판넬과 필러 배치"></canvas>
+          <canvas id="plan" aria-label="선택한 편의 판넬·필러 배치와 지적 경계. 갱구 지정 모드에서는 눌러서 갱구를 놓음"></canvas>
           <div class="tip" id="tip" hidden></div>
         </div>
       </section>
@@ -188,33 +216,40 @@ td.neg{color:var(--bad)}
     </div>
 
     <section class="card">
+      <div class="head"><h2>편별 매장량</h2><span class="sub">행을 누르면 그 편 평면도</span></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>편</th><th>바닥 EL (m)</th><th>판넬</th><th>가채 (만t)</th><th>광석 (만t)</th><th>희석 %</th><th>최저 안전율</th><th>진입 굴진 (m)</th><th>개설</th><th>채굴 기간</th></tr></thead>
+          <tbody id="lvbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
       <div class="head"><h2>연차 채굴 계획</h2><span class="sub">행을 누르면 그해 말로 이동 <button type="button" id="copycsv">표 복사 (CSV)</button></span></div>
       <textarea id="csvout" hidden readonly aria-label="연차 계획 CSV" style="width:calc(100% - 24px);margin:8px 12px 0;height:90px;font-family:var(--f-mono);font-size:11.5px"></textarea>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>연도</th><th>생산 (만t)</th><th class="lvls">작업 편</th><th>CaO %</th><th>MgO %</th><th>SiO₂ %</th><th>누계 (만t)</th><th title="수평갱·사갱·편 갱도 합">굴진 (m)</th><th>현금흐름 (억원)</th></tr></thead>
+          <thead><tr><th>연도</th><th>생산 (만t)</th><th class="lvls">작업 편</th><th>평균 작업장</th><th>희석 %</th><th>누계 (만t)</th><th title="수평갱·사갱·편 갱도 합">굴진 (m)</th><th>현금흐름 (억원)</th></tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
     </section>
 
     <section class="card">
-      <div class="head"><h2>모델 가정</h2></div>
+      <div class="head"><h2>계산 방법과 한계</h2></div>
       <div class="notes">
         <ul>
-          <li><b>가상 자료.</b> 숨은 '참' 광체(주향 N30°E, 남동 16° 경사, 두께 40~75m 석회석층, 상·하반 셰일)에서 시추 42공을 3m 구간으로 뽑았습니다. 남동부에 백운석화(MgO↑) 구역, 서부 층 중간에 셰일 협재(SiO₂↑)를 넣었습니다. 화면의 광체는 '참' 모델이 아니라 시추공으로 추정한 결과입니다.</li>
-          <li><b>광체 추정.</b> 시추공마다 CaO 40% 이상 구간으로 상·하반 경계를 읽고, 하반면 = 평면 추세 + 역거리 잔차, 두께 = 역거리 보간. 품위는 층 안 상대 위치(하반 0 ~ 상반 1)가 같은 시료끼리 역거리 가중(최대 8공, 450m).</li>
-          <li><b>희석.</b> 갱도 높이 중 층 밖으로 나간 부분은 셰일(CaO 6, MgO 2.4, SiO₂ 56)로 섞어 품위를 다시 계산합니다. 층 안 비율이 50% 미만이면 판넬을 만들지 않습니다.</li>
-          <li><b>판넬 = 필러 1개 + 둘레 갱도.</b> 필러 간격(필러 폭 + 갱도 폭)이 격자, 모든 편이 같은 격자를 써서 상·하 필러가 수직으로 겹칩니다. 판넬 톤 = (간격² − 필러²) × 갱도 높이 × 비중.</li>
-          <li><b>필러 안전율.</b> 하중 = 지류면적법 σp = ρgh × 간격²/필러². 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러폭/갱도 높이) (Obert–Duvall). 깊이 h는 판넬 중심의 지표에서 갱도 높이 중간까지.</li>
-          <li><b>1편 진입 = 수평갱.</b> 맨 위 채굴 편을 1편으로 하고, 산 사면에서 1편 표고와 같은 높이(광구 안)에서 1편 광체까지 가장 짧은 수평갱을 뚫습니다. 수평갱이 닿는 곳이 1편 진입점입니다.</li>
-          <li><b>아래 편 = 연층 사갱으로 개설.</b> 윗편 채굴률이 「다음 편 개설」 값을 넘으면 다음 달부터 윗편 진입점(갱구 쪽)에서 광체 안으로 층을 따라 사갱을 내려 다음 편을 엽니다. 편 간격 ÷ sin(사갱 경사)만큼 굴진하고, 막장이 닿은 뒤 「편 개발 선행」 개월이 지나야 채굴합니다. 사갱은 편마다 한 구간씩 이어져 진입점이 경사 아래로 내려갑니다.</li>
-          <li><b>사갱 방향.</b> 한 구간은 정한 경사로 편 간격만큼 내려가므로 수평 거리 = 편 간격 ÷ tan(경사)입니다. 그 거리에서 아랫편 광체에 닿는 지점 중 갱구와 그 편 광체 중심에 함께 가까운 곳으로 방향을 잡습니다(갱구 부근에서 내리되 광체를 벗어나지 않게). 광체에 못 닿으면 모자라는 거리만큼 편 갱도를 더 팝니다. 사갱 경사는 시추공으로 추정한 층 경사를 넘을 수 없게 했습니다. 운반 방식별 경사 한계(일반값, 가정): 벨트 컨베이어 16°, 궤도 권양 25°, 트럭 8°.</li>
-          <li><b>편 갱도와 보호 광주.</b> 편 갱도는 진입점에서 주향 방향으로 냅니다(평면도 파란 선). 사갱 양쪽 「보호 폭」 안에서 사갱이 지나가는 높이의 판넬은 보호 광주로 남깁니다.</li>
-          <li><b>채굴 순서.</b> 위 편부터, 동시에 최대 N개 편. 편 안에서는 진입점에서 옆 판넬로 번져 가는 경로 거리순으로 캐므로(전진식), 옆 판넬이 열리기 전에 먼저 캐는 판넬이 없습니다. 다음 편이 늦게 열리면 그 사이 생산이 목표에 못 미칩니다. 깊은 편 광석은 사갱을 여러 구간 거쳐 올라오므로 운영비에 「편당 운반비 증가」 × (편 번호 − 1)을 더합니다.</li>
-          <li><b>수지 판단.</b> 판넬 원가 = 운영비 + 편당 운반비 증가 × (편 번호 − 1) + 편 내 운반비 × 진입점에서 경로 거리. 상하좌우로 붙은 판넬을 한 블록으로 묶고, 떨어진 블록은 이미 이어진 판넬이나 진입점 중 가장 가까운 곳에서 편 갱도를 냅니다. 블록 순이익 = Σ톤 × (판매가 − 원가) − 더 파야 할 편 갱도 × 굴진비. 진입점에 붙은 블록은 손해만 아니면 캐고, 떨어져 있는 블록은 「최소 블록 크기」 이상이면서 순이익이 「블록 최소 순이익」 이상일 때만 캡니다(못 미치면 평면도 주황 점선). 순이익은 할인 전 값입니다. 편 갱도 굴진비는 그 블록을 처음 캘 때 현금흐름에서 뺍니다.</li>
-          <li><b>회수율.</b> 「실제 회수율」 = 가채 광량 ÷ 광구 안·최소 피복 아래 석회석층 원광량(시추 추정, 품위 구분 없음). 「판넬 안」 비율은 필러와 수평 필러만 뺀 기하 비율이라 훨씬 높게 나옵니다. 수평 필러는 두께 ÷ 갱도 폭이 기준(가정값)보다 작으면 경고만 띄웁니다.</li>
-          <li><b>한계.</b> 수직공만 가정, 블록 모델·변동성 분석 없음, 사갱 굴진 중 나오는 광석·필러 회수(후퇴 채굴)·충전·환기·배수 미반영, 진입점 근처 편 갱도 굴진비 미포함. 단가는 모두 가정값이라 슬라이더로 바꿔 보는 용도입니다.</li>
+          <li><b>DXF 읽기.</b> 글자(ASCII) DXF의 ENTITIES에서 3DFACE, POLYLINE(3D 선·폴리페이스·메시), LWPOLYLINE, LINE, POINT를 읽습니다. 블록(INSERT) 안 도형, 스플라인, 문자는 읽지 않습니다. 레이어마다 쓰임(지형·광체·광구·지적)을 고르면 다시 계산합니다. 좌표는 도면 좌표 그대로 쓰므로 지형과 광체가 같은 좌표계여야 합니다.</li>
+          <li><b>지형.</b> 지형 레이어의 면(삼각망)은 격자에 그대로 옮기고, 등고선·표고점은 격자 칸마다 8방향에서 가장 가까운 값을 거리 역제곱으로 섞습니다. 표고(Z)가 없는 선은 지형으로 쓸 수 없습니다.</li>
+          <li><b>광체.</b> 광체 레이어의 삼각형 면을 닫힌 솔리드로 봅니다. 수직선을 판넬마다 9개(3×3) 내려 면과 만나는 높이로 광체 구간을 구하고, 지표보다 높은 부분은 잘라 냅니다. 「광체 광량」 = 솔리드 체적(면 부호 체적 합) × 비중이고, 수직선으로 다시 구한 체적과의 차이를 자료 칸에 보여 줍니다. 품위 정보는 없으므로 솔리드 안은 모두 광석으로 봅니다.</li>
+          <li><b>갱구와 편.</b> 갱구는 평면도에서 직접 놓거나 자동으로 잡습니다(광체 꼭대기 한 편 아래 높이의 사면 중 광체에 가장 가까운 곳). 갱구 표고가 1편 바닥이 되고 그 아래로 편 간격마다 편을 둡니다. 갱구보다 높은 광체는 계획에 넣지 않습니다.</li>
+          <li><b>판넬.</b> 판넬 = 필러 1개 + 둘레 갱도. 격자 크기 = 필러 폭 + 갱도 폭, 모든 편이 같은 격자를 써서 상·하 필러가 겹칩니다. 판넬 톤 = (격자² − 필러²) × 갱도 높이 × 비중. 갱도 높이 중 광체 안 비율이 「최소 광체 비율」보다 작으면 판넬을 만들지 않고, 광체 밖 부분은 희석으로 셉니다(매출은 광석분만).</li>
+          <li><b>편 개설.</b> 1편은 갱구에서 가장 가까운 광체까지 수평갱. 아래 편은 윗편 채굴률이 「다음 편 개설」 값을 넘으면 윗편 진입점에서 연층 사갱 한 구간을 내립니다. 구간 수평 거리 = 편 간격 ÷ tan(사갱 경사), 방향은 아랫편 광체에 닿는 곳 중 갱구와 그 편 광체 중심에 가까운 쪽.</li>
+          <li><b>작업장과 일정.</b> 한 달에 「동시 작업장 수」만큼의 판넬에서 각각 「작업장당 월 생산」까지 캡니다. 판넬은 진입점 쪽 옆 판넬이 다 캐져야 열리므로, 편을 막 열었을 때는 작업장을 다 못 채워 생산이 천천히 올라갑니다. 위 편부터 배정하고 연간 목표를 넘기지 않습니다.</li>
+          <li><b>안전율(확인용).</b> 고급 옵션에 일축압축강도를 넣으면 판넬마다 필러 안전율을 계산해 「안전율 색」으로 보여 줍니다. 하중 = ρgh × 격자²/필러²(지류면적법), 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러 폭/갱도 높이). 기본은 표시만 하고, 「미달 판넬 제외」를 켜면 설계에서 뺍니다. 수평 필러는 두께 ÷ 갱도 폭 기준(가정값)으로 경고만 합니다.</li>
+          <li><b>수지 판단.</b> 판넬 원가 = 운영비 + 편당 운반비 증가 × (편 번호 − 1) + 편 내 운반비 × 진입점에서 경로 거리. 떨어진 블록은 가장 가까운 연결점에서 편 갱도를 내고, 순이익이 기준에 못 미치면 캐지 않습니다.</li>
+          <li><b>한계.</b> 품위·블록 모델 없음, 판넬은 수평 슬래브(경사 채굴 아님), 사갱 굴진 광석·필러 회수·충전·환기·배수 미반영. 단가는 모두 가정값입니다.</li>
         </ul>
       </div>
     </section>
@@ -230,211 +265,328 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const fmt = (v, d = 0) => v.toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const cssv = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-const X1 = 1200, Y1 = 1000;                                  // 작업 범위(m) — 동 0~1200, 북 0~1000
-const CLAIM = { x0: 100, x1: 1150, y0: 80, y1: 940 };          // 광구(경위도선 구획이라 직사각형)
-const BASE_EL = 140, TOP_EL = 600;                            // 편 바닥 표고 기준·상한
-const SHALE = { cao: 6, mgo: 2.4, sio2: 56 };                  // 희석 물질(셰일) 평균 품위
+const ROLES = [["none", "안 씀"], ["terrain", "지형"], ["ore", "광체"], ["claim", "광구 경계"], ["cad", "지적 경계"]];
 
-// ── 1. 가상 자료: 숨은 '참' 모델 → 지형·시추공 ──
-function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const rnd = mulberry32(20261027);
-const gn = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+// ── 1. DXF 읽기 ──
+function decodeBuf(buf) {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); }
+  catch (e) { try { return new TextDecoder("euc-kr").decode(buf); } catch (e2) { return new TextDecoder().decode(buf); } }
+}
+function parseDXF(text, file) {
+  if (text.startsWith("AutoCAD Binary DXF")) throw new Error("바이너리 DXF는 읽을 수 없습니다. 글자(ASCII) DXF로 다시 저장해 주세요.");
+  const L = text.split(/\r\n|\r|\n/), layers = new Map(), skipped = {};
+  const lay = n => { n = (n || "0").trim(); let o = layers.get(n); if (!o) { o = { name: n, file, faces: [], lines: [], points: [] }; layers.set(n, o); } return o; };
+  let sec = null, sawSec = false, ent = null, poly = null, nEnt = 0;
+  const fin = () => {
+    const e = ent; ent = null; if (!e) return; const c = e.c, g = k => c[k] || 0; nEnt++;
+    switch (e.t) {
+      case "3DFACE": {
+        const F = lay(e.l).faces, p = [0, 1, 2, 3].map(k => [g(10 + k), g(20 + k), g(30 + k)]);
+        F.push(...p[0], ...p[1], ...p[2]);
+        if (c[13] !== undefined && (p[3][0] !== p[2][0] || p[3][1] !== p[2][1] || p[3][2] !== p[2][2])) F.push(...p[0], ...p[2], ...p[3]);
+        break;
+      }
+      case "LINE": lay(e.l).lines.push({ pts: [[g(10), g(20), g(30)], [g(11), g(21), g(31)]], closed: false }); break;
+      case "POINT": lay(e.l).points.push([g(10), g(20), g(30)]); break;
+      case "LWPOLYLINE": { const z = g(38), pts = e.xs.map((x, k) => [x, e.ys[k] || 0, z]); if (pts.length > 1) lay(e.l).lines.push({ pts, closed: !!(g(70) & 1) }); break; }
+      case "POLYLINE": poly = { l: e.l, f: g(70), z: g(30), m: g(71), n: g(72), v: [], fc: [] }; break;
+      case "VERTEX": if (poly) { const f = g(70); if ((f & 128) && !(f & 64)) poly.fc.push([g(71), g(72), g(73), g(74)]); else poly.v.push([g(10), g(20), (poly.f & 88) ? g(30) : poly.z]); } break;
+      case "SEQEND": if (poly) {
+        const o = lay(poly.l), v = poly.v;
+        if (poly.f & 64) { for (const f of poly.fc) { const q = f.map(k => v[Math.abs(k) - 1]).filter(Boolean); if (q.length >= 3) { o.faces.push(...q[0], ...q[1], ...q[2]); if (q.length === 4) o.faces.push(...q[0], ...q[2], ...q[3]); } } }
+        else if (poly.f & 16) { const Mm = poly.m, Nn = poly.n; for (let a = 0; a < Mm - 1; a++) for (let b = 0; b < Nn - 1; b++) { const p00 = v[a * Nn + b], p01 = v[a * Nn + b + 1], p10 = v[(a + 1) * Nn + b], p11 = v[(a + 1) * Nn + b + 1]; if (p00 && p01 && p10 && p11) o.faces.push(...p00, ...p10, ...p11, ...p00, ...p11, ...p01); } }
+        else if (v.length > 1) o.lines.push({ pts: v, closed: !!(poly.f & 1) });
+        poly = null;
+      } break;
+      default: nEnt--; skipped[e.t] = (skipped[e.t] || 0) + 1;
+    }
+  };
+  for (let i = 0; i + 1 < L.length; i += 2) {
+    const code = parseInt(L[i], 10), val = L[i + 1];
+    if (code === 0) {
+      fin(); const t = val.trim().toUpperCase();
+      if (t === "SECTION") { sawSec = true; sec = "?"; continue; }
+      if (t === "ENDSEC") { sec = null; continue; }
+      if (t === "EOF") break;
+      if (sawSec && sec !== "ENTITIES") continue;
+      ent = { t, l: "0", c: {}, xs: [], ys: [] };
+    } else if (code === 2 && sec === "?") sec = val.trim().toUpperCase();
+    else if (ent) {
+      if (code === 8) ent.l = val;
+      else if (ent.t === "LWPOLYLINE" && code === 10) ent.xs.push(+val);
+      else if (ent.t === "LWPOLYLINE" && code === 20) ent.ys.push(+val);
+      else if ((code >= 10 && code <= 39) || (code >= 70 && code <= 74) || code === 90) ent.c[code] = +val;
+    }
+  }
+  fin();
+  return { layers: [...layers.values()], skipped, nEnt };
+}
+function layerStats(l) {
+  const b = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity };
+  const add = (x, y, z) => { if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y; if (z < b.z0) b.z0 = z; if (z > b.z1) b.z1 = z; };
+  for (let i = 0; i < l.faces.length; i += 3) add(l.faces[i], l.faces[i + 1], l.faces[i + 2]);
+  for (const ln of l.lines) for (const p of ln.pts) add(p[0], p[1], p[2]);
+  for (const p of l.points) add(p[0], p[1], p[2]);
+  l.bbox = b; l.nf = l.faces.length / 9; l.nl = l.lines.length; l.np = l.points.length; l.closed = l.lines.filter(q => q.closed).length;
+}
+function guessRoles(layers) {
+  const faceL = layers.filter(l => l.nf > 0), area = l => (l.bbox.x1 - l.bbox.x0) * (l.bbox.y1 - l.bbox.y0);
+  for (const l of layers) {
+    const n = l.name.toUpperCase(), zr = l.bbox.z1 - l.bbox.z0;
+    if (/광구|CLAIM|LEASE|TENEMENT|MINING.?RIGHT/.test(n)) l.role = "claim";
+    else if (/지적|필지|CADAS|PARCEL|LOT/.test(n)) l.role = "cad";
+    else if (/광체|ORE|BODY|LIME|석회|SOLID/.test(n) && l.nf) l.role = "ore";
+    else if (/지형|TOPO|DEM|SURF|등고|CONT|TERRAIN|표고/.test(n) && (l.nf || zr > 1)) l.role = "terrain";
+    else if (l.nf) l.role = null;
+    else if (l.nl >= 5 && zr > 5) l.role = "terrain";
+    else if (l.closed >= 3 && zr < 1) l.role = "cad";
+    else l.role = "none";
+  }
+  const und = faceL.filter(l => l.role === null);                       // 이름으로 못 가린 면 레이어: 가장 넓은 것이 지형
+  if (und.length) {
+    const hasT = layers.some(l => l.role === "terrain"), big = und.reduce((a, l) => area(l) > area(a) ? l : a);
+    for (const l of und) l.role = (!hasT && und.length > 1 && l === big) ? "terrain" : "ore";
+  }
+}
+
+// ── 2. 예시 자료: DXF 글을 만들어 같은 읽기 경로로 넣는다 ──
+function demoDXF() {
+  const E0 = 215000, N0 = 412000, out = ["0", "SECTION", "2", "ENTITIES"], f = v => v.toFixed(2);
+  const tz = (x, y) => { const g = Math.exp(-0.5 * (((x - 640) / 380) ** 2 + ((y - 560) / 300) ** 2)); return 250 + 250 * g + 22 * Math.sin(x / 150 + 0.7) * Math.cos(y / 190 - 0.3) + 12 * Math.sin((x + y) / 95); };
+  const face = (lay, a, b, c) => out.push("0", "3DFACE", "8", lay, "10", f(a[0] + E0), "20", f(a[1] + N0), "30", f(a[2]), "11", f(b[0] + E0), "21", f(b[1] + N0), "31", f(b[2]), "12", f(c[0] + E0), "22", f(c[1] + N0), "32", f(c[2]), "13", f(c[0] + E0), "23", f(c[1] + N0), "33", f(c[2]));
+  const pl = (lay, pts) => { out.push("0", "LWPOLYLINE", "8", lay, "90", String(pts.length), "70", "1", "38", "0.00"); for (const p of pts) out.push("10", f(p[0] + E0), "20", f(p[1] + N0)); };
+  for (let i = 0; i < 60; i++) for (let j = 0; j < 50; j++) {             // 지형 20m 삼각망
+    const q = (a, b) => [a * 20, b * 20, tz(a * 20, b * 20)], p00 = q(i, j), p10 = q(i + 1, j), p11 = q(i + 1, j + 1), p01 = q(i, j + 1);
+    face("지형_TOPO", p00, p10, p11); face("지형_TOPO", p00, p11, p01);
+  }
+  // 광체: 남동으로 16° 기운 렌즈 모양 석회석 솔리드(닫힌 삼각망)
+  const C = [660, 470], zc = 320, d = [Math.sin(2 * Math.PI / 3), Math.cos(2 * Math.PI / 3)], s = [0.5, Math.sqrt(3) / 2], a = 340, b = 300, nr = 14, nt = 48, td = Math.tan(16 * Math.PI / 180);
+  const pt = (k, t, sg) => { const r = k / nr, th = 2 * Math.PI * t / nt, u = a * r * Math.cos(th), v = b * r * Math.sin(th), mid = zc - u * td + 6 * Math.sin(v / 80), tk = 56 * (1 - r ** 4) * (1 + 0.12 * Math.sin(u / 90)); return [C[0] + u * d[0] + v * s[0], C[1] + u * d[1] + v * s[1], mid + sg * tk / 2]; };
+  for (const sg of [1, -1]) for (let t = 0; t < nt; t++) {
+    const tri = (p, q, r) => sg > 0 ? face("광체_ORE", p, q, r) : face("광체_ORE", p, r, q);
+    tri(pt(0, 0, sg), pt(1, t, sg), pt(1, t + 1, sg));
+    for (let k = 1; k < nr; k++) { tri(pt(k, t, sg), pt(k + 1, t, sg), pt(k + 1, t + 1, sg)); tri(pt(k, t, sg), pt(k + 1, t + 1, sg), pt(k, t + 1, sg)); }
+  }
+  pl("광구경계", [[100, 80], [1150, 80], [1150, 940], [100, 940]]);
+  let sd = 7; const rnd = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };
+  const gx = [0, 240, 480, 720, 960, 1200], gy = [0, 250, 500, 750, 1000], cr = gx.map((x, i) => gy.map((y, j) => [x + (i && i < 5 ? (rnd() - 0.5) * 80 : 0), y + (j && j < 4 ? (rnd() - 0.5) * 80 : 0)]));
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 4; j++) pl("지적경계", [cr[i][j], cr[i + 1][j], cr[i + 1][j + 1], cr[i][j + 1]]);
+  out.push("0", "ENDSEC", "0", "EOF"); return out.join("\n");
+}
+
+// ── 3. 자료 → 지형 격자 · 광체 · 경계 ──
+let LAYERS = [], G = null, ORE = null, CLAIM = [], CAD = [], VB = null, DATAVER = 0, DATAMSG = [];
+const bbU = (a, b) => ({ x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) });
+function buildTerrain(src, R) {
+  const ext = Math.max(R.x1 - R.x0, R.y1 - R.y0), d = Math.max(2, Math.ceil(ext / 260)), nx = Math.ceil((R.x1 - R.x0) / d) + 1, ny = Math.ceil((R.y1 - R.y0) / d) + 1;
+  const z = new Float32Array(nx * ny).fill(NaN), sum = new Float64Array(nx * ny), cnt = new Uint32Array(nx * ny);
+  for (const l of src) {
+    const F = l.faces;
+    for (let t = 0; t < F.length; t += 9) {
+      const ax = F[t], ay = F[t + 1], az = F[t + 2], bx = F[t + 3], by = F[t + 4], bz = F[t + 5], cx = F[t + 6], cy = F[t + 7], cz = F[t + 8];
+      const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - R.x0) / d)), i1 = Math.min(nx - 1, Math.floor((Math.max(ax, bx, cx) - R.x0) / d));
+      const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - R.y0) / d)), j1 = Math.min(ny - 1, Math.floor((Math.max(ay, by, cy) - R.y0) / d));
+      if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = R.x0 + i * d, py = R.y0 + j * d, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
+        if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue; const zz = l1 * az + l2 * bz + l3 * cz, k = j * nx + i; if (isNaN(z[k]) || zz > z[k]) z[k] = zz;
+      }
+    }
+    const add = (x, y, zz) => { const i = Math.round((x - R.x0) / d), j = Math.round((y - R.y0) / d); if (i < 0 || j < 0 || i >= nx || j >= ny) return; sum[j * nx + i] += zz; cnt[j * nx + i]++; };
+    if (l.bbox.z1 - l.bbox.z0 > 0.5 || l.np) {
+      for (const ln of l.lines) for (let q = 0; q < ln.pts.length - (ln.closed ? 0 : 1); q++) {
+        const p = ln.pts[q], r = ln.pts[(q + 1) % ln.pts.length], n = Math.max(1, Math.ceil(Math.hypot(r[0] - p[0], r[1] - p[1]) / d));
+        for (let s = 0; s <= n; s++) add(p[0] + (r[0] - p[0]) * s / n, p[1] + (r[1] - p[1]) * s / n, p[2] + (r[2] - p[2]) * s / n);
+      }
+      for (const p of l.points) add(p[0], p[1], p[2]);
+    }
+  }
+  let have = 0; for (let k = 0; k < z.length; k++) { if (isNaN(z[k]) && cnt[k]) z[k] = sum[k] / cnt[k]; if (!isNaN(z[k])) have++; }
+  if (!have) return null;
+  const out = z.slice(), D8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {                 // 빈 칸: 8방향 가장 가까운 값을 거리 역제곱으로
+    if (!isNaN(z[j * nx + i])) continue; let w = 0, s = 0;
+    for (const [di, dj] of D8) for (let r = 1; r <= 80; r++) { const a = i + di * r, b = j + dj * r; if (a < 0 || b < 0 || a >= nx || b >= ny) break; const v = z[b * nx + a]; if (!isNaN(v)) { const dd = r * r * (di && dj ? 2 : 1); w += 1 / dd; s += v / dd; break; } }
+    if (w) out[j * nx + i] = s / w;
+  }
+  for (let pass = 0; pass < nx + ny; pass++) {                                // 그래도 빈 칸: 옆 칸 평균으로 번짐
+    let left = 0; const prev = out.slice();
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { if (!isNaN(prev[j * nx + i])) continue; let s = 0, n = 0; for (const [di, dj] of D8) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= ny) continue; const v = prev[b * nx + a]; if (!isNaN(v)) { s += v; n++; } } if (n) out[j * nx + i] = s / n; else left++; }
+    if (!left) break;
+  }
+  let zmin = Infinity, zmax = -Infinity; for (const v of out) { if (v < zmin) zmin = v; if (v > zmax) zmax = v; }
+  return { x0: R.x0, y0: R.y0, d, nx, ny, z: out, zmin, zmax, cover: have / z.length };
+}
 function terrainZ(x, y) {
-  const g = Math.exp(-0.5 * (((x - 640) / 380) ** 2 + ((y - 560) / 300) ** 2));
-  return 250 + 250 * g + 22 * Math.sin(x / 150 + 0.7) * Math.cos(y / 190 - 0.3) + 12 * Math.sin((x + y) / 95);
+  const g = G, fi = clamp((x - g.x0) / g.d, 0, g.nx - 1.001), fj = clamp((y - g.y0) / g.d, 0, g.ny - 1.001), i = Math.floor(fi), j = Math.floor(fj), a = fi - i, b = fj - j, Z = (ii, jj) => g.z[jj * g.nx + ii];
+  return Z(i, j) * (1 - a) * (1 - b) + Z(i + 1, j) * a * (1 - b) + Z(i, j + 1) * (1 - a) * b + Z(i + 1, j + 1) * a * b;
 }
-const DIP = 16 * Math.PI / 180, DAZ = 120 * Math.PI / 180, DDX = Math.sin(DAZ), DDY = Math.cos(DAZ);
-const fwTrue = (x, y) => 330 - Math.tan(DIP) * ((x - 600) * DDX + (y - 500) * DDY) + 9 * Math.sin(x / 110 + 1.3) + 7 * Math.cos(y / 130);
-const thTrue = (x, y) => 58 + 16 * Math.sin(x / 260 + 0.4) * Math.cos(y / 200) + 6 * Math.sin(y / 90);
-function gradeTrue(x, y, z) {
-  const fw = fwTrue(x, y), r = (z - fw) / thTrue(x, y);
-  if (r < 0 || r > 1) return { cao: Math.max(0.5, SHALE.cao + 2 * gn()), mgo: Math.max(0.3, SHALE.mgo + 0.4 * gn()), sio2: SHALE.sio2 + 3 * gn() };
-  let cao = 52.8, mgo = 0.9, sio2 = 2.2;
-  const m = 7.5 * Math.exp(-((x - 860) ** 2 + (y - 640) ** 2) / (2 * 120 * 120)) * (0.65 + 0.35 * Math.sin(r * 3));
-  mgo += m; cao -= 1.45 * m;                                                    // 백운석화
-  const wib = clamp((720 - x) / 150, 0, 1);
-  if (wib > 0 && r > 0.46 && r < 0.54) { sio2 += 20 * wib; cao -= 26 * wib; mgo += 0.8 * wib; }   // 셰일 협재
-  const e = Math.min(r, 1 - r); if (e < 0.07) { const f = (0.07 - e) / 0.07; sio2 += 7 * f; cao -= 9 * f; }  // 접촉부 불순
-  cao += 0.9 * gn(); mgo += 0.25 * Math.abs(gn()); sio2 += 0.6 * gn();
-  return { cao: Math.min(55.5, cao), mgo: Math.max(0.2, mgo), sio2: Math.max(0.3, sio2) };
-}
-const HOLES = [];
-for (let i = 0, n = 1; i < 7; i++) for (let j = 0; j < 6; j++, n++) {
-  const x = 170 + i * 150 + (rnd() - 0.5) * 70, y = 140 + j * 150 + (rnd() - 0.5) * 70, z = terrainZ(x, y);
-  const bot = Math.min(z - 60, fwTrue(x, y) - 20), depth = Math.ceil((z - bot) / 3) * 3, s = [];
-  for (let d = 0; d < depth; d += 3) { const g = gradeTrue(x, y, z - d - 1.5); s.push({ from: d, to: d + 3, cao: +g.cao.toFixed(1), mgo: +g.mgo.toFixed(2), sio2: +g.sio2.toFixed(1) }); }
-  HOLES.push({ id: "DH-" + String(n).padStart(2, "0"), x, y, z, depth, s });
-}
-
-// ── 2. 시추 해석 · 광체 추정 ──
-for (const h of HOLES) {
-  const ok = h.s.map(q => q.cao >= 40); let a = -1, b = -1;
-  for (let i = 0; i < ok.length - 1; i++) if (ok[i] && ok[i + 1]) { a = i; break; }
-  for (let i = ok.length - 1; i > 0; i--) if (ok[i] && ok[i - 1]) { b = i; break; }
-  h.hasOre = a >= 0;
-  if (h.hasOre) { h.a = a; h.b = b; h.hwZ = h.z - h.s[a].from; h.fwZ = h.z - h.s[b].to; h.trunc = a === 0; }
-}
-const ORE_HOLES = HOLES.filter(h => h.hasOre);
-function solve3(A, b) {
-  const M = A.map((r, i) => [...r, b[i]]);
-  for (let c = 0; c < 3; c++) { let p = c; for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; [M[c], M[p]] = [M[p], M[c]];
-    for (let r = 0; r < 3; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; } }
-  return M.map((r, i) => r[3] / r[i]);
-}
-function fitPlane(pts) {
-  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
-  for (const p of pts) { const v = [1, p.x, p.y]; for (let i = 0; i < 3; i++) { b[i] += v[i] * p.v; for (let j = 0; j < 3; j++) A[i][j] += v[i] * v[j]; } }
-  const c = solve3(A, b); return (x, y) => c[0] + c[1] * x + c[2] * y;
-}
-function idw(x, y, pts, fallback, range = 500, nmax = 8) {
-  const c = []; for (const p of pts) { const d = Math.hypot(p.x - x, p.y - y); if (d <= range) c.push([d, p.v]); }
-  if (!c.length) return fallback; c.sort((a, b) => a[0] - b[0]);
-  let w = 0, s = 0; for (const [d, v] of c.slice(0, nmax)) { const wi = 1 / Math.max(20, d) ** 2; w += wi; s += wi * v; } return s / w;
-}
-const fwPlane = fitPlane(ORE_HOLES.map(h => ({ x: h.x, y: h.y, v: h.fwZ })));
-const fwRes = ORE_HOLES.map(h => ({ x: h.x, y: h.y, v: h.fwZ - fwPlane(h.x, h.y) }));
-const thPts = ORE_HOLES.filter(h => !h.trunc).map(h => ({ x: h.x, y: h.y, v: h.hwZ - h.fwZ }));
-const thMean = thPts.reduce((a, p) => a + p.v, 0) / thPts.length;
-const fwEst = (x, y) => fwPlane(x, y) + idw(x, y, fwRes, 0);
-const thEst = (x, y) => idw(x, y, thPts, thMean);
-for (const h of ORE_HOLES) {                                   // 층 안 상대 위치별 품위 단면
-  const th = h.trunc ? Math.max(h.hwZ - h.fwZ, thEst(h.x, h.y)) : h.hwZ - h.fwZ, pr = [];
-  for (let i = h.a; i <= h.b; i++) { const q = h.s[i]; pr.push({ r: (h.z - (q.from + q.to) / 2 - h.fwZ) / th, cao: q.cao, mgo: q.mgo, sio2: q.sio2 }); }
-  pr.sort((p, q) => p.r - q.r); h.prof = pr;
-}
-function holeGrade(h, r) {
-  const p = h.prof; if (r < p[0].r - 0.04 || r > p[p.length - 1].r + 0.04) return null;
-  if (r <= p[0].r) return p[0]; if (r >= p[p.length - 1].r) return p[p.length - 1];
-  let i = 1; while (p[i].r < r) i++; const f = (r - p[i - 1].r) / (p[i].r - p[i - 1].r), L = (k) => p[i - 1][k] + f * (p[i][k] - p[i - 1][k]);
-  return { cao: L("cao"), mgo: L("mgo"), sio2: L("sio2") };
-}
-function estimate(c, zf, H) {
-  const hw = c.fw + c.th, lo = Math.max(zf, c.fw), hi = Math.min(zf + H, hw), ov = hi - lo;
-  if (ov <= 0 || ov / H < 0.5) return null;
-  const frac = ov / H, r = ((lo + hi) / 2 - c.fw) / c.th, cand = [];
-  for (const h of c.near) { const g = holeGrade(h.h, r); if (g) cand.push([h.d, g]); if (cand.length >= 8) break; }
-  if (!cand.length) return null;
-  let w = 0, cao = 0, mgo = 0, sio2 = 0;
-  for (const [d, g] of cand) { const wi = 1 / Math.max(20, d) ** 2; w += wi; cao += wi * g.cao; mgo += wi * g.mgo; sio2 += wi * g.sio2; }
-  return { frac, cao: frac * cao / w + (1 - frac) * SHALE.cao, mgo: frac * mgo / w + (1 - frac) * SHALE.mgo, sio2: frac * sio2 / w + (1 - frac) * SHALE.sio2 };
+function applyData() {
+  DATAMSG = [];
+  const by = r => LAYERS.filter(l => l.role === r), oreL = by("ore").filter(l => l.nf), terL = by("terrain");
+  if (!oreL.length) { DATAMSG.push("광체로 쓸 면(3DFACE·폴리페이스) 레이어가 없습니다. 레이어의 쓰임을 「광체」로 골라 주세요."); return false; }
+  let n = 0; for (const l of oreL) n += l.faces.length; const tris = new Float64Array(n); n = 0; for (const l of oreL) { tris.set(l.faces, n); n += l.faces.length; }
+  const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }; let v6 = 0;
+  for (let t = 0; t < tris.length; t += 9) {
+    for (let k = 0; k < 9; k += 3) { ob.x0 = Math.min(ob.x0, tris[t + k]); ob.x1 = Math.max(ob.x1, tris[t + k]); ob.y0 = Math.min(ob.y0, tris[t + k + 1]); ob.y1 = Math.max(ob.y1, tris[t + k + 1]); ob.z0 = Math.min(ob.z0, tris[t + k + 2]); ob.z1 = Math.max(ob.z1, tris[t + k + 2]); }
+  }
+  const ox = (ob.x0 + ob.x1) / 2, oy = (ob.y0 + ob.y1) / 2, oz = (ob.z0 + ob.z1) / 2;       // 큰 좌표에서 자릿수 손실을 막으려고 중심을 빼고 부호 체적을 더함
+  for (let t = 0; t < tris.length; t += 9) { const ax = tris[t] - ox, ay = tris[t + 1] - oy, az = tris[t + 2] - oz, bx = tris[t + 3] - ox, by2 = tris[t + 4] - oy, bz = tris[t + 5] - oz, cx = tris[t + 6] - ox, cy = tris[t + 7] - oy, cz = tris[t + 8] - oz; v6 += ax * (by2 * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by2 * cx); }
+  ORE = { tris, bbox: ob, volSigned: Math.abs(v6) / 6, n: tris.length / 9 };
+  const poly = r => { const o = []; for (const l of by(r)) for (const ln of l.lines) if (ln.pts.length > 2) o.push({ pts: ln.pts.map(p => [p[0], p[1]]), closed: ln.closed }); return o; };
+  CLAIM = poly("claim").map(p => p.pts); CAD = poly("cad");
+  let R = { x0: ob.x0, y0: ob.y0, x1: ob.x1, y1: ob.y1 }; for (const pg of CLAIM) for (const p of pg) R = bbU(R, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] });
+  const mg = Math.max(60, 0.12 * Math.max(R.x1 - R.x0, R.y1 - R.y0)); VB = { x0: R.x0 - mg, y0: R.y0 - mg, x1: R.x1 + mg, y1: R.y1 + mg };
+  const TR = { x0: VB.x0 - mg, y0: VB.y0 - mg, x1: VB.x1 + mg, y1: VB.y1 + mg };
+  G = terL.length ? buildTerrain(terL, TR) : null;
+  if (!G) {
+    DATAMSG.push(terL.length ? "지형 레이어에 표고(Z)가 있는 면·등고선·점이 광체 주변에 없습니다. 광체 꼭대기 위 50m 평지로 대신했습니다." : "지형 레이어가 없어 광체 꼭대기 위 50m 평지로 대신했습니다.");
+    G = { x0: TR.x0, y0: TR.y0, d: (TR.x1 - TR.x0), nx: 2, ny: 2, z: new Float32Array(4).fill(ob.z1 + 50), zmin: ob.z1 + 50, zmax: ob.z1 + 50, cover: 0, flat: true }; G.d = Math.max(TR.x1 - TR.x0, TR.y1 - TR.y0);
+  } else { let tb = null; for (const l of terL) tb = tb ? bbU(tb, l.bbox) : { ...l.bbox }; if (ob.x0 < tb.x0 || ob.x1 > tb.x1 || ob.y0 < tb.y0 || ob.y1 > tb.y1) DATAMSG.push("광체 일부가 지형 자료 범위 밖에 있습니다. 그 부분의 지표는 가장 가까운 값으로 메웠습니다. 좌표계가 같은지 확인하세요."); }
+  DATAVER++; return true;
 }
 
-// ── 3. 입력값 ──
-const GROUPS = [["design", "설계 · 필러와 편"], ["haul", "편 개설 · 수평갱과 연층 사갱"], ["ground", "지반 · 안전"], ["quality", "품질 기준 (판넬 평균, 희석 후)"], ["prod", "생산 계획"], ["econ", "경제성 (가정)"]];
+// ── 4. 입력 ──
+const GROUPS = [["design", "<span class=\"step\">2</span>설계", false], ["open", "<span class=\"step\">3</span>갱구 · 편 개설", false], ["sched", "<span class=\"step\">4</span>생산 일정", false], ["econ", "<span class=\"step\">5</span>경제성", false],
+  ["a-sf", "필러 안전율 (확인용)", true], ["a-lim", "채굴 범위", true], ["a-dev", "굴진", true], ["a-cost", "원가 세부", true]];
 const PARAMS = [
   { id: "p", g: "design", label: "필러 폭", min: 6, max: 30, step: 0.5, v: 12, u: "m" },
-  { id: "h", g: "design", label: "갱도 높이", min: 5, max: 20, step: 0.5, v: 12, u: "m" },
+  { id: "h", g: "design", label: "갱도 높이", min: 4, max: 20, step: 0.5, v: 12, u: "m" },
   { id: "w", g: "design", label: "갱도 폭", min: 4, max: 25, step: 0.5, v: 13, u: "m" },
-  { id: "lv", g: "design", label: "편 간격", min: 12, max: 40, step: 1, v: 20, u: "m" },
-  { id: "trig", g: "haul", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
-  { id: "ia", g: "haul", label: "사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
-  { id: "sill", g: "ground", label: "수평 필러 최소 (두께÷갱도 폭)", min: 0.2, max: 1.5, step: 0.05, v: 0.5, u: "", d: 2 },
-  { id: "iw", g: "haul", label: "사갱 보호 폭 (한쪽)", min: 10, max: 50, step: 5, v: 20, u: "m" },
-  { id: "rate", g: "haul", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
-  { id: "ucs", g: "ground", label: "일축압축강도", min: 30, max: 150, step: 5, v: 80, u: "MPa" },
-  { id: "kf", g: "ground", label: "규모 효과 계수", min: 0.3, max: 0.8, step: 0.05, v: 0.5, u: "", d: 2 },
-  { id: "sfmin", g: "ground", label: "최소 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
-  { id: "rho", g: "ground", label: "비중", min: 2.5, max: 2.9, step: 0.01, v: 2.7, u: "", d: 2 },
-  { id: "cover", g: "ground", label: "최소 지표 피복", min: 10, max: 80, step: 5, v: 30, u: "m" },
-  { id: "bnd", g: "ground", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
-  { id: "cao", g: "quality", label: "CaO 이상", min: 40, max: 54, step: 0.5, v: 48, u: "%", d: 1 },
-  { id: "mgo", g: "quality", label: "MgO 이하", min: 1, max: 8, step: 0.1, v: 3.0, u: "%", d: 1 },
-  { id: "sio2", g: "quality", label: "SiO₂ 이하", min: 2, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
-  { id: "ann", g: "prod", label: "연간 생산량", min: 20, max: 300, step: 5, v: 80, u: "만t" },
-  { id: "nlv", g: "prod", label: "동시 작업 편 수", min: 1, max: 5, step: 1, v: 2, u: "개" },
-  { id: "lcap", g: "prod", label: "편당 최대 생산", min: 10, max: 150, step: 5, v: 80, u: "만t/년" },
-  { id: "ramp1", g: "prod", label: "첫해 생산 비율", min: 20, max: 100, step: 5, v: 60, u: "%" },
-  { id: "lead", g: "prod", label: "편 개발 선행", min: 0, max: 12, step: 1, v: 4, u: "개월" },
-  { id: "price", g: "econ", label: "판매가", min: 8000, max: 25000, step: 500, v: 14000, u: "원/t" },
-  { id: "opex", g: "econ", label: "운영비 (채광·운반·관리)", min: 4000, max: 16000, step: 250, v: 8500, u: "원/t" },
-  { id: "devc", g: "econ", label: "굴진비 (수평갱·사갱)", min: 100, max: 600, step: 10, v: 250, u: "만원/m" },
-  { id: "hinc", g: "econ", label: "편당 운반비 증가", min: 0, max: 1500, step: 50, v: 300, u: "원/t" },
-  { id: "hcost", g: "econ", label: "편 내 운반비 (진입점에서 거리)", min: 0, max: 300, step: 10, v: 60, u: "원/t·100m" },
-  { id: "dcost", g: "econ", label: "편 갱도 굴진비", min: 50, max: 400, step: 10, v: 150, u: "만원/m" },
-  { id: "minblk", g: "econ", label: "최소 블록 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
-  { id: "minval", g: "econ", label: "블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
-  { id: "capex", g: "econ", label: "초기 투자", min: 0, max: 500, step: 10, v: 150, u: "억원" },
+  { id: "lv", g: "design", label: "편 간격", min: 8, max: 40, step: 1, v: 20, u: "m" },
+  { id: "ia", g: "open", label: "연층 사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
+  { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
+  { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 300, step: 5, v: 80, u: "만t" },
+  { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 20, step: 1, v: 6, u: "곳" },
+  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 40, step: 1, v: 12, u: "천t" },
+  { id: "y0", g: "sched", label: "착공 연도", min: 2026, max: 2040, step: 1, v: 2027, u: "", raw: true },
+  { id: "price", g: "econ", label: "판매가", min: 5000, max: 30000, step: 500, v: 14000, u: "원/t" },
+  { id: "opex", g: "econ", label: "운영비", min: 3000, max: 20000, step: 250, v: 8500, u: "원/t" },
   { id: "disc", g: "econ", label: "할인율", min: 3, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
-  { id: "y0", g: "econ", label: "착공 연도", min: 2026, max: 2035, step: 1, v: 2027, u: "", raw: true },
+  { id: "ucs", g: "a-sf", label: "일축압축강도", min: 30, max: 200, step: 5, v: 80, u: "MPa" },
+  { id: "kf", g: "a-sf", label: "규모 효과 계수", min: 0.3, max: 0.8, step: 0.05, v: 0.5, u: "", d: 2 },
+  { id: "sfmin", g: "a-sf", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
+  { id: "sill", g: "a-sf", label: "수평 필러 기준 (두께÷갱도 폭)", min: 0.2, max: 1.5, step: 0.05, v: 0.5, u: "", d: 2 },
+  { id: "rho", g: "a-lim", label: "비중", min: 2.0, max: 4.5, step: 0.01, v: 2.7, u: "", d: 2 },
+  { id: "minfrac", g: "a-lim", label: "최소 광체 비율", min: 50, max: 100, step: 5, v: 80, u: "%" },
+  { id: "cover", g: "a-lim", label: "최소 지표 피복", min: 0, max: 100, step: 5, v: 30, u: "m" },
+  { id: "bnd", g: "a-lim", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
+  { id: "iw", g: "a-lim", label: "사갱 보호 폭 (한쪽)", min: 5, max: 50, step: 5, v: 20, u: "m" },
+  { id: "minblk", g: "a-lim", label: "떨어진 블록 최소 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
+  { id: "minval", g: "a-lim", label: "떨어진 블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
+  { id: "rate", g: "a-dev", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
+  { id: "lead", g: "a-dev", label: "편 개발 선행", min: 0, max: 12, step: 1, v: 4, u: "개월" },
+  { id: "hinc", g: "a-cost", label: "편당 운반비 증가", min: 0, max: 1500, step: 50, v: 300, u: "원/t" },
+  { id: "hcost", g: "a-cost", label: "편 내 운반비", min: 0, max: 300, step: 10, v: 60, u: "원/t·100m" },
+  { id: "devc", g: "a-cost", label: "굴진비 (수평갱·사갱)", min: 100, max: 600, step: 10, v: 250, u: "만원/m" },
+  { id: "dcost", g: "a-cost", label: "편 갱도 굴진비", min: 50, max: 400, step: 10, v: 150, u: "만원/m" },
+  { id: "capex", g: "a-cost", label: "초기 투자", min: 0, max: 500, step: 10, v: 150, u: "억원" },
 ];
-const HAUL = { belt: { name: "벨트 컨베이어", max: 16 }, rail: { name: "궤도 권양", max: 25 }, truck: { name: "트럭", max: 8 } };   // 경사 한계는 일반값 [가정]
-const form = $("params");
-for (const [g, title] of GROUPS) {
+const form = $("params"), adv = document.createElement("details"); adv.className = "adv"; adv.id = "adv"; adv.innerHTML = "<summary>고급 옵션 (기본값으로 두어도 됩니다)</summary>";
+for (const [g, title, isAdv] of GROUPS) {
   const fs = document.createElement("fieldset"); fs.innerHTML = `<legend>${title}</legend>`;
+  if (g === "open") fs.insertAdjacentHTML("beforeend", `<div class="portalbar"><button type="button" id="pick" aria-pressed="false">평면도에서 갱구 놓기</button><button type="button" id="autoportal">자동 위치</button></div><div class="derived" id="portalinfo"></div>`);
   for (const p of PARAMS.filter(q => q.g === g)) {
     const row = document.createElement("div"); row.className = "sl";
     row.innerHTML = `<label for="p-${p.id}">${p.label}</label><output id="o-${p.id}" for="p-${p.id}"></output><input type="range" id="p-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}">`;
     fs.appendChild(row);
   }
   if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
-  if (g === "haul") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-haul">운반 방식 <select id="p-haul">${Object.entries(HAUL).map(([k, h]) => `<option value="${k}"${k === "rail" ? " selected" : ""}>${h.name} (≤${h.max}°)</option>`).join("")}</select></label><div class="derived" id="incl"></div>`);
-  if (g === "econ") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 곳은 캐지 않음</label>`);
-  if (g === "ground") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx" checked>안전율 미달 판넬은 캐지 않음</label>`);
-  form.appendChild(fs);
+  if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>`);
+  if (g === "a-sf") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="sfinfo"></div><label class="opt"><input type="checkbox" id="p-sfx">기준 미달 판넬은 설계에서 제외</label>`);
+  if (g === "a-lim") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 떨어진 블록은 캐지 않음</label>`);
+  (isAdv ? adv : form).appendChild(fs);
 }
-function readP() {
-  const P = {}; for (const p of PARAMS) P[p.id] = +$("p-" + p.id).value;
-  P.sfx = $("p-sfx").checked; P.econ = $("p-econ").checked; P.haul = $("p-haul").value; return P;
-}
-function showOutputs() {
-  for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); }
-}
+form.appendChild(adv);
+function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; return o; }
+function showOutputs() { for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); } }
 
-// ── 4. 설계: 편 · 판넬 · 필러 · 연층 사갱 ──
-const DIPEST = (() => { const c0 = fwPlane(0, 0), gx = fwPlane(1, 0) - c0, gy = fwPlane(0, 1) - c0; return { dip: Math.atan(Math.hypot(gx, gy)), az: Math.atan2(-gx, -gy) }; })();   // 하반면 추세 → 경사·경사 방향
-const bearing = rad => { let a = (rad * 180 / Math.PI % 360 + 360) % 360; return a <= 90 ? `N${fmt(a)}°E` : a <= 180 ? `S${fmt(180 - a)}°E` : a <= 270 ? `S${fmt(a - 180)}°W` : `N${fmt(360 - a)}°W`; };
-let COLS = null, COLS_S = 0, COLS_B = -1;
-function columns(S, bnd) {
-  if (COLS && COLS_S === S && COLS_B === bnd) return COLS;
-  const out = [], nx = Math.floor(X1 / S), ny = Math.floor(Y1 / S);
-  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
-    const x = (i + 0.5) * S, y = (j + 0.5) * S;
-    if (x - S / 2 < CLAIM.x0 + bnd || x + S / 2 > CLAIM.x1 - bnd || y - S / 2 < CLAIM.y0 + bnd || y + S / 2 > CLAIM.y1 - bnd) continue;
-    const near = ORE_HOLES.map(h => ({ h, d: Math.hypot(h.x - x, h.y - y) })).filter(o => o.d <= 450).sort((a, b) => a.d - b.d);
-    out.push({ i, j, x, y, fw: fwEst(x, y), th: thEst(x, y), tz: terrainZ(x, y), near });
-  }
-  COLS = out; COLS_S = S; COLS_B = bnd; return out;
-}
-function design(P) {
-  const warn = []; let H = P.h; const Pw = P.p, S = P.p + P.w;            // 필러 간격(중심) = 필러 폭 + 갱도 폭
-  if (H > P.lv - 3) { H = P.lv - 3; warn.push(`갱도 높이를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 3m)`); }
-  const cols = columns(S, P.bnd), all = [];
-  let resT = 0; for (const c of cols) { const top = Math.min(c.fw + c.th, c.tz - P.cover); if (top > c.fw) resT += (top - c.fw) * S * S * P.rho; }   // 광구 안, 피복 아래 석회석층 원광량(추정)
-  for (let zf = BASE_EL; zf <= TOP_EL; zf += P.lv) {
-    const cand = [], rej = [];
-    for (const c of cols) {
-      if (c.tz < zf + H) continue;
-      const e = estimate(c, zf, H); if (!e) continue;
-      if (!(e.cao >= P.cao && e.mgo <= P.mgo && e.sio2 <= P.sio2)) continue;
-      const depth = c.tz - (zf + H / 2), p = { i: c.i, j: c.j, x: c.x, y: c.y, zf, ...e, depth, t: (S * S - Pw * Pw) * H * P.rho };
-      const sp = P.rho * 9.81 * depth / 1000 * S * S / (Pw * Pw), st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H); p.sf = st / sp;
-      if (c.tz - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
+// ── 5. 광체 수직선 교차 → 판넬 ──
+let RAY = null, USERPORTAL = null;
+function buildRays(S) {
+  if (RAY && RAY.S === S && RAY.ver === DATAVER) return RAY;
+  const s = S / 3, b = ORE.bbox, gx0 = Math.floor(b.x0 / S) * S, gy0 = Math.floor(b.y0 / S) * S, nx = Math.max(1, Math.ceil((b.x1 - gx0) / S)), ny = Math.max(1, Math.ceil((b.y1 - gy0) / S)), rx = nx * 3, ry = ny * 3;
+  const cr = new Array(rx * ry), jx = 0.0137 * s, jy = 0.0071 * s, T = ORE.tris;
+  for (let t = 0; t < T.length; t += 9) {
+    const ax = T[t], ay = T[t + 1], az = T[t + 2], bx = T[t + 3], by = T[t + 4], bz = T[t + 5], cx = T[t + 6], cy = T[t + 7], cz = T[t + 8];
+    const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
+    const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
+    if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const px = gx0 + (i + 0.5) * s + jx, py = gy0 + (j + 0.5) * s + jy, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
+      if (l1 < 0 || l2 < 0 || l3 < 0) continue; const k = j * rx + i; (cr[k] || (cr[k] = [])).push(l1 * az + l2 * bz + l3 * cz);
     }
-    if (cand.length || rej.length) all.push({ zf, cand, rej });
   }
-  // 1편 = 맨 위 채굴 편. 산 사면에서 1편 표고로 수평갱을 뚫어 광체에 닿는다(갱구에서 가장 가까운 광체 판넬).
-  // 아래 편은 윗편 작업이 일정 비율 끝나면, 윗편 진입점에서 광체 안으로 연층 사갱을 한 구간 내려 연다.
-  const dipDeg = DIPEST.dip * 180 / Math.PI, hm = HAUL[P.haul]; let ia = P.ia;
-  if (ia > hm.max) { ia = hm.max; warn.push(`${hm.name} 경사 한계 ${hm.max}°로 줄여 계산`); }
-  if (ia > dipDeg) { ia = dipDeg; warn.push(`층 경사 ${fmt(dipDeg, 1)}°보다 가파를 수 없어 진경사로 계산`); }
-  const iaR = ia * Math.PI / 180, ti = Math.tan(iaR);
-  const sAz = DIPEST.az - Math.PI / 2, vx = Math.sin(sAz), vy = Math.cos(sAz);          // 주향(편 갱도 방향)
-  const used = all.filter(L => L.cand.length).sort((a, b) => b.zf - a.zf), zTop = used.length ? used[0].zf : 400;
-  const pool = used.length ? used[0].cand : [{ x: 600, y: 500 }];
+  const iv = new Array(rx * ry); let odd = 0, vol = 0, volRaw = 0, hit = 0, zTop = -Infinity;
+  for (let k = 0; k < cr.length; k++) {
+    const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q); hit++;
+    const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
+    if (u.length % 2) { odd++; u.pop(); }
+    const px = gx0 + (k % rx + 0.5) * s + jx, py = gy0 + (Math.floor(k / rx) + 0.5) * s + jy, tz = terrainZ(px, py), o = [];
+    for (let q = 0; q < u.length; q += 2) { volRaw += (u[q + 1] - u[q]) * s * s; const hi = Math.min(u[q + 1], tz); if (hi > u[q]) { o.push(u[q], hi); vol += (hi - u[q]) * s * s; if (hi > zTop) zTop = hi; } }
+    if (o.length) iv[k] = o;
+  }
+  return RAY = { S, s, gx0, gy0, nx, ny, rx, ry, iv, odd, hit, vol, volRaw, zTop, ver: DATAVER };
+}
+const inPoly = (x, y, pg) => { let c = false; for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) { const a = pg[i], b = pg[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+const edgeDist = (x, y, pg) => { let m = Infinity; for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) { const a = pg[i], b = pg[j], dx = b[0] - a[0], dy = b[1] - a[1], t = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1); m = Math.min(m, Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t)); } return m; };
+const allowed = (x, y, m) => { if (!CLAIM.length) return true; for (const pg of CLAIM) if (inPoly(x, y, pg) && edgeDist(x, y, pg) >= m) return true; return false; };
+function autoPortal(R, P, H) {
+  // 광체 꼭대기에서 한 편 아래 높이의 사면 중, 그 높이대 광체에 가장 가까운 곳. 없으면 광체 근처에서 가장 낮은 지표.
+  const zt = R.zTop - H - 2, band = [];
+  for (let k = 0; k < R.iv.length; k += 5) { const o = R.iv[k]; if (!o) continue; for (let q = 0; q < o.length; q += 2) if (o[q + 1] > zt - P.lv && o[q] < zt + H) { band.push([R.gx0 + (k % R.rx + 0.5) * R.s, R.gy0 + (Math.floor(k / R.rx) + 0.5) * R.s]); break; } }
   let best = null, bd = Infinity;
-  for (const inClaim of [true, false]) {
-    for (let x = 0; x <= X1; x += 5) for (let y = 0; y <= Y1; y += 5) {
-      if (inClaim && (x < CLAIM.x0 || x > CLAIM.x1 || y < CLAIM.y0 || y > CLAIM.y1)) continue;
-      const tz = terrainZ(x, y); if (tz < zTop + 2 || tz > zTop + 6) continue;         // 사면에서 갱구 바닥이 1편 표고인 곳
-      for (const p of pool) { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = { x, y, p }; } }
+  for (const strict of [true, false]) {
+    for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) {
+      const tz = G.z[j * G.nx + i]; if (tz < zt - P.lv || tz > zt) continue; const x = G.x0 + i * G.d, y = G.y0 + j * G.d;
+      if (strict && !allowed(x, y, 0)) continue;
+      for (const b of band) { const d = Math.hypot(b[0] - x, b[1] - y); if (d < bd) { bd = d; best = { x, y }; } }
     }
     if (best) break;
   }
-  if (!best) { best = { x: pool[0].x, y: pool[0].y, p: pool[0] }; bd = 10; }
-  const E1 = { x: best.p.x, y: best.p.y, z: zTop }, PORTAL = { x: best.x, y: best.y, z: zTop };
-  // 사갱 한 구간 = 경사 ia로 편 간격만큼 내려감(수평 거리 = 높이차 ÷ tan ia). 그 원 위에서 아랫편 광체에 닿는 점 중
-  // 갱구에 가장 가까운 곳을 다음 진입점으로 삼는다(갱구 부근에서 내림). 광체에 못 닿으면 남는 거리는 편 갱도로 더 판다.
-  for (const L of all) { L.J = null; L.xc = 0; let w = 0; L.cx = L.cy = 0; for (const p of L.cand) { L.cx += p.x * p.t; L.cy += p.y * p.t; w += p.t; } if (w) { L.cx /= w; L.cy /= w; } }
+  if (!best) { let lo = Infinity; const ob = ORE.bbox, m = 300; for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) { const x = G.x0 + i * G.d, y = G.y0 + j * G.d; if (x < ob.x0 - m || x > ob.x1 + m || y < ob.y0 - m || y > ob.y1 + m) continue; const tz = G.z[j * G.nx + i]; if (tz < lo) { lo = tz; best = { x, y }; } } }
+  if (!best) best = { x: (ORE.bbox.x0 + ORE.bbox.x1) / 2, y: (ORE.bbox.y0 + ORE.bbox.y1) / 2 };
+  return best;
+}
+
+// ── 6. 설계: 갱구 · 편 · 판넬 · 연층 사갱 · 블록 ──
+function design(P) {
+  const warn = []; let H = P.h; const Pw = P.p, S = P.p + P.w;
+  if (H > P.lv - 2) { H = P.lv - 2; warn.push(`갱도 높이를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 2m)`); }
+  const R = buildRays(S), auto = !USERPORTAL, pp = USERPORTAL || autoPortal(R, P, H), PORTAL = { x: pp.x, y: pp.y, z: terrainZ(pp.x, pp.y) }, zP = PORTAL.z;
+  // 판넬 기둥(같은 평면 위치): 경계·지표
+  const cols = [];
+  for (let j = 0; j < R.ny; j++) for (let i = 0; i < R.nx; i++) {
+    const rays = []; for (let b = 0; b < 3; b++) for (let a = 0; a < 3; a++) { const o = R.iv[(j * 3 + b) * R.rx + i * 3 + a]; if (o) rays.push(o); }
+    if (!rays.length) continue; const x = R.gx0 + (i + 0.5) * S, y = R.gy0 + (j + 0.5) * S;
+    if (!allowed(x, y, P.bnd + S / 2)) continue;
+    const tzc = terrainZ(x, y), tzm = Math.min(tzc, terrainZ(x - S / 2, y - S / 2), terrainZ(x + S / 2, y - S / 2), terrainZ(x - S / 2, y + S / 2), terrainZ(x + S / 2, y + S / 2));
+    cols.push({ i, j, x, y, rays, tzc, tzm });
+  }
+  let aboveV = 0; for (const o of R.iv) if (o) for (let q = 0; q < o.length; q += 2) aboveV += Math.max(0, o[q + 1] - Math.max(o[q], zP + H)) * R.s * R.s;
+  const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H);
+  for (let k = 0; k < 500; k++) {
+    const zf = zP - k * P.lv; if (zf + H < ORE.bbox.z0) break; const cand = [], rej = [];
+    if (zf > R.zTop) continue;
+    for (const c of cols) {
+      let ov = 0; for (const o of c.rays) for (let q = 0; q < o.length; q += 2) ov += Math.max(0, Math.min(o[q + 1], zf + H) - Math.max(o[q], zf));
+      const frac = ov / (9 * H); if (frac < P.minfrac / 100) continue;
+      const depth = c.tzc - (zf + H / 2), p = { i: c.i, j: c.j, x: c.x, y: c.y, zf, frac, depth, t: (S * S - Pw * Pw) * H * P.rho };
+      p.sf = depth > 0 ? st / (P.rho * 9.81 * depth / 1000 * S * S / (Pw * Pw)) : 99;
+      if (c.tzm - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
+    }
+    if (cand.length || rej.length) all.push({ zf, cand, rej });
+  }
+  const used = all.filter(L => L.cand.length), iaR = P.ia * Math.PI / 180, ti = Math.tan(iaR);
+  for (const L of all) { L.J = null; L.xc = 0; let w = 0; L.cx = L.cy = 0; for (const p of L.cand) { L.cx += p.x; L.cy += p.y; w++; } if (w) { L.cx /= w; L.cy /= w; } }
+  // 1편 진입: 갱구에서 가장 가까운 1편 광체까지
+  let E1 = { x: PORTAL.x, y: PORTAL.y, z: zP }, len0 = 10, dz0 = 0;
+  if (used.length) {
+    let bd = Infinity; for (const p of used[0].cand) { const d = Math.hypot(p.x - PORTAL.x, p.y - PORTAL.y); if (d < bd) { bd = d; E1 = { x: p.x, y: p.y, z: used[0].zf }; } }
+    dz0 = zP - used[0].zf; len0 = dz0 < 1 ? Math.max(10, bd) : Math.max(Math.hypot(bd, dz0), dz0 / Math.sin(iaR));
+    if (dz0 >= 1) warn.push(`갱구 표고(EL.${fmt(zP)})에는 광체가 없어 ${fmt(dz0)}m 아래 1편까지 사갱으로 진입`);
+  }
+  // 편마다 연층 사갱 한 구간: 수평 거리 = 높이차 ÷ tan(경사). 그 원 위에서 아랫편 광체에 닿고 갱구·그 편 중심에 가까운 곳으로
   let prev = E1;
   used.forEach((L, k) => {
     if (!k) { L.J = { ...E1 }; return; }
@@ -443,18 +595,18 @@ function design(P) {
       const th = q * Math.PI / 36, x = prev.x + r * Math.sin(th), y = prev.y + r * Math.cos(th);
       let dOre = Infinity; for (const p of L.cand) dOre = Math.min(dOre, Math.hypot(p.x - x, p.y - y));
       const sc = Math.max(0, dOre - S / 2) * 4 + 0.5 * Math.hypot(x - PORTAL.x, y - PORTAL.y) + 0.5 * Math.hypot(x - L.cx, y - L.cy);
-      if (sc < bs) { bs = sc; bj = { x, y, z: L.zf, dOre }; }
+      if (sc < bs) { bs = sc; bj = { x, y, dOre }; }
     }
     L.J = { x: bj.x, y: bj.y, z: L.zf }; L.xc = Math.max(0, bj.dOre - S / 2); prev = L.J;
   });
   const segs = used.slice(1).map((L, k) => ({ a: used[k].J, b: L.J }));
-  const INC = { E1, PORTAL, zTop, vx, vy, ti, ia, iaR, segs, aditLen: Math.max(10, bd) };
+  const INC = { E1, PORTAL, zP, auto, ia: P.ia, iaR, ti, segs, len0, dz0 };
+  const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   for (const L of all) {
     L.panels = []; L.map = new Map();
     for (const p of L.cand) {
-      // 사갱 보호 광주: 사갱 양쪽 보호 폭 안에서 사갱이 그 판넬 높이를 지나는 곳
-      let inc = false;
-      for (const g of segs) {
+      p.L = L; let inc = false;
+      for (const g of segs) {                                             // 사갱 보호 광주
         const ax = g.b.x - g.a.x, ay = g.b.y - g.a.y, u = ((p.x - g.a.x) * ax + (p.y - g.a.y) * ay) / (ax * ax + ay * ay || 1);
         if (u < -0.15 || u > 1.15) continue;
         const cu = clamp(u, 0, 1), d = Math.hypot(p.x - g.a.x - ax * cu, p.y - g.a.y - ay * cu), zi = g.a.z + (g.b.z - g.a.z) * cu;
@@ -464,474 +616,492 @@ function design(P) {
       else if (P.sfx && p.sf < P.sfmin) { p.why = "sf"; L.rej.push(p); }
       else L.panels.push(p);
     }
-    // 블록(상하좌우로 붙은 판넬 묶음)을 진입점에서 가까운 것부터 잇는다. 떨어진 블록은 이미 이어진 판넬이나 진입점 중
-    // 가장 가까운 곳에서 편 갱도를 낸다. 판넬의 경로 거리 = 그 연결점까지 경로 + 편 갱도 + 블록 안에서 옆 판넬로 번져 간 거리.
-    // 경로 거리순으로 캐므로 옆 판넬이 먼저 열린다. 블록 순이익 = Σ톤 × (판매가 − 원가) − 편 갱도 길이 × 굴진비
-    const base = P.opex + Math.max(0, used.indexOf(L)) * P.hinc;
+    // 블록(상하좌우로 붙은 판넬)을 진입점에서 가까운 것부터 잇고, 경로 거리순으로 캔다. 떨어진 블록은 가장 가까운 연결점에서 편 갱도.
+    const base = P.opex + Math.max(0, used.indexOf(L)) * P.hinc, cost = d => base + P.hcost * d / 100;
     if (L.J) {
-      const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]], idx = new Map(L.panels.map(p => [p.i + "," + p.j, p])), seen = new Set();
-      let rest = [];
+      const idx = new Map(L.panels.map(p => [p.i + "," + p.j, p])), seen = new Set(); let rest = [];
       for (const p0 of L.panels) {
-        if (seen.has(p0)) continue; const blk = [], st = [p0]; seen.add(p0);
-        while (st.length) { const p = st.pop(); p.bid = rest.length; blk.push(p); for (const [di, dj] of NB) { const q = idx.get((p.i + di) + "," + (p.j + dj)); if (q && !seen.has(q)) { seen.add(q); st.push(q); } } }
+        if (seen.has(p0)) continue; const blk = [], stk = [p0]; seen.add(p0);
+        while (stk.length) { const p = stk.pop(); p.bid = rest.length; blk.push(p); for (const [di, dj] of NB) { const q = idx.get((p.i + di) + "," + (p.j + dj)); if (q && !seen.has(q)) { seen.add(q); stk.push(q); } } }
         rest.push(blk);
       }
       const root = { x: L.J.x, y: L.J.y, path: 0 }, conn = [root], out = [];
-      const cost = d => base + P.hcost * d / 100;
       while (rest.length) {
-        const cand = rest.map(blk => { let d = Infinity, src = null, ent = null; for (const c of conn) for (const p of blk) { const e = Math.hypot(p.x - c.x, p.y - c.y); if (e < d) { d = e; src = c; ent = p; } } return { blk, d, src, ent }; }).sort((a, b) => a.d - b.d);
+        const cs = rest.map(blk => { let d = Infinity, src = null, ent = null; for (const c of conn) for (const p of blk) { const e = Math.hypot(p.x - c.x, p.y - c.y); if (e < d) { d = e; src = c; ent = p; } } return { blk, d, src, ent }; }).sort((a, b) => a.d - b.d);
         let took = null;
-        for (const c of cand) {
-          const path = new Map([[c.ent, c.src.path + c.d]]), q = [c.ent];
-          for (let h = 0; h < q.length; h++) for (const [di, dj] of NB) { const n = idx.get((q[h].i + di) + "," + (q[h].j + dj)); if (n && n.bid === c.ent.bid && !path.has(n)) { path.set(n, path.get(q[h]) + S); q.push(n); } }
+        for (const c of cs) {
+          const path = new Map([[c.ent, c.src.path + c.d]]), pre = new Map([[c.ent, c.src === root ? null : c.src]]), q = [c.ent];
+          for (let h = 0; h < q.length; h++) for (const [di, dj] of NB) { const n = idx.get((q[h].i + di) + "," + (q[h].j + dj)); if (n && n.bid === c.ent.bid && !path.has(n)) { path.set(n, path.get(q[h]) + S); pre.set(n, q[h]); q.push(n); } }
           const drive = Math.max(0, c.d - S), att = c.src === root && c.d < S * 1.5;
-          let val = -drive * P.dcost * 1e4, t = 0; for (const p of c.blk) { val += p.t * (P.price - cost(path.get(p))); t += p.t; }
-          c.info = { n: c.blk.length, t, drive, val, paid: false }; c.path = path;
-          if (!P.econ || (att ? val > 0 : val >= P.minval * 1e8 && c.blk.length >= P.minblk)) { took = c; break; }   // 진입점에 붙은 블록은 손해만 아니면 캠
+          let val = -drive * P.dcost * 1e4, t = 0; for (const p of c.blk) { val += p.t * (p.frac * P.price - cost(path.get(p))); t += p.t; }
+          c.info = { n: c.blk.length, t, drive, val, paid: false }; c.path = path; c.pre = pre;
+          if (!P.econ || (att ? val > 0 : val >= P.minval * 1e8 && c.blk.length >= P.minblk)) { took = c; break; }
         }
-        if (!took) { for (const c of cand) for (const p of c.blk) { p.blk = c.info; p.dist = c.path.get(p); p.cost = cost(p.dist); p.why = "econ"; L.rej.push(p); } break; }
-        for (const p of took.blk) { p.blk = took.info; p.dist = p.path = took.path.get(p); p.cost = cost(p.dist); out.push(p); conn.push(p); }
+        if (!took) { for (const c of cs) for (const p of c.blk) { p.blk = c.info; p.dist = c.path.get(p); p.cost = cost(p.dist); p.why = "econ"; L.rej.push(p); } break; }
+        for (const p of took.blk) { p.blk = took.info; p.dist = p.path = took.path.get(p); p.pre = took.pre.get(p); p.cost = cost(p.dist); out.push(p); conn.push(p); }
         rest = rest.filter(b => b !== took.blk);
       }
       L.panels = out;
-    }
-    let a0 = 0, a1 = 0;
-    if (L.J) for (const p of L.panels) { const a = (p.x - L.J.x) * vx + (p.y - L.J.y) * vy; a0 = Math.min(a0, a); a1 = Math.max(a1, a); }
-    L.span = [a0, a1];
+    } else L.panels = [];
     L.panels.sort((a, b) => a.dist - b.dist);
+    // 편 갱도 방향 = 판넬 분포의 긴 축
+    let a0 = 0, a1 = 0, vx = 1, vy = 0;
+    if (L.J && L.panels.length > 1) {
+      let mx = 0, my = 0; for (const p of L.panels) { mx += p.x; my += p.y; } mx /= L.panels.length; my /= L.panels.length;
+      let cxx = 0, cyy = 0, cxy = 0; for (const p of L.panels) { cxx += (p.x - mx) ** 2; cyy += (p.y - my) ** 2; cxy += (p.x - mx) * (p.y - my); }
+      const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); vx = Math.cos(th); vy = Math.sin(th);
+      for (const p of L.panels) { const a = (p.x - L.J.x) * vx + (p.y - L.J.y) * vy; a0 = Math.min(a0, a); a1 = Math.max(a1, a); }
+    }
+    L.span = [a0, a1]; L.vx = vx; L.vy = vy;
     for (const p of [...L.panels, ...L.rej]) L.map.set(p.i + "," + p.j, p);
-    L.tot = L.panels.reduce((a, p) => a + p.t, 0);
+    L.tot = L.panels.reduce((a, p) => a + p.t, 0); L.ore = L.panels.reduce((a, p) => a + p.t * p.frac, 0);
+    L.minSF = L.panels.reduce((a, p) => Math.min(a, p.sf), Infinity);
   }
-  for (let t = 0.15; t <= 1; t += 0.05) { const x = PORTAL.x + (E1.x - PORTAL.x) * t, y = PORTAL.y + (E1.y - PORTAL.y) * t; if (terrainZ(x, y) < zTop) { warn.push("1편 수평갱이 지표 밖으로 드러나는 구간이 있음 (계곡 횡단)"); break; } }
-  return { S, H, Pw, all, levels: all.filter(L => L.panels.length), INC, PORTAL, warn, resT };
+  for (let t = 0.15; t <= 1 && dz0 < 1; t += 0.05) { const x = PORTAL.x + (E1.x - PORTAL.x) * t, y = PORTAL.y + (E1.y - PORTAL.y) * t; if (terrainZ(x, y) < zP) { warn.push("1편 수평갱이 지표 밖으로 드러나는 구간이 있음 (계곡 횡단)"); break; } }
+  return { S, H, Pw, all, levels: all.filter(L => L.panels.length), INC, PORTAL, warn, R, aboveT: aboveV * P.rho };
 }
 
-// ── 5. 스케줄: 월 단위 ──
+// ── 7. 일정: 월 단위, 작업장 배정 ──
 const jobProg = (j, t) => j.start === null ? 0 : clamp((t - j.start) * P.rate / j.len, 0, 1);
 function schedule(D, P) {
-  const seq = [...D.levels].sort((a, b) => b.zf - a.zf), I = D.INC, trig = P.trig / 100, years = [];
-  const yr = y => years[y] || (years[y] = { y, cal: P.y0 + y, t: 0, cao: 0, mgo: 0, sio2: 0, lv: new Float64Array(seq.length), dev: 0, cf: 0, target: 0, opened: [] });
+  const seq = D.levels, I = D.INC, trig = P.trig / 100, years = [], rate = P.frate * 1e3;
+  const yr = y => years[y] || (years[y] = { y, cal: P.y0 + y, t: 0, ore: 0, lv: new Float64Array(seq.length), dev: 0, cf: 0, target: 0, opened: [], faces: 0, months: 0 });
   for (const L of D.all) L.no = null;
   seq.forEach((L, k) => {
-    L.seq = k; L.no = k + 1; L.name = `${k + 1}편(EL.${L.zf})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity;
-    L.cost = P.opex + k * P.hinc;                                    // 깊은 편일수록 사갱을 여러 번 거쳐 올라옴
+    L.seq = k; L.no = k + 1; L.name = `${k + 1}편(EL.${Math.round(L.zf)})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity; L.first = null; L.last = null; L.opened = null;
     for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; if (p.blk) p.blk.paid = false; }
   });
-  // 굴진 작업: 1편 수평갱, 그 아래는 편마다 연층 사갱 한 구간
   const jobs = seq.map((L, k) => k ? { kind: "incline", k, a: seq[k - 1].J, b: L.J, len: Math.hypot(Math.hypot(L.J.x - seq[k - 1].J.x, L.J.y - seq[k - 1].J.y), seq[k - 1].zf - L.zf) + L.xc, start: null }
-                                   : { kind: "adit", k, a: I.PORTAL, b: I.E1, len: I.aditLen, start: null });
-  const open = (k, m) => { const j = jobs[k]; j.start = m; seq[k].access = m + j.len / P.rate; seq[k].ready = seq[k].access + P.lead; if (k) yr(Math.floor(m / 12)).opened.push(k + 1); };
+                                   : { kind: I.dz0 >= 1 ? "incline" : "adit", k, a: I.PORTAL, b: I.E1, len: I.len0, start: null });
+  const open = (k, m) => { const j = jobs[k]; j.start = m; seq[k].opened = m; seq[k].access = m + j.len / P.rate; seq[k].ready = seq[k].access + P.lead; if (k) yr(Math.floor(m / 12)).opened.push(k + 1); };
   if (seq.length) open(0, 0);
-  const devTot = jobs.reduce((a, j) => a + j.len, 0), start = seq.length ? Math.ceil(seq[0].ready) : 0;
-  const r = P.disc / 100; let npv = -P.capex * 1e8, m = 0, end = start, left = seq.reduce((a, L) => a + L.tot, 0);
-  const MAXM = 12 * 80;
-  for (; m < MAXM; m++) {
+  const devTot = jobs.reduce((a, j) => a + j.len, 0), start = seq.length ? Math.ceil(seq[0].ready) : 0, r = P.disc / 100;
+  let npv = -P.capex * 1e8, left = seq.reduce((a, L) => a + L.tot, 0), idle = 0;
+  for (let m = 0; m < 12 * 100; m++) {
     const Y = yr(Math.floor(m / 12));
     let devM = 0; for (const j of jobs) if (j.start !== null) devM += Math.max(0, Math.min(m + 1, j.start + j.len / P.rate) - Math.max(m, j.start)) * P.rate;
-    Y.dev += devM; let cf = -devM * P.devc * 1e4;
+    Y.dev += devM; let cf = -devM * P.devc * 1e4, got = 0;
     if (m >= start && left > 1) {
-      let target = P.ann * 1e4 / 12 * (m < start + 12 ? P.ramp1 / 100 : 1); Y.target += target;
-      const act = seq.filter(L => L.ready <= m && L.rem > 1).slice(0, P.nlv);
-      for (const L of act) {
-        const take = Math.min(P.lcap * 1e4 / 12, target, L.rem); if (take <= 0) continue;
-        let used = 0;
-        while (used < take - 1e-6 && L.ptr < L.panels.length) {
-          const p = L.panels[L.ptr], d = Math.min(p.t - p.done, take - used);
-          if (p.s0 === null) { p.s0 = m + used / take; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
-          cf += d * (P.price - p.cost);
-          p.done += d; used += d;
-          Y.cao += d * p.cao; Y.mgo += d * p.mgo; Y.sio2 += d * p.sio2;
-          if (p.done >= p.t - 1e-6) { p.s1 = m + used / take; L.ptr++; }
+      let target = P.ann * 1e4 / 12; Y.target += target;
+      const openL = seq.filter(L => L.ready <= m && L.rem > 1), busy = new Set();
+      for (const L of openL) while (L.ptr < L.panels.length && L.panels[L.ptr].s1 !== null) L.ptr++;
+      // 작업장 하나 = 판넬 하나. 캐던 판넬은 그 작업장이 이어서 캐고, 끝나면 위 편부터 진입점 쪽 옆 판넬이 끝난 새 판넬로 옮긴다
+      const partial = []; for (const L of openL) for (let q = L.ptr; q < L.panels.length; q++) { const p = L.panels[q]; if (p.s1 === null && p.done > 0) partial.push(p); }
+      // 지금 열려 있는 판넬이 없으면, 이번 달 안에 옆 판넬이 끝나는 가장 이른 판넬을 그 시각부터 캔다
+      const next = tn => { let late = null; for (const L of openL) for (let q = L.ptr; q < L.panels.length; q++) { const p = L.panels[q]; if (p.s1 !== null || p.done > 0 || busy.has(p) || (p.pre && p.pre.s1 === null)) continue; const ta = p.pre ? p.pre.s1 : 0; if (ta <= tn + 1e-9) return p; if (!late || ta < late.pre.s1) late = p; } return late; };
+      let nf = 0;
+      for (let f = 0; f < P.nface && target > 1; f++) {
+        let cap = rate, worked = false, cur = partial[f] || null;
+        while (cap > 1 && target > 1) {
+          const p = cur || next(m + (rate - cap) / rate); cur = null; if (!p) break; busy.add(p);
+          if (p.done === 0 && p.pre && p.pre.s1 > m + (rate - cap) / rate) cap = rate * (m + 1 - p.pre.s1);
+          if (cap <= 1) break; const L = p.L, d = Math.min(cap, p.t - p.done, target);
+          if (p.s0 === null) { p.s0 = m + (rate - cap) / rate; if (L.first === null) L.first = p.s0; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
+          p.done += d; cap -= d; target -= d; got += d; worked = true;
+          Y.t += d; Y.ore += d * p.frac; Y.lv[L.seq] += d; L.rem -= d; left -= d; cf += d * (p.frac * P.price - p.cost);
+          if (p.done >= p.t - 1e-6) { p.s1 = m + (rate - cap) / rate; L.last = p.s1; } else break;
         }
-        L.rem -= used; left -= used; target -= used; Y.t += used; Y.lv[L.seq] += used;
-        end = m + 1;
+        if (worked) nf++;
       }
+      if (got > 0) { Y.faces += nf; Y.months++; }
     }
+    idle = got > 0 ? 0 : idle + 1;
     Y.cf += cf; npv += cf / Math.pow(1 + r, (m + 0.5) / 12);
-    // 다음 편 개설: 마지막으로 연 편이 열렸고 채굴률이 기준을 넘으면 다음 달부터 사갱 굴진
     const kl = jobs.reduce((a, j) => j.start !== null ? j.k : a, -1), Lk = seq[kl];
     if (Lk && kl + 1 < seq.length && Lk.access <= m + 1 && Lk.tot - Lk.rem >= trig * Lk.tot - 1) open(kl + 1, m + 1);
     if (left <= 1 && jobs.every(j => j.start !== null && j.start + j.len / P.rate <= m + 1)) break;
+    if (idle > 240 && m > start) break;
   }
   let lastP = start; for (const L of seq) for (const p of L.panels) if (p.s1 !== null) lastP = Math.max(lastP, p.s1);
-  const ys = years.slice(0, Math.floor((lastP - 1e-6) / 12) + 1).map((Y, i) => Y || yr(i));
-  ys[0].cf -= P.capex * 1e8;
+  const ys = []; for (let i = 0; i <= Math.floor((lastP - 1e-6) / 12); i++) ys.push(yr(i));
+  if (ys.length) ys[0].cf -= P.capex * 1e8;
   let c = 0, pay = null; ys.forEach(Y => { const prev = c; c += Y.cf; Y.cum = c; if (pay === null && prev < 0 && c >= 0) pay = Y.cal; });
-  return { seq, years: ys, start, end: lastP, devTot, npv, pay, jobs };
+  return { seq, years: ys, start, end: lastP, devTot, npv, pay, jobs, mined: seq.reduce((a, L) => a + L.tot - Math.max(0, L.rem), 0) };
 }
 
-// ── 6. 계산 묶음 ──
-let M = null, T = 0, P = null;
+// ── 8. 계산 묶음 ──
+let M = null, T = 0, P = null, DATALABEL = "예시 자료", SKIPPED = {};
 function recompute() {
-  P = readP();
-  const D = design(P), S = schedule(D, P);
-  M = { ...D, ...S };
-  const tot = M.seq.reduce((a, L) => a + L.tot, 0), mined = M.seq.reduce((a, L) => a + L.tot - Math.max(0, L.rem), 0);
-  let gc = 0, minSF = Infinity, minAt = null;
-  for (const L of M.seq) for (const p of L.panels) { gc += p.t * p.cao; if (p.sf < minSF) { minSF = p.sf; minAt = L.name; } }
-  M.tot = tot; M.mined = mined; M.avgCao = tot ? gc / tot : 0; M.minSF = minSF; M.minAt = minAt;
+  if (!ORE) return;
+  P = readP(); const D = design(P), Sc = schedule(D, P); M = { ...D, ...Sc };
+  M.tot = M.seq.reduce((a, L) => a + L.tot, 0); M.oreT = M.seq.reduce((a, L) => a + L.ore, 0);
+  M.minSF = Infinity; M.minAt = null; M.nBad = 0; for (const L of M.seq) for (const p of L.panels) { if (p.sf < M.minSF) { M.minSF = p.sf; M.minAt = L.name; } if (p.sf < P.sfmin) M.nBad++; }
   M.driveTot = 0; for (const L of M.seq) for (const b of new Set(L.panels.map(p => p.blk))) if (b) M.driveTot += b.drive;
-  const ext = 1 - (D.Pw * D.Pw) / (D.S * D.S), vert = D.H / P.lv; M.ext = ext; M.vert = vert;
-  $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>평면 회수 <b>${fmt(ext * 100)}%</b> × 수직 회수 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
-  const I = M.INC, dd = DIPEST.dip * 180 / Math.PI;
-  $("incl").innerHTML = `층 자세(추정) 주향 <b>${bearing(DIPEST.az - Math.PI / 2)}</b> · 경사 <b>${fmt(dd, 1)}° → ${bearing(DIPEST.az)}</b><br>1편 수평갱 <b>${fmt(I.aditLen)} m</b> · 갱구 EL.${fmt(I.zTop)} (산 사면)<br>연층 사갱 경사 <b>${fmt(I.ia, 1)}°</b> (${fmt(I.ti * 100)}%, 1:${fmt(1 / I.ti, 1)}) · 구간 ${I.segs.length}개<br>방향: 다음 편 광체 중 갱구 쪽<br>편 간격 ${fmt(P.lv)}m당 사갱 <b>${fmt(P.lv / Math.sin(I.iaR))} m</b><br>굴진: 수평갱·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
-  // 제외 집계
+  const ext = 1 - (D.Pw * D.Pw) / (D.S * D.S), vert = D.H / P.lv, R = D.R, I = D.INC;
+  $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>판넬 안 회수 <b>${fmt(ext * 100)}%</b> × 수직 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
+  const capY = P.nface * P.frate * 12 / 10;
+  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
+  $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>1편 진입 ${I.dz0 >= 1 ? "사갱" : "수평갱"} <b>${fmt(I.len0)} m</b> · 사갱 ${I.segs.length}구간<br>굴진: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
+  $("sfinfo").innerHTML = isFinite(M.minSF) ? `최저 안전율 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt})<br>기준 ${fmt(P.sfmin, 1)} 미달 판넬 <b>${fmt(M.nBad)}</b>개 · 3D의 「안전율 색」으로 위치 확인` : "판넬 없음";
+  const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
+  $("datainfo").innerHTML = `${DATALABEL}<br>광체 면 <b>${fmt(ORE.n)}</b>개 · 체적 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산 ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
   const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0], econ: [0, 0] };
   for (const L of M.all) for (const p of L.rej) { ex[p.why][0]++; ex[p.why][1] += p.t; }
   const st = $("status"); st.innerHTML = "";
-  const chip = (txt, cls = "", col = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.innerHTML = (col ? `<i style="background:${col}"></i>` : "") + txt; st.appendChild(s); };
+  const chip = (txt, cls = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.textContent = txt; st.appendChild(s); };
+  for (const m of DATAMSG) chip(m, "warn");
+  if (Math.abs(dv) > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드가 닫히지 않았거나 면 방향이 섞였을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
   chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
-  if (ex.sf[0]) chip(`안전율 ${fmt(P.sfmin, 1)} 미달 ${fmt(ex.sf[0])}판넬 (${fmt(ex.sf[1] / 1e4)}만t) 제외`, "warn");
-  else if (!P.sfx) { let n = 0; for (const L of M.seq) for (const p of L.panels) if (p.sf < P.sfmin) n++; if (n) chip(`안전율 미달 ${fmt(n)}판넬도 채굴 계획에 포함됨`, "warn"); }
-  if (ex.econ[0]) chip(`수지 안 맞는 곳 ${fmt(ex.econ[0])}판넬 (${fmt(ex.econ[1] / 1e4)}만t) 제외`, "", PAL.muted);
+  if (M.aboveT > 0.01 * R.vol * P.rho) chip(`갱구보다 높은 광체 ${fmt(M.aboveT / 1e4)}만t은 계획에 없음 — 갱구를 더 높은 곳에 놓으면 포함`, "warn");
   if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);
   if (ex.incline[0]) chip(`사갱 보호 광주 ${fmt(ex.incline[0])}판넬 (${fmt(ex.incline[1] / 1e4)}만t) 제외`);
-  chip(`다음 편 개설: 윗편 ${fmt(P.trig)}% 채굴 시 연층 사갱 착수`);
-  const sr = (P.lv - M.H) / (M.S - M.Pw); if (sr < P.sill) chip(`수평 필러 ${fmt(P.lv - M.H, 1)}m ÷ 갱도 폭 ${fmt(M.S - M.Pw, 1)}m = ${fmt(sr, 2)} — 기준 ${fmt(P.sill, 2)} 미달`, "warn");
-  for (const w of M.warn) chip(w, "warn");
+  if (ex.econ[0]) chip(`수지 안 맞는 블록 ${fmt(ex.econ[0])}판넬 (${fmt(ex.econ[1] / 1e4)}만t) 제외`);
+  if (ex.sf[0]) chip(`안전율 미달 ${fmt(ex.sf[0])}판넬 (${fmt(ex.sf[1] / 1e4)}만t) 제외`);
+  const sr = (P.lv - D.H) / (D.S - D.Pw); if (sr < P.sill) chip(`수평 필러 ${fmt(P.lv - D.H, 1)}m ÷ 갱도 폭 ${fmt(D.S - D.Pw, 1)}m = ${fmt(sr, 2)} — 기준 ${fmt(P.sill, 2)} 미달`, "warn");
+  for (const w of D.warn) chip(w, "warn");
   const short = M.years.filter((Y, i) => i > 0 && i < M.years.length - 1 && Y.target > 0 && Y.t < Y.target * 0.97).length;
-  if (short) chip(`목표 미달 ${short}개 연도 (작업 편 수·편당 상한 또는 개발 속도 부족)`, "warn");
-  kpis(); buildLevels(); build3D();
+  if (short) chip(`목표 미달 ${short}개 연도 — 작업장 수·편 개설 시점을 조정`, "warn");
+  if (M.mined < M.tot - 1) chip(`계획 기간 안에 못 캔 광량 ${fmt((M.tot - M.mined) / 1e4)}만t`, "warn");
+  kpis(); buildLevels(); build3D(); drawLvTable();
   const sl = $("time"); sl.max = Math.max(1, Math.ceil(M.end) + 1);
   if (!recompute.did) { T = Math.round(M.start + 0.4 * (M.end - M.start)); recompute.did = true; }
   T = clamp(T, 0, +sl.max); sl.value = T; applyTime();
 }
 function kpis() {
-  const lifeY = (M.end - M.start) / 12;
-  $("k-ton").textContent = fmt(M.tot / 1e4) + " 만t"; $("k-ton-d").textContent = `판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`;
-  $("k-cao").textContent = fmt(M.avgCao, 1) + " %"; $("k-cao-d").textContent = `기준 ${fmt(P.cao, 1)}% 이상`;
+  const lifeY = Math.max(0, (M.end - M.start) / 12), resT = M.R.vol * P.rho;
+  $("k-res").textContent = fmt(resT / 1e4) + " 만t"; $("k-res-d").textContent = `지표 아래 ${fmt(M.R.vol / 1e4)}만 m³ × ${fmt(P.rho, 2)}`;
+  $("k-ton").textContent = fmt(M.tot / 1e4) + " 만t"; $("k-ton-d").textContent = `광석 ${fmt(M.oreT / 1e4)}만t · 희석 ${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}%`;
+  $("k-rec").textContent = resT ? fmt(M.oreT / resT * 100, 1) + " %" : "—"; $("k-rec-d").textContent = "캐는 광석 ÷ 광체 광량";
   $("k-life").textContent = fmt(lifeY, 1) + " 년"; $("k-life-d").textContent = M.seq.length ? `${P.y0 + Math.floor(M.start / 12)} ~ ${P.y0 + Math.floor((M.end - 1e-6) / 12)}년` : "—";
-  $("k-rec").textContent = M.resT ? fmt(M.tot / M.resT * 100, 1) + " %" : "—"; $("k-rec-d").textContent = `원광량 ${fmt(M.resT / 1e4)}만t · 판넬 안 ${fmt(M.ext * M.vert * 100)}%`;
-  $("k-sf").textContent = isFinite(M.minSF) ? fmt(M.minSF, 2) : "—"; $("k-sf-d").textContent = M.minAt ? `${M.minAt} · 기준 ${fmt(P.sfmin, 1)}` : "";
-  $("k-sf").style.color = M.minSF < P.sfmin ? "var(--bad)" : "";
+  $("k-prod").textContent = lifeY ? fmt(M.mined / 1e4 / lifeY) + " 만t" : "—"; $("k-prod-d").textContent = `목표 ${fmt(P.ann)}만t`;
   $("k-npv").textContent = fmt(M.npv / 1e8) + " 억원"; $("k-npv").style.color = M.npv < 0 ? "var(--bad)" : "";
   $("k-npv-d").textContent = `할인율 ${fmt(P.disc, 1)}%` + (M.pay ? ` · 회수 ${M.pay}년` : " · 회수 못 함");
 }
 
-// ── 7. 색 ──
+// ── 9. 색 ──
 function hex2rgb(h) { const n = parseInt(h.replace("#", ""), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }
 let PAL = {};
-function readPal() {
-  for (const k of ["bg", "panel", "sunk", "ink", "muted", "line", "accent", "ore", "ramp", "scene", "ghost", "pillar", "bad", "ok", "y0", "y1", "y2", "y3", "lvA", "lvB"]) PAL[k] = cssv("--" + k) || "#888888";
-}
-function yearRGB(f) {
-  const st = [PAL.y0, PAL.y1, PAL.y2, PAL.y3].map(hex2rgb), x = clamp(f, 0, 1) * 3, i = Math.min(2, Math.floor(x)), t = x - i;
-  return st[i].map((v, k) => v + t * (st[i + 1][k] - v));
-}
+function readPal() { for (const k of ["bg", "panel", "sunk", "ink", "muted", "line", "accent", "ore", "ramp", "scene", "ghost", "pillar", "bad", "ok", "y0", "y1", "y2", "y3", "lvA", "lvB"]) PAL[k] = cssv("--" + k) || "#888888"; }
+function yearRGB(f) { const st = [PAL.y0, PAL.y1, PAL.y2, PAL.y3].map(hex2rgb), x = clamp(f, 0, 1) * 3, i = Math.min(2, Math.floor(x)), t = x - i; return st[i].map((v, k) => v + t * (st[i + 1][k] - v)); }
 const rgbCss = c => `rgb(${c.map(v => Math.round(v * 255)).join(",")})`;
 function lvRGB(k, n) { const a = hex2rgb(PAL.lvA), b = hex2rgb(PAL.lvB), t = n > 1 ? k / (n - 1) : 0.5; return a.map((v, i) => v + t * (b[i] - v)); }
 const panelYearF = p => (p.s1 - M.start) / Math.max(1, M.end - M.start);
+const sfMode = () => $("t-sf").checked;
+const sfHex = p => p.sf < 1 ? PAL.bad : p.sf < P.sfmin ? PAL.accent : PAL.ok;
 
-// ── 8. 3D ──
-const W3 = { ok: false };
-const P3 = (x, y, z) => new THREE.Vector3(x - 600, z - 300, -(y - 500));
+// ── 10. 3D ──
+const W3 = { ok: false, O: { x: 0, y: 0, z: 0 }, E: 1000 };
+const P3 = (x, y, z) => new THREE.Vector3(x - W3.O.x, z - W3.O.z, -(y - W3.O.y));
 function init3D() {
   try {
-    const cv = $("view");
-    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+    const cv = $("view"), renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(36, 1, 5, 20000);
-    const controls = new THREE.OrbitControls(camera, cv); controls.enableDamping = true; controls.dampingFactor = 0.12;
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x5d665f, 0.8));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(-700, 900, 400); scene.add(sun);
-    Object.assign(W3, { ok: true, renderer, scene, camera, controls });
-    // 지형
-    const n = 61, m = 51, pos = [], idx = [];
-    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) { const x = i * 20, y = j * 20, p = P3(x, y, terrainZ(x, y)); pos.push(p.x, p.y, p.z); }
-    for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) { const a = i * m + j, b = (i + 1) * m + j; idx.push(a, b, a + 1, b, b + 1, a + 1); }
-    const tg = new THREE.BufferGeometry(); tg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); tg.setIndex(idx); tg.computeVertexNormals();
-    W3.terrainMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
-    W3.terrain = new THREE.Mesh(tg, W3.terrainMat); W3.terrain.renderOrder = 10; scene.add(W3.terrain);
-    const wl = new THREE.LineSegments(new THREE.WireframeGeometry(tg), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.12 }));
-    W3.terrainWire = wl; W3.terrain.add(wl);
-    // 광구
-    const cp = [], edge = [[CLAIM.x0, CLAIM.y0], [CLAIM.x1, CLAIM.y0], [CLAIM.x1, CLAIM.y1], [CLAIM.x0, CLAIM.y1], [CLAIM.x0, CLAIM.y0]];
-    for (let k = 0; k < 4; k++) { const [ax, ay] = edge[k], [bx, by] = edge[k + 1], L = Math.hypot(bx - ax, by - ay); for (let s = 0; s <= L; s += 20) { const x = ax + (bx - ax) * s / L, y = ay + (by - ay) * s / L; cp.push(P3(x, y, terrainZ(x, y) + 2)); } }
-    W3.claim = new THREE.Line(new THREE.BufferGeometry().setFromPoints(cp), new THREE.LineDashedMaterial({ dashSize: 12, gapSize: 8 })); W3.claim.computeLineDistances(); scene.add(W3.claim);
-    // 시추공
-    const hp = []; for (const h of HOLES) for (const q of h.s) { const a = P3(h.x, h.y, h.z - q.from), b = P3(h.x, h.y, h.z - q.to); hp.push(a.x, a.y, a.z, b.x, b.y, b.z); }
-    const hg = new THREE.BufferGeometry(); hg.setAttribute("position", new THREE.Float32BufferAttribute(hp, 3)); hg.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(hp.length), 3));
-    W3.holes = new THREE.LineSegments(hg, new THREE.LineBasicMaterial({ vertexColors: true })); scene.add(W3.holes);
-    new ResizeObserver(resize3D).observe(cv);
-    resize3D(); setView("v-iso");
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(36, 1, 1, 100000), controls = new THREE.OrbitControls(camera, cv);
+    controls.enableDamping = true; controls.dampingFactor = 0.12;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x5d665f, 0.8)); const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(-700, 900, 400); scene.add(sun);
+    Object.assign(W3, { ok: true, renderer, scene, camera, controls, stat: new THREE.Group(), dyn: new THREE.Group() }); scene.add(W3.stat, W3.dyn);
+    new ResizeObserver(resize3D).observe(cv); resize3D();
     (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
   } catch (e) {
-    $("view").hidden = true; const d = document.createElement("div"); d.className = "err";
-    d.textContent = "이 브라우저에서 3D 화면을 열 수 없습니다. 평면도·표·그래프는 그대로 쓸 수 있습니다."; $("view").parentElement.appendChild(d);
+    $("view").hidden = true; const d = document.createElement("div"); d.className = "err"; d.textContent = "이 브라우저에서 3D 화면을 열 수 없습니다. 평면도·표·그래프는 그대로 쓸 수 있습니다."; $("view").parentElement.appendChild(d);
   }
 }
-function resize3D() {
-  if (!W3.ok) return; const cv = W3.renderer.domElement, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
-  W3.renderer.setSize(w, h, false); W3.camera.aspect = w / h; W3.camera.updateProjectionMatrix();
+function resize3D() { if (!W3.ok) return; const cv = W3.renderer.domElement, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return; W3.renderer.setSize(w, h, false); W3.camera.aspect = w / h; W3.camera.updateProjectionMatrix(); }
+function clearGroup(g) { while (g.children.length) { const o = g.children.pop(); if (o.geometry) o.geometry.dispose(); } }
+function buildStatic() {                                                    // 자료가 바뀔 때만: 지형 · 광체 · 경계선
+  if (!W3.ok) return; clearGroup(W3.stat);
+  W3.O = { x: (VB.x0 + VB.x1) / 2, y: (VB.y0 + VB.y1) / 2, z: (ORE.bbox.z0 + ORE.bbox.z1) / 2 }; W3.E = Math.max(VB.x1 - VB.x0, VB.y1 - VB.y0);
+  const st = Math.max(1, Math.ceil(Math.max(G.nx, G.ny) / 150)), ix = [], jy = []; for (let i = 0; i < G.nx; i += st) ix.push(i); for (let j = 0; j < G.ny; j += st) jy.push(j);
+  const pos = [], idx = []; for (const j of jy) for (const i of ix) { const p = P3(G.x0 + i * G.d, G.y0 + j * G.d, G.z[j * G.nx + i]); pos.push(p.x, p.y, p.z); }
+  for (let b = 0; b < jy.length - 1; b++) for (let a = 0; a < ix.length - 1; a++) { const k = b * ix.length + a; idx.push(k, k + 1, k + ix.length, k + 1, k + ix.length + 1, k + ix.length); }
+  const tg = new THREE.BufferGeometry(); tg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); tg.setIndex(idx); tg.computeVertexNormals();
+  W3.terrainMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+  W3.terrain = new THREE.Mesh(tg, W3.terrainMat); W3.terrain.renderOrder = 10;
+  W3.terrainWire = new THREE.LineSegments(new THREE.WireframeGeometry(tg), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.1 })); W3.terrain.add(W3.terrainWire); W3.stat.add(W3.terrain);
+  const T3 = ORE.tris, op = new Float32Array(T3.length); for (let t = 0; t < T3.length; t += 3) { op[t] = T3[t] - W3.O.x; op[t + 1] = T3[t + 2] - W3.O.z; op[t + 2] = -(T3[t + 1] - W3.O.y); }
+  const og = new THREE.BufferGeometry(); og.setAttribute("position", new THREE.BufferAttribute(op, 3)); og.computeVertexNormals();
+  W3.oreMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
+  W3.ore = new THREE.Mesh(og, W3.oreMat); W3.ore.renderOrder = 5;
+  W3.oreWire = new THREE.LineSegments(new THREE.EdgesGeometry(og, 25), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 })); W3.ore.add(W3.oreWire); W3.stat.add(W3.ore);
+  W3.cadG = new THREE.Group(); W3.stat.add(W3.cadG);
+  W3.claimMat = new THREE.LineDashedMaterial({ dashSize: W3.E / 90, gapSize: W3.E / 140 }); W3.cadMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
+  const drape = (pts, closed, mat, dashed) => {
+    const o = [], n = pts.length; for (let q = 0; q < n - (closed ? 0 : 1); q++) { const a = pts[q], b = pts[(q + 1) % n], k = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (G.d * 2))); for (let s = 0; s < k; s++) { const x = a[0] + (b[0] - a[0]) * s / k, y = a[1] + (b[1] - a[1]) * s / k; o.push(P3(x, y, terrainZ(x, y) + 1.5)); } }
+    const e = pts[closed ? 0 : n - 1]; o.push(P3(e[0], e[1], terrainZ(e[0], e[1]) + 1.5));
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(o), mat); if (dashed) ln.computeLineDistances(); W3.cadG.add(ln);
+  };
+  for (const pg of CLAIM) drape(pg, true, W3.claimMat, true);
+  for (const c of CAD) drape(c.pts, c.closed, W3.cadMat, false);
+  W3.terrain.visible = $("t-terrain").checked; W3.ore.visible = $("t-ore").checked; W3.cadG.visible = $("t-cad").checked;
+  theme3D();
 }
 function theme3D() {
-  if (!W3.ok) return;
-  W3.renderer.setClearColor(new THREE.Color(PAL.scene));
-  W3.terrainMat.color.set(PAL.pillar); W3.terrainWire.material.color.set(PAL.ink);
-  W3.claim.material.color.set(PAL.accent);
-  if (W3.rampMat) W3.rampMat.color.set(PAL.ramp);
-  if (W3.driveMat) W3.driveMat.color.set(PAL.ore);
-  if (W3.portal) W3.portal.material.color.set(PAL.accent);
-}
-function holeColors() {
-  if (!P) return;
-  if (!W3.ok) return; const a = W3.holes.geometry.getAttribute("color"), ore = hex2rgb(PAL.ore), no = hex2rgb(PAL.muted); let k = 0;
-  for (const h of HOLES) for (const q of h.s) { const c = (q.cao >= P.cao && q.mgo <= P.mgo && q.sio2 <= P.sio2) ? ore : no; for (let r = 0; r < 2; r++) { a.array[k++] = c[0]; a.array[k++] = c[1]; a.array[k++] = c[2]; } }
-  a.needsUpdate = true;
+  if (!W3.ok) return; W3.renderer.setClearColor(new THREE.Color(PAL.scene));
+  if (W3.terrainMat) { W3.terrainMat.color.set(PAL.pillar); W3.terrainWire.material.color.set(PAL.ink); W3.oreMat.color.set(PAL.ore); W3.oreWire.material.color.set(PAL.ore); W3.claimMat.color.set(PAL.accent); W3.cadMat.color.set(PAL.muted); }
+  if (W3.rampMat) W3.rampMat.color.set(PAL.ramp); if (W3.driveMat) W3.driveMat.color.set(PAL.ore); if (W3.portal) W3.portal.material.color.set(PAL.accent);
 }
 function build3D() {
-  if (!W3.ok) return;
-  const { scene } = W3;
-  for (const o of [W3.rooms, W3.pillars, W3.portal]) if (o) { scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
-  for (const d of [...(W3.drives || []), ...(W3.jobMeshes || [])]) { scene.remove(d.m); d.m.geometry.dispose(); }
+  if (!W3.ok || !M) return; clearGroup(W3.dyn);
   const list = []; for (const L of M.seq) for (const p of L.panels) list.push(p);
-  W3.list = list; const n = list.length, S = M.S, Pw = M.Pw, H = M.H, g = 0.5, wR = (S - Pw) / 2, off = Pw / 2 + wR / 2;
-  const box = new THREE.BoxGeometry(1, 1, 1), mat = new THREE.MeshLambertMaterial();
-  W3.rooms = new THREE.InstancedMesh(box, mat, Math.max(1, 4 * n)); W3.pillars = new THREE.InstancedMesh(box.clone(), new THREE.MeshLambertMaterial(), Math.max(1, n));
+  W3.list = list; const n = list.length, S = M.S, Pw = M.Pw, H = M.H, g = Math.min(0.5, S * 0.03), wR = (S - Pw) / 2, off = Pw / 2 + wR / 2;
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  W3.rooms = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial(), Math.max(1, 4 * n)); W3.pillars = new THREE.InstancedMesh(box.clone(), new THREE.MeshLambertMaterial(), Math.max(1, n));
   W3.roomM = new Float32Array(16 * 4 * n); W3.pilM = new Float32Array(16 * n);
   const o = new THREE.Object3D(), put = (arr, k, x, y, z, sx, sy, sz) => { o.position.copy(P3(x, y, z)); o.scale.set(sx, sy, sz); o.updateMatrix(); o.matrix.toArray(arr, k * 16); };
   list.forEach((p, k) => {
     const zc = p.zf + H / 2;
-    put(W3.roomM, 4 * k, p.x, p.y + off, zc, S - g, H, wR - g);
-    put(W3.roomM, 4 * k + 1, p.x, p.y - off, zc, S - g, H, wR - g);
-    put(W3.roomM, 4 * k + 2, p.x + off, p.y, zc, wR - g, H, Pw);
-    put(W3.roomM, 4 * k + 3, p.x - off, p.y, zc, wR - g, H, Pw);
+    put(W3.roomM, 4 * k, p.x, p.y + off, zc, S - g, H, wR - g); put(W3.roomM, 4 * k + 1, p.x, p.y - off, zc, S - g, H, wR - g);
+    put(W3.roomM, 4 * k + 2, p.x + off, p.y, zc, wR - g, H, Pw); put(W3.roomM, 4 * k + 3, p.x - off, p.y, zc, wR - g, H, Pw);
     put(W3.pilM, k, p.x, p.y, zc, Pw, H, Pw);
   });
-  const c = new THREE.Color(); for (let k = 0; k < 4 * n; k++) W3.rooms.setColorAt(k, c); for (let k = 0; k < n; k++) W3.pillars.setColorAt(k, c);
-  scene.add(W3.rooms, W3.pillars);
-  // 1편 수평갱 + 편마다 연층 사갱 한 구간 + 편 갱도(주향 방향)
-  const I = M.INC; W3.rampMat = W3.rampMat || new THREE.MeshLambertMaterial(); W3.jobMeshes = [];
-  for (const j of M.jobs) {
-    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(P3(j.a.x, j.a.y, j.a.z + 2), P3(j.b.x, j.b.y, j.b.z + 2)), 40, j.kind === "adit" ? 4 : 3.5, 6, false), W3.rampMat);
-    scene.add(m); W3.jobMeshes.push({ m, j });
-  }
-  W3.portal = new THREE.Mesh(new THREE.SphereGeometry(9, 16, 12), new THREE.MeshLambertMaterial()); W3.portal.position.copy(P3(I.PORTAL.x, I.PORTAL.y, I.PORTAL.z + 2)); scene.add(W3.portal);
-  W3.driveMat = W3.driveMat || new THREE.MeshLambertMaterial(); W3.drives = [];
+  const c = new THREE.Color(); for (let k = 0; k < Math.max(1, 4 * n); k++) W3.rooms.setColorAt(k, c); for (let k = 0; k < Math.max(1, n); k++) W3.pillars.setColorAt(k, c);
+  if (!n) { W3.rooms.count = 0; W3.pillars.count = 0; }
+  W3.dyn.add(W3.rooms, W3.pillars);
+  const rr = Math.max(1.5, W3.E / 380); W3.rampMat = new THREE.MeshLambertMaterial(); W3.driveMat = new THREE.MeshLambertMaterial(); W3.jobMeshes = []; W3.drives = [];
+  for (const j of M.jobs) { const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(P3(j.a.x, j.a.y, j.a.z + 2), P3(j.b.x, j.b.y, j.b.z + 2)), 40, rr, 6, false), W3.rampMat); W3.dyn.add(m); W3.jobMeshes.push({ m, j }); }
+  const I = M.INC; W3.portal = new THREE.Mesh(new THREE.SphereGeometry(rr * 2.6, 16, 12), new THREE.MeshLambertMaterial()); W3.portal.position.copy(P3(I.PORTAL.x, I.PORTAL.y, I.PORTAL.z + 2)); W3.dyn.add(W3.portal);
   for (const L of M.seq) {
-    const J = L.J, p0 = P3(J.x + I.vx * (L.span[0] - 10), J.y + I.vy * (L.span[0] - 10), L.zf + 2), p1 = P3(J.x + I.vx * (L.span[1] + 10), J.y + I.vy * (L.span[1] + 10), L.zf + 2);
-    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(p0, p1), 8, 2.2, 5, false), W3.driveMat); scene.add(m); W3.drives.push({ m, L });
+    const J = L.J, p0 = P3(J.x + L.vx * (L.span[0] - S / 2), J.y + L.vy * (L.span[0] - S / 2), L.zf + 2), p1 = P3(J.x + L.vx * (L.span[1] + S / 2), J.y + L.vy * (L.span[1] + S / 2), L.zf + 2);
+    if (p0.distanceTo(p1) < 1) continue; const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(p0, p1), 8, rr * 0.65, 5, false), W3.driveMat); W3.dyn.add(m); W3.drives.push({ m, L });
   }
-  theme3D(); holeColors();
+  theme3D();
 }
 function time3D() {
-  if (!W3.ok || !W3.list) return;
-  const showF = $("t-future").checked, R = W3.rooms, Pm = W3.pillars, rm = R.instanceMatrix.array, pm = Pm.instanceMatrix.array, rc = R.instanceColor.array, pc = Pm.instanceColor.array;
+  if (!W3.ok || !W3.list || !M) return;
+  const showF = $("t-future").checked, sfm = sfMode(), R = W3.rooms, Pm = W3.pillars, rm = R.instanceMatrix.array, pm = Pm.instanceMatrix.array, rc = R.instanceColor.array, pc = Pm.instanceColor.array;
   const ac = hex2rgb(PAL.accent), gh = hex2rgb(PAL.ghost), pl = hex2rgb(PAL.pillar);
   W3.list.forEach((p, k) => {
-    const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined, vis = mined || act || showF;
-    const col = mined ? yearRGB(panelYearF(p)) : act ? ac : gh;
+    const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined, vis = sfm || mined || act || showF;
+    const col = sfm ? hex2rgb(sfHex(p)) : mined ? yearRGB(panelYearF(p)) : act ? ac : gh;
     for (let q = 0; q < 4; q++) { const base = (4 * k + q) * 16; if (vis) rm.set(W3.roomM.subarray(base, base + 16), base); else rm.fill(0, base, base + 16); rc.set(col, (4 * k + q) * 3); }
     if (vis) pm.set(W3.pilM.subarray(16 * k, 16 * k + 16), 16 * k); else pm.fill(0, 16 * k, 16 * k + 16);
-    pc.set(mined || act ? pl : gh, 3 * k);
+    pc.set(sfm || mined || act ? pl : gh, 3 * k);
   });
   R.instanceMatrix.needsUpdate = Pm.instanceMatrix.needsUpdate = true; R.instanceColor.needsUpdate = Pm.instanceColor.needsUpdate = true;
-  // 굴진 진행 · 열린 편 갱도
   for (const { m, j } of W3.jobMeshes) { const f = jobProg(j, T); m.visible = f > 0; m.geometry.setDrawRange(0, Math.ceil(f * 40) * 36); }
   for (const d of W3.drives) d.m.visible = d.L.access !== null && T >= d.L.access;
 }
-const VIEWS = {
-  "v-iso": () => [new THREE.Vector3(-0.75, 0.62, 0.55), 1.25],
-  "v-strike": () => [new THREE.Vector3(-Math.sin(30 * Math.PI / 180), 0.08, Math.cos(30 * Math.PI / 180)), 1.25],
-  "v-top": () => [new THREE.Vector3(0.001, 1, 0.0001), 1.15],
-};
+const VIEWS = { "v-iso": [-0.75, 0.62, 0.55, 1.2], "v-side": [-0.5, 0.06, 0.87, 1.15], "v-top": [0.001, 1, 0.0001, 1.1] };
 function setView(id) {
-  if (!W3.ok) return;
-  const [dir, k] = VIEWS[id](), mc = M && M.seq.length && M.seq[Math.floor(M.seq.length / 2)].J, tgt = mc ? P3(mc.x, mc.y, 330) : P3(600, 500, 330);
-  W3.controls.target.copy(tgt); W3.camera.position.copy(tgt).add(dir.normalize().multiplyScalar(1300 * k)); W3.controls.update();
+  if (!W3.ok || !ORE) return; const [x, y, z, k] = VIEWS[id], tgt = P3((ORE.bbox.x0 + ORE.bbox.x1) / 2, (ORE.bbox.y0 + ORE.bbox.y1) / 2, (ORE.bbox.z0 + ORE.bbox.z1) / 2);
+  W3.controls.target.copy(tgt); W3.camera.position.copy(tgt).add(new THREE.Vector3(x, y, z).normalize().multiplyScalar(W3.E * 1.15 * k)); W3.camera.near = W3.E / 500; W3.camera.far = W3.E * 40; W3.camera.updateProjectionMatrix(); W3.controls.update();
   for (const b of Object.keys(VIEWS)) $(b).setAttribute("aria-pressed", String(b === id));
 }
 
-// ── 9. 편 평면도 ──
-let planManual = false;
+// ── 11. 편 평면도 ──
+let PICK = false, CONT = null, CONTVER = -1;
 function buildLevels() {
   const sel = $("lvsel"), keep = sel.value; sel.innerHTML = `<option value="auto">지금 캐는 편</option>`;
-  for (const L of [...M.all].sort((a, b) => b.zf - a.zf)) { const o = document.createElement("option"); o.value = String(L.zf); o.textContent = L.no ? `${L.no}편 · EL.${L.zf} · ${fmt(L.tot / 1e4)}만t` : `EL.${L.zf} · 채굴 없음`; sel.appendChild(o); }
+  for (const L of M.all) { const o = document.createElement("option"); o.value = L.zf.toFixed(2); o.textContent = L.no ? `${L.no}편 · EL.${fmt(L.zf)} · ${fmt(L.tot / 1e4)}만t` : `EL.${fmt(L.zf)} · 채굴 없음`; sel.appendChild(o); }
   sel.value = [...sel.options].some(o => o.value === keep) ? keep : "auto";
 }
 function planLevel() {
-  const v = $("lvsel").value;
-  if (v !== "auto") return M.all.find(L => String(L.zf) === v);
-  const act = M.seq.find(L => L.panels.some(p => p.s0 !== null && p.s0 <= T && (p.s1 === null || p.s1 > T)));
-  if (act) return act;
-  const done = M.seq.filter(L => L.panels.some(p => p.s1 !== null && p.s1 <= T));
-  return done.length ? done[done.length - 1] : M.seq[0];
+  const v = $("lvsel").value; if (v !== "auto") return M.all.find(L => L.zf.toFixed(2) === v);
+  const act = M.seq.find(L => L.panels.some(p => p.s0 !== null && p.s0 <= T && (p.s1 === null || p.s1 > T))); if (act) return act;
+  const done = M.seq.filter(L => L.panels.some(p => p.s1 !== null && p.s1 <= T)); return done.length ? done[done.length - 1] : M.seq[0];
 }
-let CONT = null;
 function contours() {
-  if (CONT) return CONT; const d = 20, n = 61, m = 51, Z = (i, j) => terrainZ(i * d, j * d), segs = [];
-  for (let lv = 260; lv <= 540; lv += 20) for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) {
-    const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], z = c.map(([a, b]) => Z(a, b)), pts = [];
-    for (let e = 0; e < 4; e++) { const a = e, b = (e + 1) % 4; if ((z[a] < lv) !== (z[b] < lv)) { const t = (lv - z[a]) / (z[b] - z[a]); pts.push([(c[a][0] + t * (c[b][0] - c[a][0])) * d, (c[a][1] + t * (c[b][1] - c[a][1])) * d]); } }
-    if (pts.length >= 2) segs.push([lv, pts[0], pts[1]]); if (pts.length === 4) segs.push([lv, pts[2], pts[3]]);
+  if (CONT && CONTVER === DATAVER) return CONT; CONTVER = DATAVER; const segs = []; if (G.flat) return CONT = { segs, ci: 0 };
+  const raw = (G.zmax - G.zmin) / 12, ci = [1, 2, 5, 10, 20, 25, 50, 100, 200].find(v => v >= raw) || 500, d = G.d;
+  for (let j = 0; j < G.ny - 1; j++) for (let i = 0; i < G.nx - 1; i++) {
+    const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], z = c.map(([a, b]) => G.z[b * G.nx + a]), lo = Math.min(...z), hi = Math.max(...z);
+    for (let lv = Math.ceil(lo / ci) * ci; lv < hi; lv += ci) {
+      const pts = []; for (let e = 0; e < 4; e++) { const a = e, b = (e + 1) % 4; if ((z[a] < lv) !== (z[b] < lv)) { const t = (lv - z[a]) / (z[b] - z[a]); pts.push([G.x0 + (c[a][0] + t * (c[b][0] - c[a][0])) * d, G.y0 + (c[a][1] + t * (c[b][1] - c[a][1])) * d]); } }
+      if (pts.length >= 2) segs.push([lv, pts[0], pts[1]]); if (pts.length === 4) segs.push([lv, pts[2], pts[3]]);
+    }
   }
-  return CONT = segs;
+  return CONT = { segs, ci };
 }
 function drawPlan() {
-  const cv = $("plan"), W = cv.parentElement.clientWidth - 24; if (W <= 0) return;
-  const H = Math.round(W * Y1 / X1), dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (!M) return; const cv = $("plan"), W = cv.parentElement.clientWidth - 24; if (W <= 0) return;
+  const sc = W / (VB.x1 - VB.x0), H = Math.round((VB.y1 - VB.y0) * sc), dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.style.height = H + "px"; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const sc = W / X1, X = x => x * sc, Y = y => (Y1 - y) * sc; cv._sc = sc;
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); cv._sc = sc;
+  const X = x => (x - VB.x0) * sc, Y = y => (VB.y1 - y) * sc, fb = cssv("--f-body"), fm = cssv("--f-mono");
+  const line = (p, q) => { c.beginPath(); c.moveTo(X(p.x), Y(p.y)); c.lineTo(X(q.x), Y(q.y)); c.stroke(); };
   c.fillStyle = PAL.sunk; c.fillRect(0, 0, W, H);
-  // 지형 등고선
-  for (const [lv, a, b] of contours()) { c.strokeStyle = PAL.muted; c.globalAlpha = lv % 100 === 0 ? 0.45 : 0.18; c.lineWidth = lv % 100 === 0 ? 1 : 0.7; c.beginPath(); c.moveTo(X(a[0]), Y(a[1])); c.lineTo(X(b[0]), Y(b[1])); c.stroke(); }
-  c.globalAlpha = 1;
-  // 광구
-  c.setLineDash([6, 4]); c.strokeStyle = PAL.accent; c.lineWidth = 1.2; c.strokeRect(X(CLAIM.x0), Y(CLAIM.y1), (CLAIM.x1 - CLAIM.x0) * sc, (CLAIM.y1 - CLAIM.y0) * sc); c.setLineDash([]);
-  c.fillStyle = PAL.accent; c.font = `600 11px ${cssv("--f-body")}`; c.fillText("광구 경계", X(CLAIM.x0) + 4, Y(CLAIM.y1) + 13);
-  const L = planLevel(), S = M.S, Pw = M.Pw;
+  const ct = contours(); c.strokeStyle = PAL.muted;
+  for (const [lv, a, b] of ct.segs) { const idx = Math.round(lv / ct.ci) % 5 === 0; c.globalAlpha = idx ? 0.45 : 0.18; c.lineWidth = idx ? 1 : 0.7; c.beginPath(); c.moveTo(X(a[0]), Y(a[1])); c.lineTo(X(b[0]), Y(b[1])); c.stroke(); }
+  c.globalAlpha = 0.8; c.lineWidth = 0.9; c.strokeStyle = PAL.muted;
+  for (const q of CAD) { c.beginPath(); q.pts.forEach((p, k) => k ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); if (q.closed) c.closePath(); c.stroke(); }
+  c.globalAlpha = 1; c.setLineDash([6, 4]); c.strokeStyle = PAL.accent; c.lineWidth = 1.3;
+  for (const pg of CLAIM) { c.beginPath(); pg.forEach((p, k) => k ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); c.closePath(); c.stroke(); }
+  c.setLineDash([]);
+  const L = planLevel(), S = M.S, Pw = M.Pw, sfm = sfMode();
   if (L) {
     for (const p of L.rej) {
-      c.strokeStyle = p.why === "sf" ? PAL.bad : p.why === "econ" ? PAL.accent : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "sf" ? 0.9 : p.why === "econ" ? 0.75 : 0.5;
-      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2;
-      if (p.why === "econ") c.setLineDash([2, 2]); c.strokeRect(x0, y0, w, w); c.setLineDash([]);
+      c.strokeStyle = p.why === "sf" ? PAL.bad : p.why === "econ" ? PAL.accent : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "cover" ? 0.5 : 0.8;
+      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2; if (p.why === "econ") c.setLineDash([2, 2]); c.strokeRect(x0, y0, w, w); c.setLineDash([]);
       if (p.why === "sf") { c.beginPath(); c.moveTo(x0, y0 + w); c.lineTo(x0 + w, y0); c.stroke(); }
     }
     c.globalAlpha = 1;
-    const ac = PAL.accent, gh = PAL.ghost, pl = PAL.pillar;
     for (const p of L.panels) {
       const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined;
-      c.fillStyle = mined ? rgbCss(yearRGB(panelYearF(p))) : act ? ac : gh;
+      c.fillStyle = sfm ? sfHex(p) : mined ? rgbCss(yearRGB(panelYearF(p))) : act ? PAL.accent : PAL.ghost;
       c.fillRect(X(p.x - S / 2) + 0.5, Y(p.y + S / 2) + 0.5, S * sc - 1, S * sc - 1);
-      c.fillStyle = mined || act ? pl : PAL.sunk; c.globalAlpha = mined || act ? 1 : 0.7;
+      c.fillStyle = sfm || mined || act ? PAL.pillar : PAL.sunk; c.globalAlpha = sfm || mined || act ? 1 : 0.7;
       c.fillRect(X(p.x - Pw / 2), Y(p.y + Pw / 2), Pw * sc, Pw * sc); c.globalAlpha = 1;
     }
   }
-  // 수평갱 · 연층 사갱 · 보호 광주 · 편 갱도
-  const I = M.INC, line = (p, q) => { c.beginPath(); c.moveTo(X(p.x), Y(p.y)); c.lineTo(X(q.x), Y(q.y)); c.stroke(); };
-  c.strokeStyle = PAL.ramp; c.lineWidth = 1; c.setLineDash([4, 3]); c.globalAlpha = 0.5;
-  for (const g of I.segs) { const l = Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y) || 1, nx = -(g.b.y - g.a.y) / l, ny = (g.b.x - g.a.x) / l;
-    for (const sg of [-1, 1]) line({ x: g.a.x + nx * sg * P.iw, y: g.a.y + ny * sg * P.iw }, { x: g.b.x + nx * sg * P.iw, y: g.b.y + ny * sg * P.iw }); }
+  const I = M.INC; c.strokeStyle = PAL.ramp; c.lineWidth = 1; c.setLineDash([4, 3]); c.globalAlpha = 0.5;
+  for (const g of I.segs) { const l = Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y) || 1, nx = -(g.b.y - g.a.y) / l, ny = (g.b.x - g.a.x) / l; for (const sg of [-1, 1]) line({ x: g.a.x + nx * sg * P.iw, y: g.a.y + ny * sg * P.iw }, { x: g.b.x + nx * sg * P.iw, y: g.b.y + ny * sg * P.iw }); }
   c.setLineDash([]); c.globalAlpha = 1;
-  for (const j of M.jobs) {
-    const f = jobProg(j, T); c.strokeStyle = PAL.ramp; c.globalAlpha = 0.35; c.lineWidth = 1.4; line(j.a, j.b); c.globalAlpha = 1;
-    if (f > 0) { c.lineWidth = 3.2; line(j.a, { x: j.a.x + (j.b.x - j.a.x) * f, y: j.a.y + (j.b.y - j.a.y) * f }); }
-  }
-  c.font = `500 9.5px ${cssv("--f-mono")}`;
-  for (const Lv of M.seq) {
-    const J = Lv.J, on = Lv.access !== null && T >= Lv.access; c.strokeStyle = c.fillStyle = on ? PAL.ink : PAL.muted; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(X(J.x - I.vx * 7), Y(J.y - I.vy * 7)); c.lineTo(X(J.x + I.vx * 7), Y(J.y + I.vy * 7)); c.stroke();
-    c.fillText(String(Lv.no), X(J.x + I.vx * 9) + 2, Y(J.y + I.vy * 9) + 3);
-  }
-  if (L && L.J && L.span) {
-    const J = L.J, p0 = { x: J.x + I.vx * (L.span[0] - 10), y: J.y + I.vy * (L.span[0] - 10) }, p1 = { x: J.x + I.vx * (L.span[1] + 10), y: J.y + I.vy * (L.span[1] + 10) };
-    c.strokeStyle = PAL.ore; c.lineWidth = 2.6; c.globalAlpha = L.access !== null && L.access !== undefined && T >= L.access ? 1 : 0.4; line(p0, p1); c.globalAlpha = 1;
+  for (const j of M.jobs) { const f = jobProg(j, T); c.strokeStyle = PAL.ramp; c.globalAlpha = 0.35; c.lineWidth = 1.4; line(j.a, j.b); c.globalAlpha = 1; if (f > 0) { c.lineWidth = 3.2; line(j.a, { x: j.a.x + (j.b.x - j.a.x) * f, y: j.a.y + (j.b.y - j.a.y) * f }); } }
+  c.font = `500 9.5px ${fm}`;
+  for (const Lv of M.seq) { const J = Lv.J, on = Lv.access !== null && T >= Lv.access; c.fillStyle = on ? PAL.ink : PAL.muted; c.beginPath(); c.arc(X(J.x), Y(J.y), 2.2, 0, Math.PI * 2); c.fill(); c.fillText(String(Lv.no), X(J.x) + 5, Y(J.y) - 4); }
+  if (L && L.J && L.span && L.span[1] - L.span[0] > 1) {
+    const J = L.J, p0 = { x: J.x + L.vx * (L.span[0] - S / 2), y: J.y + L.vy * (L.span[0] - S / 2) }, p1 = { x: J.x + L.vx * (L.span[1] + S / 2), y: J.y + L.vy * (L.span[1] + S / 2) };
+    c.strokeStyle = PAL.ore; c.lineWidth = 2.4; c.globalAlpha = L.access !== null && L.access !== undefined && T >= L.access ? 1 : 0.4; line(p0, p1); c.globalAlpha = 1;
     c.fillStyle = PAL.ore; c.beginPath(); c.arc(X(J.x), Y(J.y), 4, 0, Math.PI * 2); c.fill();
-    c.font = `600 11px ${cssv("--f-body")}`; c.fillText(`${L.no ? L.no + "편 " : ""}편 갱도`, X(p1.x) + 4, Y(p1.y) - 4);
   }
-  c.fillStyle = PAL.accent; c.beginPath(); const gx = X(I.PORTAL.x), gy = Y(I.PORTAL.y); c.moveTo(gx, gy - 7); c.lineTo(gx + 6, gy + 5); c.lineTo(gx - 6, gy + 5); c.closePath(); c.fill();
-  c.fillStyle = PAL.ink; c.font = `500 11px ${cssv("--f-body")}`; c.fillText(`1편 갱구 EL.${I.zTop} · 수평갱 ${fmt(I.aditLen)}m`, gx + 8, gy - 4);
-  if (M.seq.length > 1) { const Ld = M.seq[Math.min(2, M.seq.length - 1)].J; c.textAlign = "right"; c.fillText(`연층 사갱 ${fmt(I.ia, 1)}°`, X(Ld.x) - 12, Y(Ld.y)); c.fillText(`편마다 약 ${fmt(P.lv / Math.sin(I.iaR))}m`, X(Ld.x) - 12, Y(Ld.y) + 13); c.textAlign = "left"; }
-  // 시추공
-  for (const h of HOLES) { c.fillStyle = h.hasOre ? PAL.ore : PAL.muted; c.beginPath(); c.arc(X(h.x), Y(h.y), 2.6, 0, Math.PI * 2); c.fill(); }
-  // 축척·방위
-  const bar = 200 * sc, bx = W - bar - 14, by = H - 14;
+  const gx = X(I.PORTAL.x), gy = Y(I.PORTAL.y); c.fillStyle = PAL.accent; c.beginPath(); c.moveTo(gx, gy - 8); c.lineTo(gx + 7, gy + 5); c.lineTo(gx - 7, gy + 5); c.closePath(); c.fill();
+  c.fillStyle = PAL.ink; c.font = `600 11px ${fb}`; const lab = `갱구 EL.${fmt(I.zP)}`; c.fillText(lab, gx + 10 + c.measureText(lab).width > W ? gx - 12 - c.measureText(lab).width : gx + 10, gy + 2);
+  const want = (VB.x1 - VB.x0) / 5, bl = [10, 20, 50, 100, 200, 500, 1000, 2000].reduce((a, v) => Math.abs(v - want) < Math.abs(a - want) ? v : a), bar = bl * sc, bx = W - bar - 14, by = H - 14;
   c.strokeStyle = PAL.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + bar, by); c.moveTo(bx, by - 4); c.lineTo(bx, by); c.moveTo(bx + bar, by - 4); c.lineTo(bx + bar, by); c.stroke();
-  c.fillStyle = PAL.ink; c.font = `500 10.5px ${cssv("--f-mono")}`; c.fillText("200 m", bx + bar / 2 - 15, by - 6);
-  c.beginPath(); c.moveTo(W - 18, 12); c.lineTo(W - 23, 26); c.lineTo(W - 13, 26); c.closePath(); c.fill(); c.fillText("N", W - 22, 38);
-  c.font = `600 12px ${cssv("--f-body")}`; c.fillStyle = PAL.ink;
-  if (L) c.fillText(`${L.no ? L.no + "편 · " : ""}EL.${L.zf}  ·  ${L.panels.length ? `판넬 ${L.panels.length}개 · ${fmt(L.tot / 1e4)}만t` : "채굴 판넬 없음"}`, 8, H - 10);
+  c.font = `500 10.5px ${fm}`; c.fillText(`${bl} m`, bx + bar / 2 - 14, by - 6);
+  c.beginPath(); c.moveTo(W - 18, 10); c.lineTo(W - 23, 24); c.lineTo(W - 13, 24); c.closePath(); c.fill(); c.fillText("N", W - 22, 36);
+  c.font = `600 12px ${fb}`;
+  if (PICK) c.fillText("갱구로 쓸 지점을 누르세요", 8, 16);
+  if (L) c.fillText(`${L.no ? L.no + "편 · " : ""}EL.${fmt(L.zf)}  ·  ${L.panels.length ? `판넬 ${L.panels.length}개 · ${fmt(L.tot / 1e4)}만t` : "채굴 판넬 없음"}`, 8, H - 10);
 }
+function planXY(e) { const cv = $("plan"), r = cv.getBoundingClientRect(), sc = cv._sc; return { x: VB.x0 + (e.clientX - r.left) / sc, y: VB.y1 - (e.clientY - r.top) / sc }; }
 function planTip(e) {
-  const cv = $("plan"), tip = $("tip"), r = cv.getBoundingClientRect(), sc = cv._sc; if (!sc || !M) return;
-  const x = (e.clientX - r.left) / sc, y = Y1 - (e.clientY - r.top) / sc, L = planLevel();
-  const p = L && L.map.get(Math.floor(x / M.S) + "," + Math.floor(y / M.S));
-  if (!p) { tip.hidden = true; return; }
-  const when = m => { const y = P.y0 + Math.floor(m / 12), mo = Math.floor(m % 12) + 1; return `${y}.${String(mo).padStart(2, "0")}`; };
-  const why = { sf: `<b style="color:var(--bad)">제외 · 안전율 미달</b>`, cover: "<b>제외 · 지표 피복 부족</b>", incline: "<b>제외 · 사갱 보호 광주</b>", econ: "<b>제외 · 수지 안 맞음</b>" }[p.why];
-  const bk = p.blk ? `<br>블록 ${fmt(p.blk.n)}판넬 · ${fmt(p.blk.t / 1e4, 1)}만t · 편 갱도 ${fmt(p.blk.drive)}m · 순이익 <b style="color:${p.blk.val < 0 ? "var(--bad)" : "inherit"}">${fmt(p.blk.val / 1e8, 1)}억원</b>` : "";
-  const cs = p.cost !== undefined ? `<br>진입점에서 경로 ${fmt(p.dist)}m · 원가 ${fmt(p.cost)}원/t` : "";
-  tip.innerHTML = (why ? why + "<br>" : "") +
-    `CaO <b>${fmt(p.cao, 1)}</b> · MgO <b>${fmt(p.mgo, 1)}</b> · SiO₂ <b>${fmt(p.sio2, 1)}</b> %<br>` +
-    `층 안 비율 ${fmt(p.frac * 100)}% · ${fmt(p.t / 1e4, 2)}만t<br>깊이 ${fmt(p.depth)}m · 안전율 <b style="color:${p.sf < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(p.sf, 2)}</b>` +
-    cs + bk + (p.s0 !== null && p.s0 !== undefined ? `<br>채굴 ${when(p.s0)} ~ ${p.s1 !== null ? when(p.s1) : "—"}` : (p.why ? "" : "<br>계획 기간 안에 채굴 안 됨"));
-  tip.hidden = false;
+  const cv = $("plan"), tip = $("tip"); if (!cv._sc || !M) return; const { x, y } = planXY(e), L = planLevel(), R = M.R;
+  const p = L && L.map.get(Math.floor((x - R.gx0) / M.S) + "," + Math.floor((y - R.gy0) / M.S));
+  const when = m => `${P.y0 + Math.floor(m / 12)}.${String(Math.floor(m % 12) + 1).padStart(2, "0")}`;
+  let h = `E ${fmt(x)} · N ${fmt(y)} · 지표 EL.${fmt(terrainZ(x, y))}`;
+  if (p && !PICK) {
+    const why = { sf: `<b style="color:var(--bad)">제외 · 안전율 미달</b>`, cover: "<b>제외 · 지표 피복 부족</b>", incline: "<b>제외 · 사갱 보호 광주</b>", econ: "<b>제외 · 수지 안 맞음</b>" }[p.why];
+    h += "<br>" + (why ? why + "<br>" : "") + `광체 비율 <b>${fmt(p.frac * 100)}%</b> · ${fmt(p.t / 1e4, 2)}만t<br>깊이 ${fmt(p.depth)}m · 안전율 <b style="color:${p.sf < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(Math.min(p.sf, 99), 2)}</b>` +
+      (p.cost !== undefined ? `<br>진입점에서 경로 ${fmt(p.dist)}m · 원가 ${fmt(p.cost)}원/t` : "") +
+      (p.blk ? `<br>블록 ${fmt(p.blk.n)}판넬 · 편 갱도 ${fmt(p.blk.drive)}m · 순이익 <b style="color:${p.blk.val < 0 ? "var(--bad)" : "inherit"}">${fmt(p.blk.val / 1e8, 1)}억원</b>` : "") +
+      (p.s0 !== null && p.s0 !== undefined ? `<br>채굴 ${when(p.s0)} ~ ${p.s1 !== null ? when(p.s1) : "—"}` : (p.why ? "" : "<br>계획 기간 안에 채굴 안 됨"));
+  }
+  tip.innerHTML = h; tip.hidden = false;
   const wr = cv.parentElement.getBoundingClientRect(); let lx = e.clientX - wr.left + 14, ly = e.clientY - wr.top + 14;
-  if (lx + tip.offsetWidth > wr.width - 4) lx = e.clientX - wr.left - tip.offsetWidth - 10;
-  if (ly + tip.offsetHeight > wr.height - 4) ly = e.clientY - wr.top - tip.offsetHeight - 10;
+  if (lx + tip.offsetWidth > wr.width - 4) lx = e.clientX - wr.left - tip.offsetWidth - 10; if (ly + tip.offsetHeight > wr.height - 4) ly = e.clientY - wr.top - tip.offsetHeight - 10;
   tip.style.left = lx + "px"; tip.style.top = ly + "px";
 }
+function setPick(on) { PICK = on; $("pick").setAttribute("aria-pressed", String(on)); $("pick").textContent = on ? "평면도를 누르세요 (취소)" : "평면도에서 갱구 놓기"; $("plan").classList.toggle("pick", on); drawPlan(); if (on) $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); }
 
-// ── 10. 그래프 · 표 · 범례 ──
+// ── 12. 그래프 · 표 · 범례 ──
 function drawChart() {
   const svg = $("chart"), Wd = svg.clientWidth || 600, Hd = 220, pad = { l: 44, r: 10, t: 20, b: 24 }, ys = M.years, n = ys.length;
   if (!n) { svg.innerHTML = ""; return; }
-  const maxV = Math.max(P.ann * 1.1, ...ys.map(Y => Y.t / 1e4)) * 1.08;
+  const maxV = Math.max(P.ann * 1.1, ...ys.map(Y => Y.t / 1e4)) * 1.08, fm = cssv("--f-mono");
   const x = i => pad.l + (Wd - pad.l - pad.r) * (i + 0.5) / n, y = v => pad.t + (Hd - pad.t - pad.b) * (1 - v / maxV), bw = Math.max(2, (Wd - pad.l - pad.r) / n * 0.72);
-  const step = maxV > 400 ? 100 : maxV > 160 ? 50 : 25; let s = "";
-  for (let v = 0; v <= maxV; v += step) s += `<line x1="${pad.l}" x2="${Wd - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="${PAL.line}" stroke-width="1"/><text x="${pad.l - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="10.5" fill="${PAL.muted}" font-family="${cssv("--f-mono")}">${v}</text>`;
+  const step = [5, 10, 25, 50, 100].find(v => maxV / v <= 6) || 200; let s = "";
+  for (let v = 0; v <= maxV; v += step) s += `<line x1="${pad.l}" x2="${Wd - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="${PAL.line}" stroke-width="1"/><text x="${pad.l - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="10.5" fill="${PAL.muted}" font-family="${fm}">${v}</text>`;
   s += `<text x="${pad.l}" y="10" text-anchor="start" font-size="10" fill="${PAL.muted}">단위 만t</text>`;
   const cy = Math.floor(T / 12), nl = M.seq.length;
   ys.forEach((Y, i) => {
     let acc = 0;
     for (let k = 0; k < nl; k++) { const v = Y.lv[k] / 1e4; if (v <= 0) continue; s += `<rect x="${x(i) - bw / 2}" y="${y(acc + v)}" width="${bw}" height="${Math.max(0.5, y(acc) - y(acc + v))}" fill="${rgbCss(lvRGB(k, nl))}"><title>${Y.cal}년 · ${M.seq[k].name} ${fmt(v, 1)}만t</title></rect>`; acc += v; }
     if (i === cy) s += `<rect x="${x(i) - bw / 2 - 2}" y="${y(acc) - 2}" width="${bw + 4}" height="${y(0) - y(acc) + 2}" fill="none" stroke="${PAL.accent}" stroke-width="1.5"/>`;
-    if (n <= 12 || i % Math.ceil(n / 10) === 0) s += `<text x="${x(i)}" y="${Hd - 6}" text-anchor="middle" font-size="10.5" fill="${PAL.muted}" font-family="${cssv("--f-mono")}">${Y.cal}</text>`;
+    if (n <= 12 || i % Math.ceil(n / 10) === 0) s += `<text x="${x(i)}" y="${Hd - 6}" text-anchor="middle" font-size="10.5" fill="${PAL.muted}" font-family="${fm}">${Y.cal}</text>`;
+    if (Y.target > 0) s += `<polyline points="${x(i) - bw / 2},${y(Y.target / 1e4)} ${x(i) + bw / 2},${y(Y.target / 1e4)}" fill="none" stroke="${PAL.ink}" stroke-width="1.2" stroke-dasharray="3 2"/>`;
   });
-  const tp = ys.map((Y, i) => Y.target > 0 ? `${x(i) - bw / 2},${y(Y.target / 1e4)} ${x(i) + bw / 2},${y(Y.target / 1e4)}` : null);
-  tp.forEach(p => { if (p) s += `<polyline points="${p}" fill="none" stroke="${PAL.ink}" stroke-width="1.2" stroke-dasharray="3 2"/>`; });
   svg.setAttribute("viewBox", `0 0 ${Wd} ${Hd}`); svg.innerHTML = s;
 }
+const ym = m => `${P.y0 + Math.floor(m / 12)}.${String(Math.floor(m % 12) + 1).padStart(2, "0")}`;
+function drawLvTable() {
+  let h = ""; const cur = planLevel();
+  for (const L of M.seq) {
+    const j = M.jobs[L.seq];
+    h += `<tr data-z="${L.zf.toFixed(2)}" class="${L === cur ? "cur" : ""}"><td>${L.no}편</td><td>${fmt(L.zf, 1)}</td><td>${fmt(L.panels.length)}</td><td>${fmt(L.tot / 1e4, 1)}</td><td>${fmt(L.ore / 1e4, 1)}</td><td>${fmt((1 - L.ore / L.tot) * 100, 1)}</td><td class="${L.minSF < P.sfmin ? "neg" : ""}">${fmt(Math.min(L.minSF, 99), 2)}</td><td>${fmt(j.len)}</td><td>${L.opened !== null ? ym(L.opened) : "—"}</td><td>${L.first !== null ? ym(L.first) + " ~ " + (L.rem <= 1 && L.last !== null ? ym(L.last) : "") : "—"}</td></tr>`;
+  }
+  h += `<tr><td><b>합계</b></td><td></td><td>${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}</td><td>${fmt(M.tot / 1e4, 1)}</td><td>${fmt(M.oreT / 1e4, 1)}</td><td>${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}</td><td>${isFinite(M.minSF) ? fmt(M.minSF, 2) : "—"}</td><td>${fmt(M.devTot)}</td><td></td><td></td></tr>`;
+  $("lvbody").innerHTML = h;
+}
 function drawTable() {
-  const tb = $("tbody"), cy = Math.floor(T / 12); let cum = 0, h = "";
+  const cy = Math.floor(T / 12); let cum = 0, h = "";
   M.years.forEach((Y, i) => {
     cum += Y.t; const nos = M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no), lv = (nos.length ? nos.join("·") + "편" : "") + (Y.opened.length ? ` <span style="color:var(--accent)">+${Y.opened.join("·")}편 개설</span>` : "");
-    const g = k => Y.t ? fmt(Y[k] / Y.t, k === "mgo" ? 2 : 1) : "—";
-    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "1편 수평갱" : "—")}</td><td>${g("cao")}</td><td>${g("mgo")}</td><td>${g("sio2")}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
+    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "진입 굴진" : "—")}</td><td>${Y.months ? fmt(Y.faces / Y.months, 1) : "—"}</td><td>${Y.t ? fmt((1 - Y.ore / Y.t) * 100, 1) : "—"}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
   });
-  tb.innerHTML = h;
+  $("tbody").innerHTML = h;
 }
 function drawLegend() {
-  const el = $("legend"), y0 = P.y0 + Math.floor(M.start / 12), y1 = P.y0 + Math.floor((M.end - 1e-6) / 12);
-  const grad = `linear-gradient(90deg,${[0, 1 / 3, 2 / 3, 1].map(f => rgbCss(yearRGB(f))).join(",")})`;
-  el.innerHTML = `<div>캔 연도</div><div class="bar" style="background:${grad}"></div><div class="ends"><span>${y0}</span><span>${y1}</span></div>
-  <div class="cats"><span><i style="background:${PAL.accent}"></i>채굴 중</span><span><i style="background:${PAL.pillar}"></i>필러</span><span><i style="background:${PAL.ghost}"></i>남은 판넬</span><span><i style="background:${PAL.ore}"></i>시추 품위 충족</span></div>`;
+  const el = $("legend"), cat = (c, t) => `<span><i style="background:${c}"></i>${t}</span>`;
+  if (sfMode()) { el.innerHTML = `<div>필러 안전율</div><div class="cats">${cat(PAL.ok, `${fmt(P.sfmin, 1)} 이상`)}${cat(PAL.accent, `1.0 ~ ${fmt(P.sfmin, 1)}`)}${cat(PAL.bad, "1.0 미만")}</div>`; return; }
+  const y0 = P.y0 + Math.floor(M.start / 12), y1 = P.y0 + Math.floor((M.end - 1e-6) / 12), grad = `linear-gradient(90deg,${[0, 1 / 3, 2 / 3, 1].map(f => rgbCss(yearRGB(f))).join(",")})`;
+  el.innerHTML = `<div>캔 연도</div><div class="bar" style="background:${grad}"></div><div class="ends"><span>${y0}</span><span>${y1}</span></div><div class="cats">${cat(PAL.accent, "채굴 중")}${cat(PAL.pillar, "필러")}${cat(PAL.ghost, "남은 판넬")}${cat(PAL.ore, "광체")}</div>`;
 }
 
-// ── 11. 시간 ──
+// ── 13. 시간 · 조작 ──
 function applyTime() {
   if (!M) return;
-  const y = P.y0 + Math.floor(T / 12), mo = Math.floor(T % 12) + 1, py = Math.floor((T - M.start) / 12) + 1;
-  const phase = T < M.start ? "1편 수평갱 굴진" : T >= M.end ? "채굴 종료" : `생산 ${py}년차`;
-  $("when").innerHTML = `${y}년 ${mo}월<small>${phase}</small>`;
-  let cum = 0, act = new Set(); for (const L of M.seq) for (const p of L.panels) { if (p.s1 !== null && p.s1 <= T) cum += p.t; else if (p.s0 !== null && p.s0 <= T) { cum += p.t * clamp((T - p.s0) / Math.max(1e-6, p.s1 - p.s0), 0, 1); act.add(L.no); } }
+  const py = Math.floor((T - M.start) / 12) + 1, phase = T < M.start ? "1편 진입 굴진" : T >= M.end ? "채굴 종료" : `생산 ${py}년차`;
+  $("when").innerHTML = `${P.y0 + Math.floor(T / 12)}년 ${Math.floor(T % 12) + 1}월<small>${phase}</small>`;
+  let cum = 0, nact = 0; const act = new Set();
+  for (const L of M.seq) for (const p of L.panels) { if (p.s1 !== null && p.s1 <= T) cum += p.t; else if (p.s0 !== null && p.s0 <= T) { cum += p.t * (p.s1 !== null ? clamp((T - p.s0) / Math.max(1e-6, p.s1 - p.s0), 0, 1) : 0.5); act.add(L.no); nact++; } }
   const dev = M.jobs.reduce((a, j) => a + jobProg(j, T) * j.len, 0), opened = M.seq.filter(L => L.access !== null && L.access <= T).length;
-  $("now").innerHTML = `누적 생산 <b>${fmt(cum / 1e4)}만t</b> · 남은 광량 <b>${fmt((M.tot - cum) / 1e4)}만t</b> · 작업 편 <b>${act.size ? [...act].sort((a, b) => a - b).join("·") + "편" : "—"}</b> · 열린 편 <b>${opened} / ${M.seq.length}</b> · 굴진 <b>${fmt(dev)} / ${fmt(M.devTot)}m</b>`;
+  $("now").innerHTML = `누적 생산 <b>${fmt(cum / 1e4)}만t</b> · 남은 광량 <b>${fmt((M.tot - cum) / 1e4)}만t</b> · 작업 편 <b>${act.size ? [...act].sort((a, b) => a - b).join("·") + "편" : "—"}</b> · 작업장 <b>${nact}곳</b> · 열린 편 <b>${opened} / ${M.seq.length}</b> · 굴진 <b>${fmt(dev)} / ${fmt(M.devTot)}m</b>`;
   time3D(); drawPlan(); drawChart(); drawTable(); drawLegend();
 }
 const slider = $("time"), playBtn = $("play"); let timer = null;
 slider.addEventListener("input", () => { T = +slider.value; applyTime(); });
 function stop() { clearInterval(timer); timer = null; playBtn.textContent = "▶ 재생"; }
 playBtn.addEventListener("click", () => {
-  if (timer) return stop();
-  if (T >= +slider.max) T = 0;
-  playBtn.textContent = "❚❚ 멈춤";
+  if (timer) return stop(); if (T >= +slider.max) T = 0; playBtn.textContent = "❚❚ 멈춤";
   timer = setInterval(() => { T = Math.min(+slider.max, T + 1); slider.value = T; applyTime(); if (T >= +slider.max) stop(); }, 70);
 });
 $("tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr) return; T = clamp(+tr.dataset.y * 12 + 11.99, 0, +slider.max); slider.value = Math.round(T); applyTime(); });
-$("lvsel").addEventListener("change", drawPlan);
+$("lvbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr || !tr.dataset.z) return; $("lvsel").value = tr.dataset.z; drawPlan(); drawLvTable(); $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); });
+$("lvsel").addEventListener("change", () => { drawPlan(); drawLvTable(); });
 $("copycsv").addEventListener("click", () => {
-  let cum = 0; const rows = [["연도", "생산_t", "작업편", "개설편", "CaO_%", "MgO_%", "SiO2_%", "누계_t", "굴진_m", "현금흐름_원"]];
-  for (const Y of M.years) { cum += Y.t; const g = k => Y.t ? (Y[k] / Y.t).toFixed(2) : ""; rows.push([Y.cal, Math.round(Y.t), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), g("cao"), g("mgo"), g("sio2"), Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
+  let cum = 0; const rows = [["연도", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];
+  for (const Y of M.years) { cum += Y.t; rows.push([Y.cal, Math.round(Y.t), Math.round(Y.ore), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), Y.months ? (Y.faces / Y.months).toFixed(1) : "", Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
   const csv = rows.map(r => r.join(",")).join("\n"), btn = $("copycsv"), ta = $("csvout");
   const fallback = () => { ta.value = csv; ta.hidden = false; ta.select(); btn.textContent = "아래 내용을 복사하세요"; };
   try { navigator.clipboard.writeText(csv).then(() => { btn.textContent = "복사됨"; setTimeout(() => { btn.textContent = "표 복사 (CSV)"; }, 1500); }, fallback); } catch (e) { fallback(); }
 });
 $("plan").addEventListener("mousemove", planTip); $("plan").addEventListener("mouseleave", () => { $("tip").hidden = true; });
+$("plan").addEventListener("click", e => { if (!PICK || !M) return; USERPORTAL = planXY(e); setPick(false); recompute(); });
+$("pick").addEventListener("click", () => setPick(!PICK));
+$("autoportal").addEventListener("click", () => { USERPORTAL = null; setPick(false); recompute(); });
 for (const id of Object.keys(VIEWS)) $(id).addEventListener("click", () => setView(id));
-$("t-terrain").addEventListener("change", e => { if (W3.ok) W3.terrain.visible = e.target.checked; });
-$("t-holes").addEventListener("change", e => { if (W3.ok) W3.holes.visible = e.target.checked; });
+$("t-terrain").addEventListener("change", e => { if (W3.terrain) W3.terrain.visible = e.target.checked; });
+$("t-ore").addEventListener("change", e => { if (W3.ore) W3.ore.visible = e.target.checked; });
+$("t-cad").addEventListener("change", e => { if (W3.cadG) W3.cadG.visible = e.target.checked; });
 $("t-future").addEventListener("change", time3D);
+$("t-sf").addEventListener("change", applyTime);
 let pend = null;
 form.addEventListener("input", () => { showOutputs(); clearTimeout(pend); pend = setTimeout(recompute, 90); });
 form.addEventListener("change", () => { clearTimeout(pend); pend = setTimeout(recompute, 30); });
 new ResizeObserver(() => { if (M) { drawPlan(); drawChart(); } }).observe(document.querySelector("main.work"));
-function onTheme() { readPal(); theme3D(); holeColors(); if (M) applyTime(); }
+function onTheme() { readPal(); theme3D(); if (M) applyTime(); }
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
 new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-readPal(); showOutputs(); init3D(); recompute(); setView("v-iso");
+// ── 14. 자료 불러오기 ──
+function renderLayers() {
+  const tb = $("layers"); tb.innerHTML = "";
+  LAYERS.forEach((l, k) => {
+    const tr = document.createElement("tr"), what = [l.nf ? `면 ${fmt(l.nf)}` : "", l.nl ? `선 ${fmt(l.nl)}` : "", l.np ? `점 ${fmt(l.np)}` : ""].filter(Boolean).join(" · ");
+    tr.innerHTML = `<td>${l.name.replace(/[<>&]/g, "")}</td><td class="n">${what}<br>Z ${fmt(l.bbox.z0)}~${fmt(l.bbox.z1)}</td><td><select id="role-${k}" aria-label="${l.name.replace(/["<>&]/g, "")} 쓰임">${ROLES.map(([v, t]) => `<option value="${v}"${l.role === v ? " selected" : ""}>${t}</option>`).join("")}</select></td>`;
+    tr.querySelector("select").addEventListener("change", e => { l.role = e.target.value; refreshData(); });
+    tb.appendChild(tr);
+  });
+}
+function refreshData() {
+  const ok = applyData(), msg = $("filemsg");
+  if (!ok) { msg.textContent = DATAMSG.join(" "); msg.hidden = false; return; }
+  msg.hidden = true; buildStatic(); recompute.did = false; recompute(); setView("v-iso");
+}
+function loadLayers(layers, label, skipped) {
+  for (const l of layers) layerStats(l);
+  layers = layers.filter(l => l.nf || l.nl || l.np); guessRoles(layers);
+  LAYERS = layers; DATALABEL = label; SKIPPED = skipped || {}; USERPORTAL = null; RAY = null;
+  $("datatag").textContent = label === "예시 자료" ? "예시 자료" : "불러온 자료"; renderLayers(); refreshData();
+}
+$("dxf").addEventListener("change", async e => {
+  const files = [...e.target.files], msg = $("filemsg"); if (!files.length) return; msg.hidden = true;
+  try {
+    const all = [], skipped = {};
+    for (const f of files) {
+      const r = parseDXF(decodeBuf(await f.arrayBuffer()), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
+      for (const l of r.layers) { if (files.length > 1) l.name = f.name.replace(/\.dxf$/i, "") + " / " + l.name; all.push(l); }
+      for (const [k, v] of Object.entries(r.skipped)) skipped[k] = (skipped[k] || 0) + v;
+    }
+    loadLayers(all, files.map(f => f.name).join(", "), skipped);
+  } catch (err) { msg.textContent = err.message || String(err); msg.hidden = false; }
+  e.target.value = "";
+});
+$("demo").addEventListener("click", () => loadLayers(parseDXF(demoDXF(), "demo").layers, "예시 자료", {}));
+
+readPal(); showOutputs(); init3D();
+loadLayers(parseDXF(demoDXF(), "demo").layers, "예시 자료", {});
 </script>
 </body>
 </html>

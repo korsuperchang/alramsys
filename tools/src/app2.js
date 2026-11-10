@@ -13,9 +13,9 @@ const PARAMS = [
   { id: "dip0", g: "open", label: "진입 경사 (0 = 수평갱)", min: 0, max: 20, step: 0.5, v: 0, u: "° 하향", d: 1 },
   { id: "ia", g: "open", label: "연층 사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
   { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
-  { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 300, step: 5, v: 80, u: "만t" },
-  { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 20, step: 1, v: 6, u: "곳" },
-  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 40, step: 1, v: 12, u: "천t" },
+  { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 1000, step: 10, v: 80, u: "만t" },
+  { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 60, step: 1, v: 6, u: "곳" },
+  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 60, step: 1, v: 12, u: "천t" },
   { id: "y0", g: "sched", label: "착공 연도", min: 2026, max: 2040, step: 1, v: 2027, u: "", raw: true },
   { id: "price", g: "econ", label: "판매가", min: 5000, max: 30000, step: 500, v: 14000, u: "원/t" },
   { id: "opex", g: "econ", label: "운영비", min: 3000, max: 20000, step: 250, v: 8500, u: "원/t" },
@@ -27,6 +27,7 @@ const PARAMS = [
   { id: "cover", g: "a-lim", label: "최소 지표 피복", min: 0, max: 100, step: 5, v: 30, u: "m" },
   { id: "bnd", g: "a-lim", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
   { id: "iw", g: "a-lim", label: "사갱 보호 폭 (한쪽)", min: 5, max: 50, step: 5, v: 20, u: "m" },
+  { id: "maxlv", g: "a-lim", label: "편 수 제한 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "minblk", g: "a-lim", label: "떨어진 블록 최소 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
   { id: "minval", g: "a-lim", label: "떨어진 블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
   { id: "rate", g: "a-dev", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
@@ -163,7 +164,7 @@ function design(P) {
     cols.push({ i, j, u, v, x, y, rays, tzc, tzm });
   }
   let aboveV = 0; for (const o of R.iv) if (o) for (let q = 0; q < o.length; q += 2) aboveV += Math.max(0, o[q + 1] - Math.max(o[q], z1 + H)) * R.s * R.s;
-  const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H);
+  const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H); let nUsed = 0, cut = false;
   for (let k = 0; k < 500; k++) {
     const zf = z1 - k * P.lv; if (zf + H < ORE.bbox.z0) break; const cand = [], rej = [];
     for (const c of cols) {
@@ -174,7 +175,9 @@ function design(P) {
       if (c.tzm - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
     }
     if (cand.length || rej.length) all.push({ zf, cand, rej });
+    if (cand.length && ++nUsed >= P.maxlv) { if (zf - P.lv + H > ORE.bbox.z0) cut = true; break; }
   }
+  if (cut) warn.push(`편 수 제한 ${fmt(P.maxlv)}편까지만 설계 (그 아래 광체는 계획에 없음)`);
   const used = all.filter(L => L.cand.length), iaR = P.ia * Math.PI / 180, ti = Math.tan(iaR);
   for (const L of all) { L.J = null; L.xc = 0; let w = 0; L.cx = L.cy = 0; for (const p of L.cand) { L.cx += p.x; L.cy += p.y; w++; } if (w) { L.cx /= w; L.cy /= w; } }
   // 1편 진입점: 진입 굴진이 광체에 닿은 곳. 그 편에 캘 판넬이 없으면 가장 가까운 아래 편 판넬까지 사갱을 더 판다

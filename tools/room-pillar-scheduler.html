@@ -162,7 +162,7 @@ details.adv fieldset:first-of-type{border-top:0}
     <fieldset>
       <legend><span class="step">1</span>자료 (DXF)</legend>
       <div class="filebar">
-        <label class="btn" for="dxf">DXF 불러오기</label><input type="file" id="dxf" accept=".dxf,.DXF" multiple hidden>
+        <label class="btn" for="dxf">DXF 불러오기</label><input type="file" id="dxf" accept=".dxf,.DXF,.dwg,.DWG" multiple hidden>
         <button type="button" id="demo">예시 자료</button>
       </div>
       <div class="status" id="files" style="margin:8px 0 0"></div>
@@ -536,9 +536,9 @@ const PARAMS = [
   { id: "dip0", g: "open", label: "진입 경사 (0 = 수평갱)", min: 0, max: 20, step: 0.5, v: 0, u: "° 하향", d: 1 },
   { id: "ia", g: "open", label: "연층 사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
   { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
-  { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 300, step: 5, v: 80, u: "만t" },
-  { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 20, step: 1, v: 6, u: "곳" },
-  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 40, step: 1, v: 12, u: "천t" },
+  { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 1000, step: 10, v: 80, u: "만t" },
+  { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 60, step: 1, v: 6, u: "곳" },
+  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 60, step: 1, v: 12, u: "천t" },
   { id: "y0", g: "sched", label: "착공 연도", min: 2026, max: 2040, step: 1, v: 2027, u: "", raw: true },
   { id: "price", g: "econ", label: "판매가", min: 5000, max: 30000, step: 500, v: 14000, u: "원/t" },
   { id: "opex", g: "econ", label: "운영비", min: 3000, max: 20000, step: 250, v: 8500, u: "원/t" },
@@ -550,6 +550,7 @@ const PARAMS = [
   { id: "cover", g: "a-lim", label: "최소 지표 피복", min: 0, max: 100, step: 5, v: 30, u: "m" },
   { id: "bnd", g: "a-lim", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
   { id: "iw", g: "a-lim", label: "사갱 보호 폭 (한쪽)", min: 5, max: 50, step: 5, v: 20, u: "m" },
+  { id: "maxlv", g: "a-lim", label: "편 수 제한 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "minblk", g: "a-lim", label: "떨어진 블록 최소 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
   { id: "minval", g: "a-lim", label: "떨어진 블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
   { id: "rate", g: "a-dev", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
@@ -686,7 +687,7 @@ function design(P) {
     cols.push({ i, j, u, v, x, y, rays, tzc, tzm });
   }
   let aboveV = 0; for (const o of R.iv) if (o) for (let q = 0; q < o.length; q += 2) aboveV += Math.max(0, o[q + 1] - Math.max(o[q], z1 + H)) * R.s * R.s;
-  const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H);
+  const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H); let nUsed = 0, cut = false;
   for (let k = 0; k < 500; k++) {
     const zf = z1 - k * P.lv; if (zf + H < ORE.bbox.z0) break; const cand = [], rej = [];
     for (const c of cols) {
@@ -697,7 +698,9 @@ function design(P) {
       if (c.tzm - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
     }
     if (cand.length || rej.length) all.push({ zf, cand, rej });
+    if (cand.length && ++nUsed >= P.maxlv) { if (zf - P.lv + H > ORE.bbox.z0) cut = true; break; }
   }
+  if (cut) warn.push(`편 수 제한 ${fmt(P.maxlv)}편까지만 설계 (그 아래 광체는 계획에 없음)`);
   const used = all.filter(L => L.cand.length), iaR = P.ia * Math.PI / 180, ti = Math.tan(iaR);
   for (const L of all) { L.J = null; L.xc = 0; let w = 0; L.cx = L.cy = 0; for (const p of L.cand) { L.cx += p.x; L.cy += p.y; w++; } if (w) { L.cx /= w; L.cy /= w; } }
   // 1편 진입점: 진입 굴진이 광체에 닿은 곳. 그 편에 캘 판넬이 없으면 가장 가까운 아래 편 판넬까지 사갱을 더 판다
@@ -1226,7 +1229,9 @@ $("dxf").addEventListener("change", async e => {
   try {
     let keep = ISDEMO ? [] : LAYERS; const fresh = [];
     for (const f of files) {
-      const r = parseDXF(decodeBuf(await f.arrayBuffer()), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
+      const buf = await f.arrayBuffer(), h6 = new TextDecoder("latin1").decode(buf.slice(0, 6));
+      if (/\.dwg$/i.test(f.name) || /^AC10\d\d/.test(h6)) throw new Error(`${f.name}: DWG 파일은 읽을 수 없습니다. 캐드에서 「다른 이름으로 저장 → DXF」(명령 DXFOUT)로 저장해 올려 주세요. 저장 옵션에서 바이너리(Binary)는 끄고, 버전은 2000 이후를 권합니다.`);
+      const r = parseDXF(decodeBuf(buf), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
       keep = keep.filter(l => l.file !== f.name);
       for (const l of r.layers) { layerStats(l); if (!(l.nf || l.nl || l.np)) continue; l.name = f.name.replace(/\.dxf$/i, "") + " / " + l.name; fresh.push(l); }
       if (ISDEMO) SKIPPED = {}; for (const [k, v] of Object.entries(r.skipped)) SKIPPED[k] = (SKIPPED[k] || 0) + v;

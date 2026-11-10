@@ -390,7 +390,9 @@ $("dxf").addEventListener("change", async e => {
   try {
     let keep = ISDEMO ? [] : LAYERS; const fresh = [];
     for (const f of files) {
-      const r = parseDXF(decodeBuf(await f.arrayBuffer()), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
+      const buf = await f.arrayBuffer(), h6 = new TextDecoder("latin1").decode(buf.slice(0, 6));
+      if (/\.dwg$/i.test(f.name) || /^AC10\d\d/.test(h6)) throw new Error(`${f.name}: DWG 파일은 읽을 수 없습니다. 캐드에서 「다른 이름으로 저장 → DXF」(명령 DXFOUT)로 저장해 올려 주세요. 저장 옵션에서 바이너리(Binary)는 끄고, 버전은 2000 이후를 권합니다.`);
+      const r = parseDXF(decodeBuf(buf), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
       keep = keep.filter(l => l.file !== f.name);
       for (const l of r.layers) { layerStats(l); if (!(l.nf || l.nl || l.np)) continue; l.name = f.name.replace(/\.dxf$/i, "") + " / " + l.name; fresh.push(l); }
       if (ISDEMO) SKIPPED = {}; for (const [k, v] of Object.entries(r.skipped)) SKIPPED[k] = (SKIPPED[k] || 0) + v;

@@ -21,13 +21,15 @@ function recompute() {
   $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
   $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
   const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
-  $("datainfo").innerHTML = `${DATALABEL}<br>광체 면 <b>${fmt(ORE.n)}</b>개 · 체적 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산 ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
+  $("datainfo").innerHTML = `${DATALABEL}<br>광체 솔리드 <b>${ORE.solids.length}</b>개(합쳐서 계산) · 면 <b>${fmt(ORE.n)}</b>개` + (ORE.solids.length > 1 ? ORE.solids.map(sd => `<br>· ${sd.name.replace(/[<>&]/g, "")}: ${fmt(sd.vol)} m³`).join("") : "") + `<br>체적 합 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산(합친 뒤) ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
   const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0], econ: [0, 0] };
   for (const L of M.all) for (const p of L.rej) { ex[p.why][0]++; ex[p.why][1] += p.t; }
   const st = $("status"); st.innerHTML = "";
   const chip = (txt, cls = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.textContent = txt; st.appendChild(s); };
   for (const m of DATAMSG) chip(m, "warn");
-  if (Math.abs(dv) > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드가 닫히지 않았거나 면 방향이 섞였을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
+  if (ORE.open) chip(`광체 솔리드에 열린 모서리 ${fmt(ORE.open)}개 — 닫힌 솔리드가 아니면 광량이 틀릴 수 있음`, "warn");
+  if (dv < -3) chip(`솔리드끼리 겹친 부분이 있음: 체적 합보다 합친 체적이 ${fmt(-dv, 1)}% 작음 (겹친 곳은 한 번만 셈)`);
+  else if (dv > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드 면에 틈이나 겹침이 있을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
   chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
   if (M.aboveT > 0.01 * R.vol * P.rho) chip(`1편보다 높은 광체 ${fmt(M.aboveT / 1e4)}만t은 계획에 없음 — 갱구를 더 높은 곳에 놓으면 포함`, "warn");
   if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);

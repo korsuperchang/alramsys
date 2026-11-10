@@ -124,7 +124,10 @@ td.neg{color:var(--bad)}
 .btn{font:inherit;font-size:12.5px;color:var(--panel);background:var(--ink);border:1px solid var(--ink);border-radius:4px;padding:3px 10px;cursor:pointer;display:inline-block}
 .btn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .laywrap{margin-top:8px;border:1px solid var(--line);border-radius:4px;max-height:210px;overflow:auto}
-table.lay{font-size:12px}
+table.lay{font-size:12px;table-layout:fixed;width:100%}
+table.lay th:nth-child(1){width:42%}table.lay th:nth-child(3){width:86px}
+table.lay td{overflow-wrap:anywhere;word-break:break-all}
+.derived{overflow-wrap:anywhere}
 table.lay td,table.lay th{padding:3px 6px;text-align:left;white-space:normal}
 table.lay td.n{font-family:var(--f-mono);color:var(--muted);font-size:11px}
 table.lay select{font-size:12px;padding:1px 3px;max-width:96px}
@@ -243,7 +246,7 @@ details.adv fieldset:first-of-type{border-top:0}
         <ul>
           <li><b>DXF 읽기.</b> 글자(ASCII) DXF의 ENTITIES에서 3DFACE, POLYLINE(3D 선·폴리페이스·메시), LWPOLYLINE, LINE, POINT를 읽습니다. 블록(INSERT) 안 도형, 스플라인, 문자는 읽지 않습니다. 파일은 올릴 때마다 더해지므로 지형과 광체를 따로 올려도 되고, 파일별로 뺄 수 있습니다. 레이어마다 쓰임(지형·광체·광구·지적)을 고르면 다시 계산합니다. 좌표는 도면 좌표 그대로 쓰므로 지형과 광체가 같은 좌표계여야 합니다.</li>
           <li><b>지형.</b> 지형 레이어의 면(삼각망)은 격자에 그대로 옮기고, 등고선·표고점은 격자 칸마다 8방향에서 가장 가까운 값을 거리 역제곱으로 섞습니다. 표고(Z)가 없는 선은 지형으로 쓸 수 없습니다.</li>
-          <li><b>광체.</b> 광체 레이어의 삼각형 면을 닫힌 솔리드로 봅니다. 수직선을 판넬마다 9개(3×3) 내려 면과 만나는 높이로 광체 구간을 구하고, 지표보다 높은 부분은 잘라 냅니다. 「광체 광량」 = 솔리드 체적(면 부호 체적 합) × 비중이고, 수직선으로 다시 구한 체적과의 차이를 자료 칸에 보여 줍니다. 품위 정보는 없으므로 솔리드 안은 모두 광석으로 봅니다.</li>
+          <li><b>광체.</b> 광체 레이어 하나를 닫힌 솔리드 하나로 봅니다. 솔리드가 여러 개면 솔리드마다 광체 구간을 따로 구한 뒤 합치므로, 층이 맞닿아 있거나 일부 겹쳐도 하나의 광체로 이어서 설계합니다(겹친 곳은 한 번만 셈). 체적은 면 방향을 이웃끼리 맞춘 뒤 구합니다. 수직선을 판넬마다 9개(3×3) 내려 면과 만나는 높이로 광체 구간을 구하고, 지표보다 높은 부분은 잘라 냅니다. 「광체 광량」 = 솔리드 체적(면 부호 체적 합) × 비중이고, 수직선으로 다시 구한 체적과의 차이를 자료 칸에 보여 줍니다. 품위 정보는 없으므로 솔리드 안은 모두 광석으로 봅니다.</li>
           <li><b>갱구와 진입 굴진.</b> 갱구는 평면도에서 직접 놓거나 자동으로 잡습니다(광체 꼭대기 한 편 아래 높이의 사면 중 광체에 가장 가까운 곳). 갱구에서 정한 방위와 경사(0° = 수평갱)로 곧게 굴진해, 갱도 높이의 「최소 광체 비율」 이상이 광체에 드는 첫 지점이 1편 진입점입니다. 방위를 자동으로 두면 5°씩 돌려 가장 짧게 닿는 방향을 고릅니다. 진입점 표고가 1편 바닥이 되고 그 아래로 편 간격마다 편을 둡니다. 1편보다 높은 광체는 계획에 넣지 않습니다.</li>
           <li><b>채광 격자 방향.</b> 격자는 1편 진입점을 원점으로 갱구 굴진 방향에 맞춰 돌아갑니다(고급 옵션에서 광체 긴 축이나 남북 고정으로 바꿀 수 있음). 판넬 경계가 진입 굴진선 위에 오므로 굴진이 갱도 중심선을 따라 들어갑니다.</li>
           <li><b>판넬.</b> 판넬 = 필러 1개 + 둘레 갱도. 격자 크기 = 필러 폭 + 갱도 폭, 모든 편이 같은 격자를 써서 상·하 필러가 겹칩니다. 평면도의 파란 선은 진입점에서 가장 먼 판넬까지 판넬을 따라 이어지는 주 운반 갱도이고, 점선은 떨어진 블록으로 가는 연결 갱도입니다. 판넬 톤 = (격자² − 필러²) × 갱도 높이 × 비중. 갱도 높이 중 광체 안 비율이 「최소 광체 비율」보다 작으면 판넬을 만들지 않고, 광체 밖 부분은 희석으로 셉니다(매출은 광석분만).</li>
@@ -284,8 +287,9 @@ function parseDXF(text, file) {
     switch (e.t) {
       case "3DFACE": {
         const F = lay(e.l).faces, p = [0, 1, 2, 3].map(k => [g(10 + k), g(20 + k), g(30 + k)]);
+        const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
         F.push(...p[0], ...p[1], ...p[2]);
-        if (c[13] !== undefined && (p[3][0] !== p[2][0] || p[3][1] !== p[2][1] || p[3][2] !== p[2][2])) F.push(...p[0], ...p[2], ...p[3]);
+        if (c[13] !== undefined && !same(p[3], p[2]) && !same(p[3], p[0])) F.push(...p[0], ...p[2], ...p[3]);
         break;
       }
       case "LINE": lay(e.l).lines.push({ pts: [[g(10), g(20), g(30)], [g(11), g(21), g(31)]], closed: false }); break;
@@ -434,14 +438,14 @@ function applyData() {
     if (!R0) { VB = null; G = null; return false; }
     VB = R0; G = terL.length ? buildTerrain(terL, R0) : null; return false;
   }
-  let n = 0; for (const l of oreL) n += l.faces.length; const tris = new Float64Array(n); n = 0; for (const l of oreL) { tris.set(l.faces, n); n += l.faces.length; }
-  const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }; let v6 = 0;
-  for (let t = 0; t < tris.length; t += 9) {
-    for (let k = 0; k < 9; k += 3) { ob.x0 = Math.min(ob.x0, tris[t + k]); ob.x1 = Math.max(ob.x1, tris[t + k]); ob.y0 = Math.min(ob.y0, tris[t + k + 1]); ob.y1 = Math.max(ob.y1, tris[t + k + 1]); ob.z0 = Math.min(ob.z0, tris[t + k + 2]); ob.z1 = Math.max(ob.z1, tris[t + k + 2]); }
+  // 광체 레이어 하나 = 솔리드 하나. 솔리드마다 따로 구간을 구해 합치므로, 서로 맞닿거나 겹친 솔리드도 한 광체로 이어진다
+  const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }, solids = []; let n = 0;
+  for (const l of oreL) {
+    const sd = solidOf(l.faces); if (!sd.tris.length) continue; sd.name = l.name; solids.push(sd); n += sd.tris.length;
+    ob.x0 = Math.min(ob.x0, sd.bbox.x0); ob.x1 = Math.max(ob.x1, sd.bbox.x1); ob.y0 = Math.min(ob.y0, sd.bbox.y0); ob.y1 = Math.max(ob.y1, sd.bbox.y1); ob.z0 = Math.min(ob.z0, sd.bbox.z0); ob.z1 = Math.max(ob.z1, sd.bbox.z1);
   }
-  const ox = (ob.x0 + ob.x1) / 2, oy = (ob.y0 + ob.y1) / 2, oz = (ob.z0 + ob.z1) / 2;       // 큰 좌표에서 자릿수 손실을 막으려고 중심을 빼고 부호 체적을 더함
-  for (let t = 0; t < tris.length; t += 9) { const ax = tris[t] - ox, ay = tris[t + 1] - oy, az = tris[t + 2] - oz, bx = tris[t + 3] - ox, by2 = tris[t + 4] - oy, bz = tris[t + 5] - oz, cx = tris[t + 6] - ox, cy = tris[t + 7] - oy, cz = tris[t + 8] - oz; v6 += ax * (by2 * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by2 * cx); }
-  ORE = { tris, bbox: ob, volSigned: Math.abs(v6) / 6, n: tris.length / 9 };
+  const tris = new Float64Array(n); n = 0; for (const sd of solids) { tris.set(sd.tris, n); n += sd.tris.length; }
+  ORE = { tris, solids, bbox: ob, volSigned: solids.reduce((a, sd) => a + sd.vol, 0), n: tris.length / 9, open: solids.reduce((a, sd) => a + sd.open, 0) };
   let R = { x0: ob.x0, y0: ob.y0, x1: ob.x1, y1: ob.y1 }; for (const pg of CLAIM) for (const p of pg) R = bbU(R, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] });
   const mg = Math.max(60, 0.12 * Math.max(R.x1 - R.x0, R.y1 - R.y0)); VB = { x0: R.x0 - mg, y0: R.y0 - mg, x1: R.x1 + mg, y1: R.y1 + mg };
   const TR = { x0: VB.x0 - mg, y0: VB.y0 - mg, x1: VB.x1 + mg, y1: VB.y1 + mg };
@@ -450,31 +454,72 @@ function applyData() {
     DATAMSG.push(terL.length ? "지형 레이어에 표고(Z)가 있는 면·등고선·점이 광체 주변에 없습니다. 광체 꼭대기 위 50m 평지로 대신했습니다." : "지형 레이어가 없어 광체 꼭대기 위 50m 평지로 대신했습니다.");
     G = { x0: TR.x0, y0: TR.y0, d: (TR.x1 - TR.x0), nx: 2, ny: 2, z: new Float32Array(4).fill(ob.z1 + 50), zmin: ob.z1 + 50, zmax: ob.z1 + 50, cover: 0, flat: true }; G.d = Math.max(TR.x1 - TR.x0, TR.y1 - TR.y0);
   } else { let tb = null; for (const l of terL) tb = tb ? bbU(tb, l.bbox) : { ...l.bbox }; if (ob.x0 < tb.x0 || ob.x1 > tb.x1 || ob.y0 < tb.y0 || ob.y1 > tb.y1) DATAMSG.push("광체 일부가 지형 자료 범위 밖에 있습니다. 그 부분의 지표는 가장 가까운 값으로 메웠습니다. 좌표계가 같은지 확인하세요."); }
-  // 수직선 조회용 칸 나눔(삼각형 → 평면 격자 칸)
-  const nb = 64, bw = Math.max(1e-6, (ob.x1 - ob.x0) / nb), bh = Math.max(1e-6, (ob.y1 - ob.y0) / nb), bins = new Array(nb * nb);
-  for (let t = 0; t < tris.length; t += 9) {
-    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1);
-    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
-  }
-  ORE.bins = bins; ORE.nb = nb; ORE.bw = bw; ORE.bh = bh;
   // 광체 평면 분포의 긴 축(주향 근사)
   let mx = 0, my = 0, nv = 0; for (let t = 0; t < tris.length; t += 3) { mx += tris[t]; my += tris[t + 1]; nv++; } mx /= nv; my /= nv;
   let cxx = 0, cyy = 0, cxy = 0; for (let t = 0; t < tris.length; t += 3) { cxx += (tris[t] - mx) ** 2; cyy += (tris[t + 1] - my) ** 2; cxy += (tris[t] - mx) * (tris[t + 1] - my); }
   const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); ORE.axisAz = Math.atan2(Math.cos(th), Math.sin(th)); ORE.cx = mx; ORE.cy = my;
   return true;
 }
-// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (지표 위는 잘라 냄)
-function oreAt(x, y) {
-  const o = ORE, i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) return [];
-  const b = o.bins[j * o.nb + i]; if (!b) return []; const T = o.tris, zs = [];
-  for (const t of b) {
-    const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
-    const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
-    zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+// 솔리드 하나 준비: 찌그러진 면 버리기, 면 방향을 이웃끼리 맞춰 체적 구하기, 수직선 조회용 칸 나눔
+function solidOf(F) {
+  const keep = [], b = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity };
+  const vid = new Map(); let nv = 0; const idOf = (x, y, z) => { const k = Math.round(x * 1000) + "," + Math.round(y * 1000) + "," + Math.round(z * 1000); let v = vid.get(k); if (v === undefined) { v = nv++; vid.set(k, v); } return v; };
+  const V = [];
+  for (let t = 0; t < F.length; t += 9) {
+    const a = idOf(F[t], F[t + 1], F[t + 2]), c = idOf(F[t + 3], F[t + 4], F[t + 5]), d = idOf(F[t + 6], F[t + 7], F[t + 8]); if (a === c || c === d || a === d) continue;
+    keep.push(t); V.push(a, c, d);
+    for (let k = 0; k < 9; k += 3) { const x = F[t + k], y = F[t + k + 1], z = F[t + k + 2]; if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y; if (z < b.z0) b.z0 = z; if (z > b.z1) b.z1 = z; }
   }
-  zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
-  const tz = terrainZ(x, y), out = []; for (let q = 0; q < u.length; q += 2) { const hi = Math.min(u[q + 1], tz); if (hi > u[q]) out.push(u[q], hi); } return out;
+  const nt = keep.length, tris = new Float64Array(nt * 9); keep.forEach((t, k) => { for (let q = 0; q < 9; q++) tris[k * 9 + q] = F[t + q]; });
+  // 모서리 → 그 모서리를 쓰는 면들
+  const E = new Map(); for (let k = 0; k < nt; k++) for (let e = 0; e < 3; e++) { const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3], key = p < q ? p * nv + q : q * nv + p; let a = E.get(key); if (!a) E.set(key, a = []); a.push(k * 3 + e); }
+  let open = 0; for (const a of E.values()) if (a.length === 1) open++;
+  // 이웃 면과 모서리 방향이 반대가 되도록 뒤집어 가며 번짐(면 방향 통일). 덩어리마다 부호 체적을 구해 절댓값을 더한다
+  const flip = new Uint8Array(nt), seen = new Uint8Array(nt), ox = (b.x0 + b.x1) / 2, oy = (b.y0 + b.y1) / 2, oz = (b.z0 + b.z1) / 2; let vol = 0;
+  const dir = (k, e) => { const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3]; return flip[k] ? [q, p] : [p, q]; };
+  for (let s0 = 0; s0 < nt; s0++) {
+    if (seen[s0]) continue; const st = [s0]; seen[s0] = 1; let v6 = 0;
+    while (st.length) {
+      const k = st.pop(), o = k * 9, sg = flip[k] ? -1 : 1;
+      const ax = tris[o] - ox, ay = tris[o + 1] - oy, az = tris[o + 2] - oz, bx = tris[o + 3] - ox, by = tris[o + 4] - oy, bz = tris[o + 5] - oz, cx = tris[o + 6] - ox, cy = tris[o + 7] - oy, cz = tris[o + 8] - oz;
+      v6 += sg * (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx));
+      for (let e = 0; e < 3; e++) {
+        const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3], a = E.get(p < q ? p * nv + q : q * nv + p); if (a.length !== 2) continue;
+        const other = a[0] === k * 3 + e ? a[1] : a[0], k2 = Math.floor(other / 3), e2 = other % 3; if (seen[k2]) continue;
+        const d1 = dir(k, e), p2 = V[k2 * 3 + e2]; if (p2 === d1[0]) flip[k2] = 1; seen[k2] = 1; st.push(k2);
+      }
+    }
+    vol += Math.abs(v6) / 6;
+  }
+  const nb = 48, bw = Math.max(1e-6, (b.x1 - b.x0) / nb), bh = Math.max(1e-6, (b.y1 - b.y0) / nb), bins = new Array(nb * nb);
+  for (let t = 0; t < tris.length; t += 9) {
+    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - b.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - b.x0) / bw), 0, nb - 1);
+    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - b.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - b.y0) / bh), 0, nb - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
+  }
+  return { tris, bbox: b, vol, open, bins, nb, bw, bh };
+}
+// 구간 목록 [아래, 위] 여러 개를 합친다(맞닿거나 겹치면 하나로)
+function mergeIv(pairs) {
+  if (pairs.length < 2) return pairs.length ? [pairs[0][0], pairs[0][1]] : []; pairs.sort((p, q) => p[0] - q[0]); const out = [pairs[0][0], pairs[0][1]];
+  for (let k = 1; k < pairs.length; k++) { const [lo, hi] = pairs[k]; if (lo <= out[out.length - 1] + 0.05) { if (hi > out[out.length - 1]) out[out.length - 1] = hi; } else out.push(lo, hi); }
+  return out;
+}
+// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (솔리드별로 구해 합치고, 지표 위는 잘라 냄)
+function oreAt(x, y) {
+  const pairs = [];
+  for (const o of ORE.solids) {
+    const i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) continue;
+    const b = o.bins[j * o.nb + i]; if (!b) continue; const T = o.tris, zs = [];
+    for (const t of b) {
+      const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+      const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+      zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+    }
+    zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
+    for (let q = 0; q < u.length; q += 2) pairs.push([u[q], u[q + 1]]);
+  }
+  const m = mergeIv(pairs), tz = terrainZ(x, y), out = []; for (let q = 0; q < m.length; q += 2) { const hi = Math.min(m[q + 1], tz); if (hi > m[q]) out.push(m[q], hi); } return out;
 }
 
 // ── 4. 입력 ──
@@ -544,25 +589,34 @@ const toLoc = (F, x, y) => [(x - F.ox) * F.ux + (y - F.oy) * F.uy, -(x - F.ox) *
 const toW = (F, u, v) => [F.ox + u * F.ux - v * F.uy, F.oy + u * F.uy + v * F.ux];
 function buildRays(S, F) {
   const key = [S, F.ox, F.oy, F.ux, F.uy, DATAVER].join("|"); if (RAY && RAY.key === key) return RAY;
-  const s = S / 3, T = ORE.tris, L = new Float64Array(T.length); let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-  for (let t = 0; t < T.length; t += 3) { const u = (T[t] - F.ox) * F.ux + (T[t + 1] - F.oy) * F.uy, v = -(T[t] - F.ox) * F.uy + (T[t + 1] - F.oy) * F.ux; L[t] = u; L[t + 1] = v; L[t + 2] = T[t + 2]; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+  const s = S / 3, T = ORE.tris; let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let t = 0; t < T.length; t += 3) { const u = (T[t] - F.ox) * F.ux + (T[t + 1] - F.oy) * F.uy, v = -(T[t] - F.ox) * F.uy + (T[t + 1] - F.oy) * F.ux; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
   const gx0 = Math.floor(u0 / S) * S, gy0 = Math.floor(v0 / S) * S, nx = Math.max(1, Math.ceil((u1 - gx0) / S)), ny = Math.max(1, Math.ceil((v1 - gy0) / S)), rx = nx * 3, ry = ny * 3;
-  const cr = new Array(rx * ry), jx = 0.0137 * s, jy = 0.0071 * s;
-  for (let t = 0; t < L.length; t += 9) {
-    const ax = L[t], ay = L[t + 1], az = L[t + 2], bx = L[t + 3], by = L[t + 4], bz = L[t + 5], cx = L[t + 6], cy = L[t + 7], cz = L[t + 8];
-    const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
-    const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
-    if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const px = gx0 + (i + 0.5) * s + jx, py = gy0 + (j + 0.5) * s + jy, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
-      if (l1 < 0 || l2 < 0 || l3 < 0) continue; const k = j * rx + i; (cr[k] || (cr[k] = [])).push(l1 * az + l2 * bz + l3 * cz);
+  const jx = 0.0137 * s, jy = 0.0071 * s, pr = new Array(rx * ry); let odd = 0;
+  for (const sd of ORE.solids) {                                              // 솔리드마다 따로 교차 → 구간, 나중에 합침
+    const cr = new Array(rx * ry), Ts = sd.tris;
+    for (let t = 0; t < Ts.length; t += 9) {
+      const ax = (Ts[t] - F.ox) * F.ux + (Ts[t + 1] - F.oy) * F.uy, ay = -(Ts[t] - F.ox) * F.uy + (Ts[t + 1] - F.oy) * F.ux, az = Ts[t + 2];
+      const bx = (Ts[t + 3] - F.ox) * F.ux + (Ts[t + 4] - F.oy) * F.uy, by = -(Ts[t + 3] - F.ox) * F.uy + (Ts[t + 4] - F.oy) * F.ux, bz = Ts[t + 5];
+      const cx = (Ts[t + 6] - F.ox) * F.ux + (Ts[t + 7] - F.oy) * F.uy, cy = -(Ts[t + 6] - F.ox) * F.uy + (Ts[t + 7] - F.oy) * F.ux, cz = Ts[t + 8];
+      const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
+      const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
+      if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = gx0 + (i + 0.5) * s + jx, py = gy0 + (j + 0.5) * s + jy, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
+        if (l1 < 0 || l2 < 0 || l3 < 0) continue; const k = j * rx + i; (cr[k] || (cr[k] = [])).push(l1 * az + l2 * bz + l3 * cz);
+      }
+    }
+    for (let k = 0; k < cr.length; k++) {
+      const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q);
+      const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
+      if (u.length % 2) { odd++; u.pop(); }
+      for (let q = 0; q < u.length; q += 2) (pr[k] || (pr[k] = [])).push([u[q], u[q + 1]]);
     }
   }
-  const iv = new Array(rx * ry); let odd = 0, vol = 0, volRaw = 0, hit = 0, zTop = -Infinity;
-  for (let k = 0; k < cr.length; k++) {
-    const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q); hit++;
-    const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
-    if (u.length % 2) { odd++; u.pop(); }
+  const iv = new Array(rx * ry); let vol = 0, volRaw = 0, hit = 0, zTop = -Infinity;
+  for (let k = 0; k < pr.length; k++) {
+    if (!pr[k]) continue; hit++; const u = mergeIv(pr[k]);
     const w = toW(F, gx0 + (k % rx + 0.5) * s + jx, gy0 + (Math.floor(k / rx) + 0.5) * s + jy), tz = terrainZ(w[0], w[1]), o = [];
     for (let q = 0; q < u.length; q += 2) { volRaw += (u[q + 1] - u[q]) * s * s; const hi = Math.min(u[q + 1], tz); if (hi > u[q]) { o.push(u[q], hi); vol += (hi - u[q]) * s * s; if (hi > zTop) zTop = hi; } }
     if (o.length) iv[k] = o;
@@ -803,13 +857,15 @@ function recompute() {
   $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
   $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
   const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
-  $("datainfo").innerHTML = `${DATALABEL}<br>광체 면 <b>${fmt(ORE.n)}</b>개 · 체적 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산 ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
+  $("datainfo").innerHTML = `${DATALABEL}<br>광체 솔리드 <b>${ORE.solids.length}</b>개(합쳐서 계산) · 면 <b>${fmt(ORE.n)}</b>개` + (ORE.solids.length > 1 ? ORE.solids.map(sd => `<br>· ${sd.name.replace(/[<>&]/g, "")}: ${fmt(sd.vol)} m³`).join("") : "") + `<br>체적 합 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산(합친 뒤) ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
   const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0], econ: [0, 0] };
   for (const L of M.all) for (const p of L.rej) { ex[p.why][0]++; ex[p.why][1] += p.t; }
   const st = $("status"); st.innerHTML = "";
   const chip = (txt, cls = "") => { const s = document.createElement("span"); s.className = "chip " + cls; s.textContent = txt; st.appendChild(s); };
   for (const m of DATAMSG) chip(m, "warn");
-  if (Math.abs(dv) > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드가 닫히지 않았거나 면 방향이 섞였을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
+  if (ORE.open) chip(`광체 솔리드에 열린 모서리 ${fmt(ORE.open)}개 — 닫힌 솔리드가 아니면 광량이 틀릴 수 있음`, "warn");
+  if (dv < -3) chip(`솔리드끼리 겹친 부분이 있음: 체적 합보다 합친 체적이 ${fmt(-dv, 1)}% 작음 (겹친 곳은 한 번만 셈)`);
+  else if (dv > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드 면에 틈이나 겹침이 있을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
   chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
   if (M.aboveT > 0.01 * R.vol * P.rho) chip(`1편보다 높은 광체 ${fmt(M.aboveT / 1e4)}만t은 계획에 없음 — 갱구를 더 높은 곳에 놓으면 포함`, "warn");
   if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);

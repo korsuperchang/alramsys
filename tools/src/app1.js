@@ -21,8 +21,9 @@ function parseDXF(text, file) {
     switch (e.t) {
       case "3DFACE": {
         const F = lay(e.l).faces, p = [0, 1, 2, 3].map(k => [g(10 + k), g(20 + k), g(30 + k)]);
+        const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
         F.push(...p[0], ...p[1], ...p[2]);
-        if (c[13] !== undefined && (p[3][0] !== p[2][0] || p[3][1] !== p[2][1] || p[3][2] !== p[2][2])) F.push(...p[0], ...p[2], ...p[3]);
+        if (c[13] !== undefined && !same(p[3], p[2]) && !same(p[3], p[0])) F.push(...p[0], ...p[2], ...p[3]);
         break;
       }
       case "LINE": lay(e.l).lines.push({ pts: [[g(10), g(20), g(30)], [g(11), g(21), g(31)]], closed: false }); break;
@@ -171,14 +172,14 @@ function applyData() {
     if (!R0) { VB = null; G = null; return false; }
     VB = R0; G = terL.length ? buildTerrain(terL, R0) : null; return false;
   }
-  let n = 0; for (const l of oreL) n += l.faces.length; const tris = new Float64Array(n); n = 0; for (const l of oreL) { tris.set(l.faces, n); n += l.faces.length; }
-  const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }; let v6 = 0;
-  for (let t = 0; t < tris.length; t += 9) {
-    for (let k = 0; k < 9; k += 3) { ob.x0 = Math.min(ob.x0, tris[t + k]); ob.x1 = Math.max(ob.x1, tris[t + k]); ob.y0 = Math.min(ob.y0, tris[t + k + 1]); ob.y1 = Math.max(ob.y1, tris[t + k + 1]); ob.z0 = Math.min(ob.z0, tris[t + k + 2]); ob.z1 = Math.max(ob.z1, tris[t + k + 2]); }
+  // 광체 레이어 하나 = 솔리드 하나. 솔리드마다 따로 구간을 구해 합치므로, 서로 맞닿거나 겹친 솔리드도 한 광체로 이어진다
+  const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }, solids = []; let n = 0;
+  for (const l of oreL) {
+    const sd = solidOf(l.faces); if (!sd.tris.length) continue; sd.name = l.name; solids.push(sd); n += sd.tris.length;
+    ob.x0 = Math.min(ob.x0, sd.bbox.x0); ob.x1 = Math.max(ob.x1, sd.bbox.x1); ob.y0 = Math.min(ob.y0, sd.bbox.y0); ob.y1 = Math.max(ob.y1, sd.bbox.y1); ob.z0 = Math.min(ob.z0, sd.bbox.z0); ob.z1 = Math.max(ob.z1, sd.bbox.z1);
   }
-  const ox = (ob.x0 + ob.x1) / 2, oy = (ob.y0 + ob.y1) / 2, oz = (ob.z0 + ob.z1) / 2;       // 큰 좌표에서 자릿수 손실을 막으려고 중심을 빼고 부호 체적을 더함
-  for (let t = 0; t < tris.length; t += 9) { const ax = tris[t] - ox, ay = tris[t + 1] - oy, az = tris[t + 2] - oz, bx = tris[t + 3] - ox, by2 = tris[t + 4] - oy, bz = tris[t + 5] - oz, cx = tris[t + 6] - ox, cy = tris[t + 7] - oy, cz = tris[t + 8] - oz; v6 += ax * (by2 * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by2 * cx); }
-  ORE = { tris, bbox: ob, volSigned: Math.abs(v6) / 6, n: tris.length / 9 };
+  const tris = new Float64Array(n); n = 0; for (const sd of solids) { tris.set(sd.tris, n); n += sd.tris.length; }
+  ORE = { tris, solids, bbox: ob, volSigned: solids.reduce((a, sd) => a + sd.vol, 0), n: tris.length / 9, open: solids.reduce((a, sd) => a + sd.open, 0) };
   let R = { x0: ob.x0, y0: ob.y0, x1: ob.x1, y1: ob.y1 }; for (const pg of CLAIM) for (const p of pg) R = bbU(R, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] });
   const mg = Math.max(60, 0.12 * Math.max(R.x1 - R.x0, R.y1 - R.y0)); VB = { x0: R.x0 - mg, y0: R.y0 - mg, x1: R.x1 + mg, y1: R.y1 + mg };
   const TR = { x0: VB.x0 - mg, y0: VB.y0 - mg, x1: VB.x1 + mg, y1: VB.y1 + mg };
@@ -187,29 +188,70 @@ function applyData() {
     DATAMSG.push(terL.length ? "지형 레이어에 표고(Z)가 있는 면·등고선·점이 광체 주변에 없습니다. 광체 꼭대기 위 50m 평지로 대신했습니다." : "지형 레이어가 없어 광체 꼭대기 위 50m 평지로 대신했습니다.");
     G = { x0: TR.x0, y0: TR.y0, d: (TR.x1 - TR.x0), nx: 2, ny: 2, z: new Float32Array(4).fill(ob.z1 + 50), zmin: ob.z1 + 50, zmax: ob.z1 + 50, cover: 0, flat: true }; G.d = Math.max(TR.x1 - TR.x0, TR.y1 - TR.y0);
   } else { let tb = null; for (const l of terL) tb = tb ? bbU(tb, l.bbox) : { ...l.bbox }; if (ob.x0 < tb.x0 || ob.x1 > tb.x1 || ob.y0 < tb.y0 || ob.y1 > tb.y1) DATAMSG.push("광체 일부가 지형 자료 범위 밖에 있습니다. 그 부분의 지표는 가장 가까운 값으로 메웠습니다. 좌표계가 같은지 확인하세요."); }
-  // 수직선 조회용 칸 나눔(삼각형 → 평면 격자 칸)
-  const nb = 64, bw = Math.max(1e-6, (ob.x1 - ob.x0) / nb), bh = Math.max(1e-6, (ob.y1 - ob.y0) / nb), bins = new Array(nb * nb);
-  for (let t = 0; t < tris.length; t += 9) {
-    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1);
-    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
-  }
-  ORE.bins = bins; ORE.nb = nb; ORE.bw = bw; ORE.bh = bh;
   // 광체 평면 분포의 긴 축(주향 근사)
   let mx = 0, my = 0, nv = 0; for (let t = 0; t < tris.length; t += 3) { mx += tris[t]; my += tris[t + 1]; nv++; } mx /= nv; my /= nv;
   let cxx = 0, cyy = 0, cxy = 0; for (let t = 0; t < tris.length; t += 3) { cxx += (tris[t] - mx) ** 2; cyy += (tris[t + 1] - my) ** 2; cxy += (tris[t] - mx) * (tris[t + 1] - my); }
   const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); ORE.axisAz = Math.atan2(Math.cos(th), Math.sin(th)); ORE.cx = mx; ORE.cy = my;
   return true;
 }
-// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (지표 위는 잘라 냄)
-function oreAt(x, y) {
-  const o = ORE, i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) return [];
-  const b = o.bins[j * o.nb + i]; if (!b) return []; const T = o.tris, zs = [];
-  for (const t of b) {
-    const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
-    const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
-    zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+// 솔리드 하나 준비: 찌그러진 면 버리기, 면 방향을 이웃끼리 맞춰 체적 구하기, 수직선 조회용 칸 나눔
+function solidOf(F) {
+  const keep = [], b = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity };
+  const vid = new Map(); let nv = 0; const idOf = (x, y, z) => { const k = Math.round(x * 1000) + "," + Math.round(y * 1000) + "," + Math.round(z * 1000); let v = vid.get(k); if (v === undefined) { v = nv++; vid.set(k, v); } return v; };
+  const V = [];
+  for (let t = 0; t < F.length; t += 9) {
+    const a = idOf(F[t], F[t + 1], F[t + 2]), c = idOf(F[t + 3], F[t + 4], F[t + 5]), d = idOf(F[t + 6], F[t + 7], F[t + 8]); if (a === c || c === d || a === d) continue;
+    keep.push(t); V.push(a, c, d);
+    for (let k = 0; k < 9; k += 3) { const x = F[t + k], y = F[t + k + 1], z = F[t + k + 2]; if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y; if (z < b.z0) b.z0 = z; if (z > b.z1) b.z1 = z; }
   }
-  zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
-  const tz = terrainZ(x, y), out = []; for (let q = 0; q < u.length; q += 2) { const hi = Math.min(u[q + 1], tz); if (hi > u[q]) out.push(u[q], hi); } return out;
+  const nt = keep.length, tris = new Float64Array(nt * 9); keep.forEach((t, k) => { for (let q = 0; q < 9; q++) tris[k * 9 + q] = F[t + q]; });
+  // 모서리 → 그 모서리를 쓰는 면들
+  const E = new Map(); for (let k = 0; k < nt; k++) for (let e = 0; e < 3; e++) { const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3], key = p < q ? p * nv + q : q * nv + p; let a = E.get(key); if (!a) E.set(key, a = []); a.push(k * 3 + e); }
+  let open = 0; for (const a of E.values()) if (a.length === 1) open++;
+  // 이웃 면과 모서리 방향이 반대가 되도록 뒤집어 가며 번짐(면 방향 통일). 덩어리마다 부호 체적을 구해 절댓값을 더한다
+  const flip = new Uint8Array(nt), seen = new Uint8Array(nt), ox = (b.x0 + b.x1) / 2, oy = (b.y0 + b.y1) / 2, oz = (b.z0 + b.z1) / 2; let vol = 0;
+  const dir = (k, e) => { const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3]; return flip[k] ? [q, p] : [p, q]; };
+  for (let s0 = 0; s0 < nt; s0++) {
+    if (seen[s0]) continue; const st = [s0]; seen[s0] = 1; let v6 = 0;
+    while (st.length) {
+      const k = st.pop(), o = k * 9, sg = flip[k] ? -1 : 1;
+      const ax = tris[o] - ox, ay = tris[o + 1] - oy, az = tris[o + 2] - oz, bx = tris[o + 3] - ox, by = tris[o + 4] - oy, bz = tris[o + 5] - oz, cx = tris[o + 6] - ox, cy = tris[o + 7] - oy, cz = tris[o + 8] - oz;
+      v6 += sg * (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx));
+      for (let e = 0; e < 3; e++) {
+        const p = V[k * 3 + e], q = V[k * 3 + (e + 1) % 3], a = E.get(p < q ? p * nv + q : q * nv + p); if (a.length !== 2) continue;
+        const other = a[0] === k * 3 + e ? a[1] : a[0], k2 = Math.floor(other / 3), e2 = other % 3; if (seen[k2]) continue;
+        const d1 = dir(k, e), p2 = V[k2 * 3 + e2]; if (p2 === d1[0]) flip[k2] = 1; seen[k2] = 1; st.push(k2);
+      }
+    }
+    vol += Math.abs(v6) / 6;
+  }
+  const nb = 48, bw = Math.max(1e-6, (b.x1 - b.x0) / nb), bh = Math.max(1e-6, (b.y1 - b.y0) / nb), bins = new Array(nb * nb);
+  for (let t = 0; t < tris.length; t += 9) {
+    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - b.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - b.x0) / bw), 0, nb - 1);
+    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - b.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - b.y0) / bh), 0, nb - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
+  }
+  return { tris, bbox: b, vol, open, bins, nb, bw, bh };
+}
+// 구간 목록 [아래, 위] 여러 개를 합친다(맞닿거나 겹치면 하나로)
+function mergeIv(pairs) {
+  if (pairs.length < 2) return pairs.length ? [pairs[0][0], pairs[0][1]] : []; pairs.sort((p, q) => p[0] - q[0]); const out = [pairs[0][0], pairs[0][1]];
+  for (let k = 1; k < pairs.length; k++) { const [lo, hi] = pairs[k]; if (lo <= out[out.length - 1] + 0.05) { if (hi > out[out.length - 1]) out[out.length - 1] = hi; } else out.push(lo, hi); }
+  return out;
+}
+// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (솔리드별로 구해 합치고, 지표 위는 잘라 냄)
+function oreAt(x, y) {
+  const pairs = [];
+  for (const o of ORE.solids) {
+    const i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) continue;
+    const b = o.bins[j * o.nb + i]; if (!b) continue; const T = o.tris, zs = [];
+    for (const t of b) {
+      const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+      const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+      zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+    }
+    zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
+    for (let q = 0; q < u.length; q += 2) pairs.push([u[q], u[q + 1]]);
+  }
+  const m = mergeIv(pairs), tz = terrainZ(x, y), out = []; for (let q = 0; q < m.length; q += 2) { const hi = Math.min(m[q + 1], tz); if (hi > m[q]) out.push(m[q], hi); } return out;
 }

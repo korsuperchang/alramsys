@@ -66,25 +66,34 @@ const toLoc = (F, x, y) => [(x - F.ox) * F.ux + (y - F.oy) * F.uy, -(x - F.ox) *
 const toW = (F, u, v) => [F.ox + u * F.ux - v * F.uy, F.oy + u * F.uy + v * F.ux];
 function buildRays(S, F) {
   const key = [S, F.ox, F.oy, F.ux, F.uy, DATAVER].join("|"); if (RAY && RAY.key === key) return RAY;
-  const s = S / 3, T = ORE.tris, L = new Float64Array(T.length); let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-  for (let t = 0; t < T.length; t += 3) { const u = (T[t] - F.ox) * F.ux + (T[t + 1] - F.oy) * F.uy, v = -(T[t] - F.ox) * F.uy + (T[t + 1] - F.oy) * F.ux; L[t] = u; L[t + 1] = v; L[t + 2] = T[t + 2]; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+  const s = S / 3, T = ORE.tris; let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let t = 0; t < T.length; t += 3) { const u = (T[t] - F.ox) * F.ux + (T[t + 1] - F.oy) * F.uy, v = -(T[t] - F.ox) * F.uy + (T[t + 1] - F.oy) * F.ux; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
   const gx0 = Math.floor(u0 / S) * S, gy0 = Math.floor(v0 / S) * S, nx = Math.max(1, Math.ceil((u1 - gx0) / S)), ny = Math.max(1, Math.ceil((v1 - gy0) / S)), rx = nx * 3, ry = ny * 3;
-  const cr = new Array(rx * ry), jx = 0.0137 * s, jy = 0.0071 * s;
-  for (let t = 0; t < L.length; t += 9) {
-    const ax = L[t], ay = L[t + 1], az = L[t + 2], bx = L[t + 3], by = L[t + 4], bz = L[t + 5], cx = L[t + 6], cy = L[t + 7], cz = L[t + 8];
-    const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
-    const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
-    if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const px = gx0 + (i + 0.5) * s + jx, py = gy0 + (j + 0.5) * s + jy, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
-      if (l1 < 0 || l2 < 0 || l3 < 0) continue; const k = j * rx + i; (cr[k] || (cr[k] = [])).push(l1 * az + l2 * bz + l3 * cz);
+  const jx = 0.0137 * s, jy = 0.0071 * s, pr = new Array(rx * ry); let odd = 0;
+  for (const sd of ORE.solids) {                                              // 솔리드마다 따로 교차 → 구간, 나중에 합침
+    const cr = new Array(rx * ry), Ts = sd.tris;
+    for (let t = 0; t < Ts.length; t += 9) {
+      const ax = (Ts[t] - F.ox) * F.ux + (Ts[t + 1] - F.oy) * F.uy, ay = -(Ts[t] - F.ox) * F.uy + (Ts[t + 1] - F.oy) * F.ux, az = Ts[t + 2];
+      const bx = (Ts[t + 3] - F.ox) * F.ux + (Ts[t + 4] - F.oy) * F.uy, by = -(Ts[t + 3] - F.ox) * F.uy + (Ts[t + 4] - F.oy) * F.ux, bz = Ts[t + 5];
+      const cx = (Ts[t + 6] - F.ox) * F.ux + (Ts[t + 7] - F.oy) * F.uy, cy = -(Ts[t + 6] - F.ox) * F.uy + (Ts[t + 7] - F.oy) * F.ux, cz = Ts[t + 8];
+      const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
+      const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
+      if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = gx0 + (i + 0.5) * s + jx, py = gy0 + (j + 0.5) * s + jy, l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, l3 = 1 - l1 - l2;
+        if (l1 < 0 || l2 < 0 || l3 < 0) continue; const k = j * rx + i; (cr[k] || (cr[k] = [])).push(l1 * az + l2 * bz + l3 * cz);
+      }
+    }
+    for (let k = 0; k < cr.length; k++) {
+      const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q);
+      const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
+      if (u.length % 2) { odd++; u.pop(); }
+      for (let q = 0; q < u.length; q += 2) (pr[k] || (pr[k] = [])).push([u[q], u[q + 1]]);
     }
   }
-  const iv = new Array(rx * ry); let odd = 0, vol = 0, volRaw = 0, hit = 0, zTop = -Infinity;
-  for (let k = 0; k < cr.length; k++) {
-    const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q); hit++;
-    const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
-    if (u.length % 2) { odd++; u.pop(); }
+  const iv = new Array(rx * ry); let vol = 0, volRaw = 0, hit = 0, zTop = -Infinity;
+  for (let k = 0; k < pr.length; k++) {
+    if (!pr[k]) continue; hit++; const u = mergeIv(pr[k]);
     const w = toW(F, gx0 + (k % rx + 0.5) * s + jx, gy0 + (Math.floor(k / rx) + 0.5) * s + jy), tz = terrainZ(w[0], w[1]), o = [];
     for (let q = 0; q < u.length; q += 2) { volRaw += (u[q + 1] - u[q]) * s * s; const hi = Math.min(u[q + 1], tz); if (hi > u[q]) { o.push(u[q], hi); vol += (hi - u[q]) * s * s; if (hi > zTop) zTop = hi; } }
     if (o.length) iv[k] = o;

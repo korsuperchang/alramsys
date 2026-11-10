@@ -119,7 +119,10 @@ td.neg{color:var(--bad)}
 .btn{font:inherit;font-size:12.5px;color:var(--panel);background:var(--ink);border:1px solid var(--ink);border-radius:4px;padding:3px 10px;cursor:pointer;display:inline-block}
 .btn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .laywrap{margin-top:8px;border:1px solid var(--line);border-radius:4px;max-height:210px;overflow:auto}
-table.lay{font-size:12px}
+table.lay{font-size:12px;table-layout:fixed;width:100%}
+table.lay th:nth-child(1){width:42%}table.lay th:nth-child(3){width:86px}
+table.lay td{overflow-wrap:anywhere;word-break:break-all}
+.derived{overflow-wrap:anywhere}
 table.lay td,table.lay th{padding:3px 6px;text-align:left;white-space:normal}
 table.lay td.n{font-family:var(--f-mono);color:var(--muted);font-size:11px}
 table.lay select{font-size:12px;padding:1px 3px;max-width:96px}

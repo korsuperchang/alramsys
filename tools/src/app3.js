@@ -18,7 +18,10 @@ function recompute() {
     (isFinite(M.minSF) ? `필러 안전율 최저 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt}) · 기준 미달 <b>${fmt(M.nBad)}</b>판넬` : "판넬 없음");
   if (P.azauto && !I.miss) { $("p-az").value = Math.round((I.az % 360 + 360) % 360); showOutputs(); }
   const capY = P.nface * P.frate * 12 / 10;
-  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
+  const planMax = P.plan && P.plan.map.size ? Math.max(P.ann, ...P.plan.map.values()) : P.ann;
+  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < planMax ? `<br><span style="color:var(--bad)">가장 큰 목표 ${fmt(planMax)}만t에 못 미칩니다</span>` : ""}`;
+  $("planbox").hidden = !P.plan; const pm = $("planmsg");
+  if (P.plan) { const ys = [...P.plan.map.keys()]; pm.hidden = !P.plan.bad.length; pm.textContent = P.plan.bad.length ? `읽지 못한 줄: ${P.plan.bad.slice(0, 3).join(" / ")}${P.plan.bad.length > 3 ? " …" : ""}` : ""; if (ys.length && Math.max(...ys) < P.y0) { pm.hidden = false; pm.textContent += " 입력한 연도가 모두 착공 연도보다 앞입니다."; } }
   $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
   const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
   $("datainfo").innerHTML = `${DATALABEL}<br>광체 솔리드 <b>${ORE.solids.length}</b>개(합쳐서 계산) · 면 <b>${fmt(ORE.n)}</b>개` + (ORE.solids.length > 1 ? ORE.solids.map(sd => `<br>· ${sd.name.replace(/[<>&]/g, "")}: ${fmt(sd.vol)} m³`).join("") : "") + `<br>체적 합 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산(합친 뒤) ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
@@ -39,7 +42,7 @@ function recompute() {
   const sr = (P.lv - D.H) / (D.S - D.Pw); if (sr < P.sill) chip(`수평 필러 ${fmt(P.lv - D.H, 1)}m ÷ 갱도 폭 ${fmt(D.S - D.Pw, 1)}m = ${fmt(sr, 2)} — 기준 ${fmt(P.sill, 2)} 미달`, "warn");
   for (const w of D.warn) chip(w, "warn");
   const short = M.years.filter((Y, i) => i > 0 && i < M.years.length - 1 && Y.target > 0 && Y.t < Y.target * 0.97).length;
-  if (short) chip(`목표 미달 ${short}개 연도 — 작업장 수·편 개설 시점을 조정`, "warn");
+  if (short) chip(`목표 미달 ${short}개 연도 — 작업장 수·편 개설 시점을 조정 (연차 계획 표의 빨간 숫자)`, "warn");
   if (M.mined < M.tot - 1) chip(`계획 기간 안에 못 캔 광량 ${fmt((M.tot - M.mined) / 1e4)}만t`, "warn");
   kpis(); buildLevels(); build3D(); drawLvTable();
   const sl = $("time"); sl.max = Math.max(1, Math.ceil(M.end) + 1);
@@ -52,7 +55,7 @@ function kpis() {
   $("k-ton").textContent = fmt(M.tot / 1e4) + " 만t"; $("k-ton-d").textContent = `광석 ${fmt(M.oreT / 1e4)}만t · 희석 ${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}%`;
   $("k-rec").textContent = resT ? fmt(M.oreT / resT * 100, 1) + " %" : "—"; $("k-rec-d").textContent = "캐는 광석 ÷ 광체 광량";
   $("k-life").textContent = fmt(lifeY, 1) + " 년"; $("k-life-d").textContent = M.seq.length ? `${P.y0 + Math.floor(M.start / 12)} ~ ${P.y0 + Math.floor((M.end - 1e-6) / 12)}년` : "—";
-  $("k-prod").textContent = lifeY ? fmt(M.mined / 1e4 / lifeY) + " 만t" : "—"; $("k-prod-d").textContent = `목표 ${fmt(P.ann)}만t`;
+  $("k-prod").textContent = lifeY ? fmt(M.mined / 1e4 / lifeY) + " 만t" : "—"; $("k-prod-d").textContent = P.plan && P.plan.map.size ? "목표: 연도별 계획" : `목표 ${fmt(P.ann)}만t`;
   $("k-npv").textContent = fmt(M.npv / 1e8) + " 억원"; $("k-npv").style.color = M.npv < 0 ? "var(--bad)" : "";
   $("k-npv-d").textContent = `할인율 ${fmt(P.disc, 1)}%` + (M.pay ? ` · 회수 ${M.pay}년` : " · 회수 못 함");
 }
@@ -305,7 +308,7 @@ function drawTable() {
   const cy = Math.floor(T / 12); let cum = 0, h = "";
   M.years.forEach((Y, i) => {
     cum += Y.t; const nos = M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no), lv = (nos.length ? nos.join("·") + "편" : "") + (Y.opened.length ? ` <span style="color:var(--accent)">+${Y.opened.join("·")}편 개설</span>` : "");
-    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "진입 굴진" : "—")}</td><td>${Y.months ? fmt(Y.faces / Y.months, 1) : "—"}</td><td>${Y.t ? fmt((1 - Y.ore / Y.t) * 100, 1) : "—"}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
+    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${Y.target ? fmt(Y.target / 1e4, 1) : "—"}</td><td class="${Y.target && Y.t < Y.target * 0.97 && i < M.years.length - 1 ? "neg" : ""}">${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "진입 굴진" : "—")}</td><td>${Y.months ? fmt(Y.faces / Y.months, 1) : "—"}</td><td>${Y.t ? fmt((1 - Y.ore / Y.t) * 100, 1) : "—"}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
   });
   $("tbody").innerHTML = h;
 }
@@ -338,8 +341,8 @@ $("tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); i
 $("lvbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr || !tr.dataset.z) return; $("lvsel").value = tr.dataset.z; drawPlan(); drawLvTable(); $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); });
 $("lvsel").addEventListener("change", () => { drawPlan(); drawLvTable(); });
 $("copycsv").addEventListener("click", () => {
-  let cum = 0; const rows = [["연도", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];
-  for (const Y of M.years) { cum += Y.t; rows.push([Y.cal, Math.round(Y.t), Math.round(Y.ore), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), Y.months ? (Y.faces / Y.months).toFixed(1) : "", Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
+  let cum = 0; const rows = [["연도", "목표_t", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];
+  for (const Y of M.years) { cum += Y.t; rows.push([Y.cal, Math.round(Y.target), Math.round(Y.t), Math.round(Y.ore), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), Y.months ? (Y.faces / Y.months).toFixed(1) : "", Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
   const csv = rows.map(r => r.join(",")).join("\n"), btn = $("copycsv"), ta = $("csvout");
   const fallback = () => { ta.value = csv; ta.hidden = false; ta.select(); btn.textContent = "아래 내용을 복사하세요"; };
   try { navigator.clipboard.writeText(csv).then(() => { btn.textContent = "복사됨"; setTimeout(() => { btn.textContent = "표 복사 (CSV)"; }, 1500); }, fallback); } catch (e) { fallback(); }

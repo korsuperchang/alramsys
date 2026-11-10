@@ -136,6 +136,8 @@ details.adv>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--
 details.adv fieldset:first-of-type{border-top:0}
 .portalbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
 #plan.pick{cursor:copy;outline:2px solid var(--accent);outline-offset:-2px}
+#p-plan{width:100%;margin-top:6px;font-family:var(--f-mono);font-size:12.5px;line-height:1.5;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 7px;resize:vertical}
+.note2{font-size:11.5px;color:var(--muted);margin-top:3px}
 .msg{font-size:12px;color:var(--bad);margin-top:6px}
 .step{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:var(--ink);color:var(--panel);font-size:11px;font-family:var(--f-mono);margin-right:5px}
 </style>
@@ -234,7 +236,7 @@ details.adv fieldset:first-of-type{border-top:0}
       <textarea id="csvout" hidden readonly aria-label="연차 계획 CSV" style="width:calc(100% - 24px);margin:8px 12px 0;height:90px;font-family:var(--f-mono);font-size:11.5px"></textarea>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>연도</th><th>생산 (만t)</th><th class="lvls">작업 편</th><th>평균 작업장</th><th>희석 %</th><th>누계 (만t)</th><th title="수평갱·사갱·편 갱도 합">굴진 (m)</th><th>현금흐름 (억원)</th></tr></thead>
+          <thead><tr><th>연도</th><th>목표 (만t)</th><th>생산 (만t)</th><th class="lvls">작업 편</th><th>평균 작업장</th><th>희석 %</th><th>누계 (만t)</th><th title="수평갱·사갱·편 갱도 합">굴진 (m)</th><th>현금흐름 (억원)</th></tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
@@ -251,7 +253,8 @@ details.adv fieldset:first-of-type{border-top:0}
           <li><b>채광 격자 방향.</b> 격자는 1편 진입점을 원점으로 갱구 굴진 방향에 맞춰 돌아갑니다(고급 옵션에서 광체 긴 축이나 남북 고정으로 바꿀 수 있음). 판넬 경계가 진입 굴진선 위에 오므로 굴진이 갱도 중심선을 따라 들어갑니다.</li>
           <li><b>판넬.</b> 판넬 = 필러 1개 + 둘레 갱도. 격자 크기 = 필러 폭 + 갱도 폭, 모든 편이 같은 격자를 써서 상·하 필러가 겹칩니다. 평면도의 파란 선은 진입점에서 가장 먼 판넬까지 판넬을 따라 이어지는 주 운반 갱도이고, 점선은 떨어진 블록으로 가는 연결 갱도입니다. 판넬 톤 = (격자² − 필러²) × 갱도 높이 × 비중. 갱도 높이 중 광체 안 비율이 「최소 광체 비율」보다 작으면 판넬을 만들지 않고, 광체 밖 부분은 희석으로 셉니다(매출은 광석분만).</li>
           <li><b>편 개설.</b> 아래 편은 윗편 채굴률이 「다음 편 개설」 값을 넘으면 윗편 진입점에서 연층 사갱 한 구간을 내립니다. 구간 수평 거리 = 편 간격 ÷ tan(사갱 경사), 방향은 아랫편 광체에 닿는 곳 중 갱구와 그 편 광체 중심에 가까운 쪽.</li>
-          <li><b>작업장과 일정.</b> 한 달에 「동시 작업장 수」만큼의 판넬에서 각각 「작업장당 월 생산」까지 캡니다. 판넬은 진입점 쪽 옆 판넬이 다 캐져야 열리므로, 편을 막 열었을 때는 작업장을 다 못 채워 생산이 천천히 올라갑니다. 위 편부터 배정하고 연간 목표를 넘기지 않습니다.</li>
+          <li><b>연도별 생산 계획.</b> 「연도별 생산 계획을 따로 입력」을 켜고 한 줄에 「연도 만t」(예: 2030 100) 또는 「시작-끝 만t」(예: 2031-2040 120)을 적으면 그 해의 목표가 됩니다. 적지 않은 해는 연간 생산 목표를 씁니다. 목표는 상한이라, 작업장 능력이나 열린 편이 모자라면 실제 생산은 그보다 적습니다(연차 계획 표에서 빨간 숫자).</li>
+          <li><b>작업장과 일정.</b> 한 달에 「동시 작업장 수」만큼의 판넬에서 각각 「작업장당 월 생산」까지 캡니다. 판넬은 진입점 쪽 옆 판넬이 다 캐져야 열리므로, 편을 막 열었을 때는 작업장을 다 못 채워 생산이 천천히 올라갑니다. 위 편부터 배정하고 그해 목표를 넘기지 않습니다.</li>
           <li><b>필러 안전율.</b> 설계 칸의 일축압축강도와 기준 안전율로 판넬마다 필러 안전율을 계산해 설계 칸에 최저값을, 3D·평면도의 「안전율 색」으로 위치를 보여 줍니다. 하중 = ρgh × 격자²/필러²(지류면적법), 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러 폭/갱도 높이). 기본은 표시만 하고, 「미달 판넬 제외」를 켜면 설계에서 뺍니다. 수평 필러는 두께 ÷ 갱도 폭 기준(가정값)으로 경고만 합니다.</li>
           <li><b>수지 판단.</b> 판넬 원가 = 운영비 + 편당 운반비 증가 × (편 번호 − 1) + 편 내 운반비 × 진입점에서 경로 거리. 떨어진 블록은 가장 가까운 연결점에서 편 갱도를 내고, 순이익이 기준에 못 미치면 캐지 않습니다.</li>
           <li><b>한계.</b> 품위·블록 모델 없음, 판넬은 수평 슬래브(경사 채굴 아님), 사갱 굴진 광석·필러 회수·충전·환기·배수 미반영. 단가는 모두 가정값입니다.</li>
@@ -530,6 +533,8 @@ const PARAMS = [
   { id: "h", g: "design", label: "갱도 높이", min: 4, max: 20, step: 0.5, v: 12, u: "m" },
   { id: "w", g: "design", label: "갱도 폭", min: 4, max: 25, step: 0.5, v: 13, u: "m" },
   { id: "lv", g: "design", label: "편 간격", min: 8, max: 40, step: 1, v: 20, u: "m" },
+  { id: "cover", g: "design", label: "지표에서 띄울 거리 (최소 피복)", min: 0, max: 150, step: 5, v: 30, u: "m" },
+  { id: "maxlv", g: "design", label: "최대 편 수 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "ucs", g: "design", label: "암석 일축압축강도", min: 30, max: 200, step: 5, v: 80, u: "MPa" },
   { id: "sfmin", g: "design", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
   { id: "az", g: "open", label: "갱구 굴진 방위", min: 0, max: 359, step: 1, v: 90, u: "°" },
@@ -547,10 +552,8 @@ const PARAMS = [
   { id: "sill", g: "a-sf", label: "수평 필러 기준 (두께÷갱도 폭)", min: 0.2, max: 1.5, step: 0.05, v: 0.5, u: "", d: 2 },
   { id: "rho", g: "a-lim", label: "비중", min: 2.0, max: 4.5, step: 0.01, v: 2.7, u: "", d: 2 },
   { id: "minfrac", g: "a-lim", label: "최소 광체 비율", min: 50, max: 100, step: 5, v: 80, u: "%" },
-  { id: "cover", g: "a-lim", label: "최소 지표 피복", min: 0, max: 100, step: 5, v: 30, u: "m" },
   { id: "bnd", g: "a-lim", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
   { id: "iw", g: "a-lim", label: "사갱 보호 폭 (한쪽)", min: 5, max: 50, step: 5, v: 20, u: "m" },
-  { id: "maxlv", g: "a-lim", label: "편 수 제한 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "minblk", g: "a-lim", label: "떨어진 블록 최소 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
   { id: "minval", g: "a-lim", label: "떨어진 블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
   { id: "rate", g: "a-dev", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
@@ -573,13 +576,27 @@ for (const [g, title, isAdv] of GROUPS) {
     if (p.id === "dip0") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="portalinfo"></div>`);
   }
   if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
-  if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>`);
+  if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>
+    <label class="opt"><input type="checkbox" id="p-planon">연도별 생산 계획을 따로 입력</label>
+    <div id="planbox" hidden><textarea id="p-plan" rows="6" spellcheck="false" aria-label="연도별 생산 계획 (연도 만t)" placeholder="한 줄에 연도와 만t&#10;2028 30&#10;2029 50&#10;2030-2040 100"></textarea>
+    <div class="note2">한 줄에 「연도 만t」 또는 「시작-끝 만t」. 적지 않은 해는 위의 연간 생산 목표를 씁니다.</div><div class="msg" id="planmsg" hidden></div></div>`);
   if (g === "a-sf") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx">기준 미달 판넬은 설계에서 제외</label>`);
   if (g === "a-lim") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-grid">채광 격자 방향 <select id="p-grid"><option value="entry">갱구 굴진 방향</option><option value="ore">광체 긴 축</option><option value="ns">남북 고정</option></select></label><label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 떨어진 블록은 캐지 않음</label>`);
   (isAdv ? adv : form).appendChild(fs);
 }
 form.appendChild(adv);
-function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; o.azauto = $("p-azauto").checked; o.grid = $("p-grid").value; return o; }
+// 연도별 계획 글 → {연도: 만t}. 못 읽은 줄은 따로 돌려준다
+function parsePlan(txt) {
+  const map = new Map(), bad = [];
+  for (const raw of txt.split(/\n|;/)) {
+    const ln = raw.trim(); if (!ln) continue; const m = /^(\d{4})\s*년?\s*(?:[-~]\s*(\d{4})\s*년?)?\s*[:=,\s]\s*([\d,.]+)\s*(?:만\s*t|만톤)?$/i.exec(ln);
+    const v = m ? parseFloat(m[3].replace(/,/g, "")) : NaN, a = m ? +m[1] : 0, b = m && m[2] ? +m[2] : a;
+    if (!m || !isFinite(v) || v < 0 || b < a || b - a > 200) { bad.push(ln); continue; }
+    for (let y = a; y <= b; y++) map.set(y, v);
+  }
+  return { map, bad };
+}
+function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.plan = $("p-planon").checked ? parsePlan($("p-plan").value) : null; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; o.azauto = $("p-azauto").checked; o.grid = $("p-grid").value; return o; }
 function showOutputs() { for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); } }
 const bearing = deg => { const a = (deg % 360 + 360) % 360; return a <= 90 ? `N${fmt(a)}°E` : a <= 180 ? `S${fmt(180 - a)}°E` : a <= 270 ? `S${fmt(a - 180)}°W` : `N${fmt(360 - a)}°W`; };
 
@@ -801,7 +818,7 @@ function schedule(D, P) {
     let devM = 0; for (const j of jobs) if (j.start !== null) devM += Math.max(0, Math.min(m + 1, j.start + j.len / P.rate) - Math.max(m, j.start)) * P.rate;
     Y.dev += devM; let cf = -devM * P.devc * 1e4, got = 0;
     if (m >= start && left > 1) {
-      let target = P.ann * 1e4 / 12; Y.target += target;
+      let target = (P.plan && P.plan.map.has(Y.cal) ? P.plan.map.get(Y.cal) : P.ann) * 1e4 / 12; Y.target += target;
       const openL = seq.filter(L => L.ready <= m && L.rem > 1), busy = new Set();
       for (const L of openL) while (L.ptr < L.panels.length && L.panels[L.ptr].s1 !== null) L.ptr++;
       // 작업장 하나 = 판넬 하나. 캐던 판넬은 그 작업장이 이어서 캐고, 끝나면 위 편부터 진입점 쪽 옆 판넬이 끝난 새 판넬로 옮긴다
@@ -857,7 +874,10 @@ function recompute() {
     (isFinite(M.minSF) ? `필러 안전율 최저 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt}) · 기준 미달 <b>${fmt(M.nBad)}</b>판넬` : "판넬 없음");
   if (P.azauto && !I.miss) { $("p-az").value = Math.round((I.az % 360 + 360) % 360); showOutputs(); }
   const capY = P.nface * P.frate * 12 / 10;
-  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
+  const planMax = P.plan && P.plan.map.size ? Math.max(P.ann, ...P.plan.map.values()) : P.ann;
+  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < planMax ? `<br><span style="color:var(--bad)">가장 큰 목표 ${fmt(planMax)}만t에 못 미칩니다</span>` : ""}`;
+  $("planbox").hidden = !P.plan; const pm = $("planmsg");
+  if (P.plan) { const ys = [...P.plan.map.keys()]; pm.hidden = !P.plan.bad.length; pm.textContent = P.plan.bad.length ? `읽지 못한 줄: ${P.plan.bad.slice(0, 3).join(" / ")}${P.plan.bad.length > 3 ? " …" : ""}` : ""; if (ys.length && Math.max(...ys) < P.y0) { pm.hidden = false; pm.textContent += " 입력한 연도가 모두 착공 연도보다 앞입니다."; } }
   $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
   const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
   $("datainfo").innerHTML = `${DATALABEL}<br>광체 솔리드 <b>${ORE.solids.length}</b>개(합쳐서 계산) · 면 <b>${fmt(ORE.n)}</b>개` + (ORE.solids.length > 1 ? ORE.solids.map(sd => `<br>· ${sd.name.replace(/[<>&]/g, "")}: ${fmt(sd.vol)} m³`).join("") : "") + `<br>체적 합 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산(합친 뒤) ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
@@ -878,7 +898,7 @@ function recompute() {
   const sr = (P.lv - D.H) / (D.S - D.Pw); if (sr < P.sill) chip(`수평 필러 ${fmt(P.lv - D.H, 1)}m ÷ 갱도 폭 ${fmt(D.S - D.Pw, 1)}m = ${fmt(sr, 2)} — 기준 ${fmt(P.sill, 2)} 미달`, "warn");
   for (const w of D.warn) chip(w, "warn");
   const short = M.years.filter((Y, i) => i > 0 && i < M.years.length - 1 && Y.target > 0 && Y.t < Y.target * 0.97).length;
-  if (short) chip(`목표 미달 ${short}개 연도 — 작업장 수·편 개설 시점을 조정`, "warn");
+  if (short) chip(`목표 미달 ${short}개 연도 — 작업장 수·편 개설 시점을 조정 (연차 계획 표의 빨간 숫자)`, "warn");
   if (M.mined < M.tot - 1) chip(`계획 기간 안에 못 캔 광량 ${fmt((M.tot - M.mined) / 1e4)}만t`, "warn");
   kpis(); buildLevels(); build3D(); drawLvTable();
   const sl = $("time"); sl.max = Math.max(1, Math.ceil(M.end) + 1);
@@ -891,7 +911,7 @@ function kpis() {
   $("k-ton").textContent = fmt(M.tot / 1e4) + " 만t"; $("k-ton-d").textContent = `광석 ${fmt(M.oreT / 1e4)}만t · 희석 ${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}%`;
   $("k-rec").textContent = resT ? fmt(M.oreT / resT * 100, 1) + " %" : "—"; $("k-rec-d").textContent = "캐는 광석 ÷ 광체 광량";
   $("k-life").textContent = fmt(lifeY, 1) + " 년"; $("k-life-d").textContent = M.seq.length ? `${P.y0 + Math.floor(M.start / 12)} ~ ${P.y0 + Math.floor((M.end - 1e-6) / 12)}년` : "—";
-  $("k-prod").textContent = lifeY ? fmt(M.mined / 1e4 / lifeY) + " 만t" : "—"; $("k-prod-d").textContent = `목표 ${fmt(P.ann)}만t`;
+  $("k-prod").textContent = lifeY ? fmt(M.mined / 1e4 / lifeY) + " 만t" : "—"; $("k-prod-d").textContent = P.plan && P.plan.map.size ? "목표: 연도별 계획" : `목표 ${fmt(P.ann)}만t`;
   $("k-npv").textContent = fmt(M.npv / 1e8) + " 억원"; $("k-npv").style.color = M.npv < 0 ? "var(--bad)" : "";
   $("k-npv-d").textContent = `할인율 ${fmt(P.disc, 1)}%` + (M.pay ? ` · 회수 ${M.pay}년` : " · 회수 못 함");
 }
@@ -1144,7 +1164,7 @@ function drawTable() {
   const cy = Math.floor(T / 12); let cum = 0, h = "";
   M.years.forEach((Y, i) => {
     cum += Y.t; const nos = M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no), lv = (nos.length ? nos.join("·") + "편" : "") + (Y.opened.length ? ` <span style="color:var(--accent)">+${Y.opened.join("·")}편 개설</span>` : "");
-    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "진입 굴진" : "—")}</td><td>${Y.months ? fmt(Y.faces / Y.months, 1) : "—"}</td><td>${Y.t ? fmt((1 - Y.ore / Y.t) * 100, 1) : "—"}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
+    h += `<tr data-y="${i}" class="${i === cy ? "cur" : ""}"><td>${Y.cal}</td><td>${Y.target ? fmt(Y.target / 1e4, 1) : "—"}</td><td class="${Y.target && Y.t < Y.target * 0.97 && i < M.years.length - 1 ? "neg" : ""}">${fmt(Y.t / 1e4, 1)}</td><td class="lvls">${lv || (Y.dev ? "진입 굴진" : "—")}</td><td>${Y.months ? fmt(Y.faces / Y.months, 1) : "—"}</td><td>${Y.t ? fmt((1 - Y.ore / Y.t) * 100, 1) : "—"}</td><td>${fmt(cum / 1e4)}</td><td>${fmt(Y.dev)}</td><td class="${Y.cf < 0 ? "neg" : ""}">${fmt(Y.cf / 1e8, 1)}</td></tr>`;
   });
   $("tbody").innerHTML = h;
 }
@@ -1177,8 +1197,8 @@ $("tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); i
 $("lvbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr || !tr.dataset.z) return; $("lvsel").value = tr.dataset.z; drawPlan(); drawLvTable(); $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); });
 $("lvsel").addEventListener("change", () => { drawPlan(); drawLvTable(); });
 $("copycsv").addEventListener("click", () => {
-  let cum = 0; const rows = [["연도", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];
-  for (const Y of M.years) { cum += Y.t; rows.push([Y.cal, Math.round(Y.t), Math.round(Y.ore), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), Y.months ? (Y.faces / Y.months).toFixed(1) : "", Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
+  let cum = 0; const rows = [["연도", "목표_t", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];
+  for (const Y of M.years) { cum += Y.t; rows.push([Y.cal, Math.round(Y.target), Math.round(Y.t), Math.round(Y.ore), M.seq.filter((L, k) => Y.lv[k] > 0).map(L => L.no).join("/"), Y.opened.join("/"), Y.months ? (Y.faces / Y.months).toFixed(1) : "", Math.round(cum), Math.round(Y.dev), Math.round(Y.cf)]); }
   const csv = rows.map(r => r.join(",")).join("\n"), btn = $("copycsv"), ta = $("csvout");
   const fallback = () => { ta.value = csv; ta.hidden = false; ta.select(); btn.textContent = "아래 내용을 복사하세요"; };
   try { navigator.clipboard.writeText(csv).then(() => { btn.textContent = "복사됨"; setTimeout(() => { btn.textContent = "표 복사 (CSV)"; }, 1500); }, fallback); } catch (e) { fallback(); }

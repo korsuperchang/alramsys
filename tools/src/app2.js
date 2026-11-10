@@ -7,6 +7,8 @@ const PARAMS = [
   { id: "h", g: "design", label: "갱도 높이", min: 4, max: 20, step: 0.5, v: 12, u: "m" },
   { id: "w", g: "design", label: "갱도 폭", min: 4, max: 25, step: 0.5, v: 13, u: "m" },
   { id: "lv", g: "design", label: "편 간격", min: 8, max: 40, step: 1, v: 20, u: "m" },
+  { id: "cover", g: "design", label: "지표에서 띄울 거리 (최소 피복)", min: 0, max: 150, step: 5, v: 30, u: "m" },
+  { id: "maxlv", g: "design", label: "최대 편 수 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "ucs", g: "design", label: "암석 일축압축강도", min: 30, max: 200, step: 5, v: 80, u: "MPa" },
   { id: "sfmin", g: "design", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
   { id: "az", g: "open", label: "갱구 굴진 방위", min: 0, max: 359, step: 1, v: 90, u: "°" },
@@ -24,10 +26,8 @@ const PARAMS = [
   { id: "sill", g: "a-sf", label: "수평 필러 기준 (두께÷갱도 폭)", min: 0.2, max: 1.5, step: 0.05, v: 0.5, u: "", d: 2 },
   { id: "rho", g: "a-lim", label: "비중", min: 2.0, max: 4.5, step: 0.01, v: 2.7, u: "", d: 2 },
   { id: "minfrac", g: "a-lim", label: "최소 광체 비율", min: 50, max: 100, step: 5, v: 80, u: "%" },
-  { id: "cover", g: "a-lim", label: "최소 지표 피복", min: 0, max: 100, step: 5, v: 30, u: "m" },
   { id: "bnd", g: "a-lim", label: "광구 경계 이격", min: 0, max: 50, step: 5, v: 20, u: "m" },
   { id: "iw", g: "a-lim", label: "사갱 보호 폭 (한쪽)", min: 5, max: 50, step: 5, v: 20, u: "m" },
-  { id: "maxlv", g: "a-lim", label: "편 수 제한 (위에서부터)", min: 1, max: 60, step: 1, v: 60, u: "편" },
   { id: "minblk", g: "a-lim", label: "떨어진 블록 최소 크기", min: 1, max: 30, step: 1, v: 6, u: "판넬" },
   { id: "minval", g: "a-lim", label: "떨어진 블록 최소 순이익", min: 0, max: 20, step: 0.5, v: 3, u: "억원", d: 1 },
   { id: "rate", g: "a-dev", label: "굴진 속도 (수평갱·사갱)", min: 20, max: 150, step: 5, v: 60, u: "m/월" },
@@ -50,13 +50,27 @@ for (const [g, title, isAdv] of GROUPS) {
     if (p.id === "dip0") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="portalinfo"></div>`);
   }
   if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
-  if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>`);
+  if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>
+    <label class="opt"><input type="checkbox" id="p-planon">연도별 생산 계획을 따로 입력</label>
+    <div id="planbox" hidden><textarea id="p-plan" rows="6" spellcheck="false" aria-label="연도별 생산 계획 (연도 만t)" placeholder="한 줄에 연도와 만t&#10;2028 30&#10;2029 50&#10;2030-2040 100"></textarea>
+    <div class="note2">한 줄에 「연도 만t」 또는 「시작-끝 만t」. 적지 않은 해는 위의 연간 생산 목표를 씁니다.</div><div class="msg" id="planmsg" hidden></div></div>`);
   if (g === "a-sf") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx">기준 미달 판넬은 설계에서 제외</label>`);
   if (g === "a-lim") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-grid">채광 격자 방향 <select id="p-grid"><option value="entry">갱구 굴진 방향</option><option value="ore">광체 긴 축</option><option value="ns">남북 고정</option></select></label><label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 떨어진 블록은 캐지 않음</label>`);
   (isAdv ? adv : form).appendChild(fs);
 }
 form.appendChild(adv);
-function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; o.azauto = $("p-azauto").checked; o.grid = $("p-grid").value; return o; }
+// 연도별 계획 글 → {연도: 만t}. 못 읽은 줄은 따로 돌려준다
+function parsePlan(txt) {
+  const map = new Map(), bad = [];
+  for (const raw of txt.split(/\n|;/)) {
+    const ln = raw.trim(); if (!ln) continue; const m = /^(\d{4})\s*년?\s*(?:[-~]\s*(\d{4})\s*년?)?\s*[:=,\s]\s*([\d,.]+)\s*(?:만\s*t|만톤)?$/i.exec(ln);
+    const v = m ? parseFloat(m[3].replace(/,/g, "")) : NaN, a = m ? +m[1] : 0, b = m && m[2] ? +m[2] : a;
+    if (!m || !isFinite(v) || v < 0 || b < a || b - a > 200) { bad.push(ln); continue; }
+    for (let y = a; y <= b; y++) map.set(y, v);
+  }
+  return { map, bad };
+}
+function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.plan = $("p-planon").checked ? parsePlan($("p-plan").value) : null; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; o.azauto = $("p-azauto").checked; o.grid = $("p-grid").value; return o; }
 function showOutputs() { for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); } }
 const bearing = deg => { const a = (deg % 360 + 360) % 360; return a <= 90 ? `N${fmt(a)}°E` : a <= 180 ? `S${fmt(180 - a)}°E` : a <= 270 ? `S${fmt(a - 180)}°W` : `N${fmt(360 - a)}°W`; };
 
@@ -278,7 +292,7 @@ function schedule(D, P) {
     let devM = 0; for (const j of jobs) if (j.start !== null) devM += Math.max(0, Math.min(m + 1, j.start + j.len / P.rate) - Math.max(m, j.start)) * P.rate;
     Y.dev += devM; let cf = -devM * P.devc * 1e4, got = 0;
     if (m >= start && left > 1) {
-      let target = P.ann * 1e4 / 12; Y.target += target;
+      let target = (P.plan && P.plan.map.has(Y.cal) ? P.plan.map.get(Y.cal) : P.ann) * 1e4 / 12; Y.target += target;
       const openL = seq.filter(L => L.ready <= m && L.rem > 1), busy = new Set();
       for (const L of openL) while (L.ptr < L.panels.length && L.panels[L.ptr].s1 !== null) L.ptr++;
       // 작업장 하나 = 판넬 하나. 캐던 판넬은 그 작업장이 이어서 캐고, 끝나면 위 편부터 진입점 쪽 옆 판넬이 끝난 새 판넬로 옮긴다

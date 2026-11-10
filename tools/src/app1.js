@@ -68,7 +68,7 @@ function layerStats(l) {
   for (const p of l.points) add(p[0], p[1], p[2]);
   l.bbox = b; l.nf = l.faces.length / 9; l.nl = l.lines.length; l.np = l.points.length; l.closed = l.lines.filter(q => q.closed).length;
 }
-function guessRoles(layers) {
+function guessRoles(layers, others = []) {
   const faceL = layers.filter(l => l.nf > 0), area = l => (l.bbox.x1 - l.bbox.x0) * (l.bbox.y1 - l.bbox.y0);
   for (const l of layers) {
     const n = l.name.toUpperCase(), zr = l.bbox.z1 - l.bbox.z0;
@@ -83,8 +83,8 @@ function guessRoles(layers) {
   }
   const und = faceL.filter(l => l.role === null);                       // 이름으로 못 가린 면 레이어: 가장 넓은 것이 지형
   if (und.length) {
-    const hasT = layers.some(l => l.role === "terrain"), big = und.reduce((a, l) => area(l) > area(a) ? l : a);
-    for (const l of und) l.role = (!hasT && und.length > 1 && l === big) ? "terrain" : "ore";
+    const hasT = [...layers, ...others].some(l => l.role === "terrain"), hasO = others.some(l => l.role === "ore" && l.nf), big = und.reduce((a, l) => area(l) > area(a) ? l : a);
+    for (const l of und) l.role = (!hasT && (und.length > 1 || hasO) && l === big) ? "terrain" : "ore";
   }
 }
 
@@ -163,7 +163,14 @@ function terrainZ(x, y) {
 function applyData() {
   DATAMSG = [];
   const by = r => LAYERS.filter(l => l.role === r), oreL = by("ore").filter(l => l.nf), terL = by("terrain");
-  if (!oreL.length) { DATAMSG.push("광체로 쓸 면(3DFACE·폴리페이스) 레이어가 없습니다. 레이어의 쓰임을 「광체」로 골라 주세요."); return false; }
+  const poly = r => { const o = []; for (const l of by(r)) for (const ln of l.lines) if (ln.pts.length > 2) o.push({ pts: ln.pts.map(p => [p[0], p[1]]), closed: ln.closed }); return o; };
+  CLAIM = poly("claim").map(p => p.pts); CAD = poly("cad"); DATAVER++;
+  if (!oreL.length) {                                                         // 광체가 아직 없으면 지형·경계만 보여 준다
+    ORE = null; DATAMSG.push("광체로 쓸 면(3DFACE·폴리페이스) 레이어가 없습니다. 광체 DXF를 더 올리거나, 레이어의 쓰임을 「광체」로 골라 주세요.");
+    let R0 = null; for (const l of [...terL, ...by("claim"), ...by("cad")]) R0 = R0 ? bbU(R0, l.bbox) : { x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 };
+    if (!R0) { VB = null; G = null; return false; }
+    VB = R0; G = terL.length ? buildTerrain(terL, R0) : null; return false;
+  }
   let n = 0; for (const l of oreL) n += l.faces.length; const tris = new Float64Array(n); n = 0; for (const l of oreL) { tris.set(l.faces, n); n += l.faces.length; }
   const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }; let v6 = 0;
   for (let t = 0; t < tris.length; t += 9) {
@@ -172,8 +179,6 @@ function applyData() {
   const ox = (ob.x0 + ob.x1) / 2, oy = (ob.y0 + ob.y1) / 2, oz = (ob.z0 + ob.z1) / 2;       // 큰 좌표에서 자릿수 손실을 막으려고 중심을 빼고 부호 체적을 더함
   for (let t = 0; t < tris.length; t += 9) { const ax = tris[t] - ox, ay = tris[t + 1] - oy, az = tris[t + 2] - oz, bx = tris[t + 3] - ox, by2 = tris[t + 4] - oy, bz = tris[t + 5] - oz, cx = tris[t + 6] - ox, cy = tris[t + 7] - oy, cz = tris[t + 8] - oz; v6 += ax * (by2 * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by2 * cx); }
   ORE = { tris, bbox: ob, volSigned: Math.abs(v6) / 6, n: tris.length / 9 };
-  const poly = r => { const o = []; for (const l of by(r)) for (const ln of l.lines) if (ln.pts.length > 2) o.push({ pts: ln.pts.map(p => [p[0], p[1]]), closed: ln.closed }); return o; };
-  CLAIM = poly("claim").map(p => p.pts); CAD = poly("cad");
   let R = { x0: ob.x0, y0: ob.y0, x1: ob.x1, y1: ob.y1 }; for (const pg of CLAIM) for (const p of pg) R = bbU(R, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] });
   const mg = Math.max(60, 0.12 * Math.max(R.x1 - R.x0, R.y1 - R.y0)); VB = { x0: R.x0 - mg, y0: R.y0 - mg, x1: R.x1 + mg, y1: R.y1 + mg };
   const TR = { x0: VB.x0 - mg, y0: VB.y0 - mg, x1: VB.x1 + mg, y1: VB.y1 + mg };
@@ -182,5 +187,29 @@ function applyData() {
     DATAMSG.push(terL.length ? "지형 레이어에 표고(Z)가 있는 면·등고선·점이 광체 주변에 없습니다. 광체 꼭대기 위 50m 평지로 대신했습니다." : "지형 레이어가 없어 광체 꼭대기 위 50m 평지로 대신했습니다.");
     G = { x0: TR.x0, y0: TR.y0, d: (TR.x1 - TR.x0), nx: 2, ny: 2, z: new Float32Array(4).fill(ob.z1 + 50), zmin: ob.z1 + 50, zmax: ob.z1 + 50, cover: 0, flat: true }; G.d = Math.max(TR.x1 - TR.x0, TR.y1 - TR.y0);
   } else { let tb = null; for (const l of terL) tb = tb ? bbU(tb, l.bbox) : { ...l.bbox }; if (ob.x0 < tb.x0 || ob.x1 > tb.x1 || ob.y0 < tb.y0 || ob.y1 > tb.y1) DATAMSG.push("광체 일부가 지형 자료 범위 밖에 있습니다. 그 부분의 지표는 가장 가까운 값으로 메웠습니다. 좌표계가 같은지 확인하세요."); }
-  DATAVER++; return true;
+  // 수직선 조회용 칸 나눔(삼각형 → 평면 격자 칸)
+  const nb = 64, bw = Math.max(1e-6, (ob.x1 - ob.x0) / nb), bh = Math.max(1e-6, (ob.y1 - ob.y0) / nb), bins = new Array(nb * nb);
+  for (let t = 0; t < tris.length; t += 9) {
+    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1);
+    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
+  }
+  ORE.bins = bins; ORE.nb = nb; ORE.bw = bw; ORE.bh = bh;
+  // 광체 평면 분포의 긴 축(주향 근사)
+  let mx = 0, my = 0, nv = 0; for (let t = 0; t < tris.length; t += 3) { mx += tris[t]; my += tris[t + 1]; nv++; } mx /= nv; my /= nv;
+  let cxx = 0, cyy = 0, cxy = 0; for (let t = 0; t < tris.length; t += 3) { cxx += (tris[t] - mx) ** 2; cyy += (tris[t + 1] - my) ** 2; cxy += (tris[t] - mx) * (tris[t + 1] - my); }
+  const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); ORE.axisAz = Math.atan2(Math.cos(th), Math.sin(th)); ORE.cx = mx; ORE.cy = my;
+  return true;
+}
+// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (지표 위는 잘라 냄)
+function oreAt(x, y) {
+  const o = ORE, i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) return [];
+  const b = o.bins[j * o.nb + i]; if (!b) return []; const T = o.tris, zs = [];
+  for (const t of b) {
+    const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+    const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+    zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+  }
+  zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
+  const tz = terrainZ(x, y), out = []; for (let q = 0; q < u.length; q += 2) { const hi = Math.min(u[q + 1], tz); if (hi > u[q]) out.push(u[q], hi); } return out;
 }

@@ -162,6 +162,7 @@ details.adv fieldset:first-of-type{border-top:0}
         <label class="btn" for="dxf">DXF 불러오기</label><input type="file" id="dxf" accept=".dxf,.DXF" multiple hidden>
         <button type="button" id="demo">예시 자료</button>
       </div>
+      <div class="status" id="files" style="margin:8px 0 0"></div>
       <div class="msg" id="filemsg" hidden></div>
       <div class="laywrap"><table class="lay"><thead><tr><th>레이어</th><th>내용</th><th>쓰임</th></tr></thead><tbody id="layers"></tbody></table></div>
       <div class="derived" id="datainfo"></div>
@@ -240,14 +241,15 @@ details.adv fieldset:first-of-type{border-top:0}
       <div class="head"><h2>계산 방법과 한계</h2></div>
       <div class="notes">
         <ul>
-          <li><b>DXF 읽기.</b> 글자(ASCII) DXF의 ENTITIES에서 3DFACE, POLYLINE(3D 선·폴리페이스·메시), LWPOLYLINE, LINE, POINT를 읽습니다. 블록(INSERT) 안 도형, 스플라인, 문자는 읽지 않습니다. 레이어마다 쓰임(지형·광체·광구·지적)을 고르면 다시 계산합니다. 좌표는 도면 좌표 그대로 쓰므로 지형과 광체가 같은 좌표계여야 합니다.</li>
+          <li><b>DXF 읽기.</b> 글자(ASCII) DXF의 ENTITIES에서 3DFACE, POLYLINE(3D 선·폴리페이스·메시), LWPOLYLINE, LINE, POINT를 읽습니다. 블록(INSERT) 안 도형, 스플라인, 문자는 읽지 않습니다. 파일은 올릴 때마다 더해지므로 지형과 광체를 따로 올려도 되고, 파일별로 뺄 수 있습니다. 레이어마다 쓰임(지형·광체·광구·지적)을 고르면 다시 계산합니다. 좌표는 도면 좌표 그대로 쓰므로 지형과 광체가 같은 좌표계여야 합니다.</li>
           <li><b>지형.</b> 지형 레이어의 면(삼각망)은 격자에 그대로 옮기고, 등고선·표고점은 격자 칸마다 8방향에서 가장 가까운 값을 거리 역제곱으로 섞습니다. 표고(Z)가 없는 선은 지형으로 쓸 수 없습니다.</li>
           <li><b>광체.</b> 광체 레이어의 삼각형 면을 닫힌 솔리드로 봅니다. 수직선을 판넬마다 9개(3×3) 내려 면과 만나는 높이로 광체 구간을 구하고, 지표보다 높은 부분은 잘라 냅니다. 「광체 광량」 = 솔리드 체적(면 부호 체적 합) × 비중이고, 수직선으로 다시 구한 체적과의 차이를 자료 칸에 보여 줍니다. 품위 정보는 없으므로 솔리드 안은 모두 광석으로 봅니다.</li>
-          <li><b>갱구와 편.</b> 갱구는 평면도에서 직접 놓거나 자동으로 잡습니다(광체 꼭대기 한 편 아래 높이의 사면 중 광체에 가장 가까운 곳). 갱구 표고가 1편 바닥이 되고 그 아래로 편 간격마다 편을 둡니다. 갱구보다 높은 광체는 계획에 넣지 않습니다.</li>
-          <li><b>판넬.</b> 판넬 = 필러 1개 + 둘레 갱도. 격자 크기 = 필러 폭 + 갱도 폭, 모든 편이 같은 격자를 써서 상·하 필러가 겹칩니다. 판넬 톤 = (격자² − 필러²) × 갱도 높이 × 비중. 갱도 높이 중 광체 안 비율이 「최소 광체 비율」보다 작으면 판넬을 만들지 않고, 광체 밖 부분은 희석으로 셉니다(매출은 광석분만).</li>
-          <li><b>편 개설.</b> 1편은 갱구에서 가장 가까운 광체까지 수평갱. 아래 편은 윗편 채굴률이 「다음 편 개설」 값을 넘으면 윗편 진입점에서 연층 사갱 한 구간을 내립니다. 구간 수평 거리 = 편 간격 ÷ tan(사갱 경사), 방향은 아랫편 광체에 닿는 곳 중 갱구와 그 편 광체 중심에 가까운 쪽.</li>
+          <li><b>갱구와 진입 굴진.</b> 갱구는 평면도에서 직접 놓거나 자동으로 잡습니다(광체 꼭대기 한 편 아래 높이의 사면 중 광체에 가장 가까운 곳). 갱구에서 정한 방위와 경사(0° = 수평갱)로 곧게 굴진해, 갱도 높이의 「최소 광체 비율」 이상이 광체에 드는 첫 지점이 1편 진입점입니다. 방위를 자동으로 두면 5°씩 돌려 가장 짧게 닿는 방향을 고릅니다. 진입점 표고가 1편 바닥이 되고 그 아래로 편 간격마다 편을 둡니다. 1편보다 높은 광체는 계획에 넣지 않습니다.</li>
+          <li><b>채광 격자 방향.</b> 격자는 1편 진입점을 원점으로 갱구 굴진 방향에 맞춰 돌아갑니다(고급 옵션에서 광체 긴 축이나 남북 고정으로 바꿀 수 있음). 판넬 경계가 진입 굴진선 위에 오므로 굴진이 갱도 중심선을 따라 들어갑니다.</li>
+          <li><b>판넬.</b> 판넬 = 필러 1개 + 둘레 갱도. 격자 크기 = 필러 폭 + 갱도 폭, 모든 편이 같은 격자를 써서 상·하 필러가 겹칩니다. 평면도의 파란 선은 진입점에서 가장 먼 판넬까지 판넬을 따라 이어지는 주 운반 갱도이고, 점선은 떨어진 블록으로 가는 연결 갱도입니다. 판넬 톤 = (격자² − 필러²) × 갱도 높이 × 비중. 갱도 높이 중 광체 안 비율이 「최소 광체 비율」보다 작으면 판넬을 만들지 않고, 광체 밖 부분은 희석으로 셉니다(매출은 광석분만).</li>
+          <li><b>편 개설.</b> 아래 편은 윗편 채굴률이 「다음 편 개설」 값을 넘으면 윗편 진입점에서 연층 사갱 한 구간을 내립니다. 구간 수평 거리 = 편 간격 ÷ tan(사갱 경사), 방향은 아랫편 광체에 닿는 곳 중 갱구와 그 편 광체 중심에 가까운 쪽.</li>
           <li><b>작업장과 일정.</b> 한 달에 「동시 작업장 수」만큼의 판넬에서 각각 「작업장당 월 생산」까지 캡니다. 판넬은 진입점 쪽 옆 판넬이 다 캐져야 열리므로, 편을 막 열었을 때는 작업장을 다 못 채워 생산이 천천히 올라갑니다. 위 편부터 배정하고 연간 목표를 넘기지 않습니다.</li>
-          <li><b>안전율(확인용).</b> 고급 옵션에 일축압축강도를 넣으면 판넬마다 필러 안전율을 계산해 「안전율 색」으로 보여 줍니다. 하중 = ρgh × 격자²/필러²(지류면적법), 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러 폭/갱도 높이). 기본은 표시만 하고, 「미달 판넬 제외」를 켜면 설계에서 뺍니다. 수평 필러는 두께 ÷ 갱도 폭 기준(가정값)으로 경고만 합니다.</li>
+          <li><b>필러 안전율.</b> 설계 칸의 일축압축강도와 기준 안전율로 판넬마다 필러 안전율을 계산해 설계 칸에 최저값을, 3D·평면도의 「안전율 색」으로 위치를 보여 줍니다. 하중 = ρgh × 격자²/필러²(지류면적법), 강도 = 규모효과계수 × UCS × (0.778 + 0.222 × 필러 폭/갱도 높이). 기본은 표시만 하고, 「미달 판넬 제외」를 켜면 설계에서 뺍니다. 수평 필러는 두께 ÷ 갱도 폭 기준(가정값)으로 경고만 합니다.</li>
           <li><b>수지 판단.</b> 판넬 원가 = 운영비 + 편당 운반비 증가 × (편 번호 − 1) + 편 내 운반비 × 진입점에서 경로 거리. 떨어진 블록은 가장 가까운 연결점에서 편 갱도를 내고, 순이익이 기준에 못 미치면 캐지 않습니다.</li>
           <li><b>한계.</b> 품위·블록 모델 없음, 판넬은 수평 슬래브(경사 채굴 아님), 사갱 굴진 광석·필러 회수·충전·환기·배수 미반영. 단가는 모두 가정값입니다.</li>
         </ul>
@@ -329,7 +331,7 @@ function layerStats(l) {
   for (const p of l.points) add(p[0], p[1], p[2]);
   l.bbox = b; l.nf = l.faces.length / 9; l.nl = l.lines.length; l.np = l.points.length; l.closed = l.lines.filter(q => q.closed).length;
 }
-function guessRoles(layers) {
+function guessRoles(layers, others = []) {
   const faceL = layers.filter(l => l.nf > 0), area = l => (l.bbox.x1 - l.bbox.x0) * (l.bbox.y1 - l.bbox.y0);
   for (const l of layers) {
     const n = l.name.toUpperCase(), zr = l.bbox.z1 - l.bbox.z0;
@@ -344,8 +346,8 @@ function guessRoles(layers) {
   }
   const und = faceL.filter(l => l.role === null);                       // 이름으로 못 가린 면 레이어: 가장 넓은 것이 지형
   if (und.length) {
-    const hasT = layers.some(l => l.role === "terrain"), big = und.reduce((a, l) => area(l) > area(a) ? l : a);
-    for (const l of und) l.role = (!hasT && und.length > 1 && l === big) ? "terrain" : "ore";
+    const hasT = [...layers, ...others].some(l => l.role === "terrain"), hasO = others.some(l => l.role === "ore" && l.nf), big = und.reduce((a, l) => area(l) > area(a) ? l : a);
+    for (const l of und) l.role = (!hasT && (und.length > 1 || hasO) && l === big) ? "terrain" : "ore";
   }
 }
 
@@ -424,7 +426,14 @@ function terrainZ(x, y) {
 function applyData() {
   DATAMSG = [];
   const by = r => LAYERS.filter(l => l.role === r), oreL = by("ore").filter(l => l.nf), terL = by("terrain");
-  if (!oreL.length) { DATAMSG.push("광체로 쓸 면(3DFACE·폴리페이스) 레이어가 없습니다. 레이어의 쓰임을 「광체」로 골라 주세요."); return false; }
+  const poly = r => { const o = []; for (const l of by(r)) for (const ln of l.lines) if (ln.pts.length > 2) o.push({ pts: ln.pts.map(p => [p[0], p[1]]), closed: ln.closed }); return o; };
+  CLAIM = poly("claim").map(p => p.pts); CAD = poly("cad"); DATAVER++;
+  if (!oreL.length) {                                                         // 광체가 아직 없으면 지형·경계만 보여 준다
+    ORE = null; DATAMSG.push("광체로 쓸 면(3DFACE·폴리페이스) 레이어가 없습니다. 광체 DXF를 더 올리거나, 레이어의 쓰임을 「광체」로 골라 주세요.");
+    let R0 = null; for (const l of [...terL, ...by("claim"), ...by("cad")]) R0 = R0 ? bbU(R0, l.bbox) : { x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 };
+    if (!R0) { VB = null; G = null; return false; }
+    VB = R0; G = terL.length ? buildTerrain(terL, R0) : null; return false;
+  }
   let n = 0; for (const l of oreL) n += l.faces.length; const tris = new Float64Array(n); n = 0; for (const l of oreL) { tris.set(l.faces, n); n += l.faces.length; }
   const ob = { x0: Infinity, y0: Infinity, z0: Infinity, x1: -Infinity, y1: -Infinity, z1: -Infinity }; let v6 = 0;
   for (let t = 0; t < tris.length; t += 9) {
@@ -433,8 +442,6 @@ function applyData() {
   const ox = (ob.x0 + ob.x1) / 2, oy = (ob.y0 + ob.y1) / 2, oz = (ob.z0 + ob.z1) / 2;       // 큰 좌표에서 자릿수 손실을 막으려고 중심을 빼고 부호 체적을 더함
   for (let t = 0; t < tris.length; t += 9) { const ax = tris[t] - ox, ay = tris[t + 1] - oy, az = tris[t + 2] - oz, bx = tris[t + 3] - ox, by2 = tris[t + 4] - oy, bz = tris[t + 5] - oz, cx = tris[t + 6] - ox, cy = tris[t + 7] - oy, cz = tris[t + 8] - oz; v6 += ax * (by2 * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by2 * cx); }
   ORE = { tris, bbox: ob, volSigned: Math.abs(v6) / 6, n: tris.length / 9 };
-  const poly = r => { const o = []; for (const l of by(r)) for (const ln of l.lines) if (ln.pts.length > 2) o.push({ pts: ln.pts.map(p => [p[0], p[1]]), closed: ln.closed }); return o; };
-  CLAIM = poly("claim").map(p => p.pts); CAD = poly("cad");
   let R = { x0: ob.x0, y0: ob.y0, x1: ob.x1, y1: ob.y1 }; for (const pg of CLAIM) for (const p of pg) R = bbU(R, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] });
   const mg = Math.max(60, 0.12 * Math.max(R.x1 - R.x0, R.y1 - R.y0)); VB = { x0: R.x0 - mg, y0: R.y0 - mg, x1: R.x1 + mg, y1: R.y1 + mg };
   const TR = { x0: VB.x0 - mg, y0: VB.y0 - mg, x1: VB.x1 + mg, y1: VB.y1 + mg };
@@ -443,17 +450,45 @@ function applyData() {
     DATAMSG.push(terL.length ? "지형 레이어에 표고(Z)가 있는 면·등고선·점이 광체 주변에 없습니다. 광체 꼭대기 위 50m 평지로 대신했습니다." : "지형 레이어가 없어 광체 꼭대기 위 50m 평지로 대신했습니다.");
     G = { x0: TR.x0, y0: TR.y0, d: (TR.x1 - TR.x0), nx: 2, ny: 2, z: new Float32Array(4).fill(ob.z1 + 50), zmin: ob.z1 + 50, zmax: ob.z1 + 50, cover: 0, flat: true }; G.d = Math.max(TR.x1 - TR.x0, TR.y1 - TR.y0);
   } else { let tb = null; for (const l of terL) tb = tb ? bbU(tb, l.bbox) : { ...l.bbox }; if (ob.x0 < tb.x0 || ob.x1 > tb.x1 || ob.y0 < tb.y0 || ob.y1 > tb.y1) DATAMSG.push("광체 일부가 지형 자료 범위 밖에 있습니다. 그 부분의 지표는 가장 가까운 값으로 메웠습니다. 좌표계가 같은지 확인하세요."); }
-  DATAVER++; return true;
+  // 수직선 조회용 칸 나눔(삼각형 → 평면 격자 칸)
+  const nb = 64, bw = Math.max(1e-6, (ob.x1 - ob.x0) / nb), bh = Math.max(1e-6, (ob.y1 - ob.y0) / nb), bins = new Array(nb * nb);
+  for (let t = 0; t < tris.length; t += 9) {
+    const i0 = clamp(Math.floor((Math.min(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1), i1 = clamp(Math.floor((Math.max(tris[t], tris[t + 3], tris[t + 6]) - ob.x0) / bw), 0, nb - 1);
+    const j0 = clamp(Math.floor((Math.min(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1), j1 = clamp(Math.floor((Math.max(tris[t + 1], tris[t + 4], tris[t + 7]) - ob.y0) / bh), 0, nb - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (bins[j * nb + i] || (bins[j * nb + i] = [])).push(t);
+  }
+  ORE.bins = bins; ORE.nb = nb; ORE.bw = bw; ORE.bh = bh;
+  // 광체 평면 분포의 긴 축(주향 근사)
+  let mx = 0, my = 0, nv = 0; for (let t = 0; t < tris.length; t += 3) { mx += tris[t]; my += tris[t + 1]; nv++; } mx /= nv; my /= nv;
+  let cxx = 0, cyy = 0, cxy = 0; for (let t = 0; t < tris.length; t += 3) { cxx += (tris[t] - mx) ** 2; cyy += (tris[t + 1] - my) ** 2; cxy += (tris[t] - mx) * (tris[t + 1] - my); }
+  const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); ORE.axisAz = Math.atan2(Math.cos(th), Math.sin(th)); ORE.cx = mx; ORE.cy = my;
+  return true;
+}
+// 한 지점의 수직선이 광체와 만나는 구간 [아래, 위, 아래, 위 …] (지표 위는 잘라 냄)
+function oreAt(x, y) {
+  const o = ORE, i = Math.floor((x - o.bbox.x0) / o.bw), j = Math.floor((y - o.bbox.y0) / o.bh); if (i < 0 || j < 0 || i >= o.nb || j >= o.nb) return [];
+  const b = o.bins[j * o.nb + i]; if (!b) return []; const T = o.tris, zs = [];
+  for (const t of b) {
+    const ax = T[t], ay = T[t + 1], bx = T[t + 3], by = T[t + 4], cx = T[t + 6], cy = T[t + 7], det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
+    const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / det, l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / det, l3 = 1 - l1 - l2; if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+    zs.push(l1 * T[t + 2] + l2 * T[t + 5] + l3 * T[t + 8]);
+  }
+  zs.sort((p, q) => p - q); const u = []; for (const z of zs) if (!u.length || z - u[u.length - 1] > 1e-6) u.push(z); if (u.length % 2) u.pop();
+  const tz = terrainZ(x, y), out = []; for (let q = 0; q < u.length; q += 2) { const hi = Math.min(u[q + 1], tz); if (hi > u[q]) out.push(u[q], hi); } return out;
 }
 
 // ── 4. 입력 ──
 const GROUPS = [["design", "<span class=\"step\">2</span>설계", false], ["open", "<span class=\"step\">3</span>갱구 · 편 개설", false], ["sched", "<span class=\"step\">4</span>생산 일정", false], ["econ", "<span class=\"step\">5</span>경제성", false],
-  ["a-sf", "필러 안전율 (확인용)", true], ["a-lim", "채굴 범위", true], ["a-dev", "굴진", true], ["a-cost", "원가 세부", true]];
+  ["a-sf", "필러 안전율 세부", true], ["a-lim", "채굴 범위", true], ["a-dev", "굴진", true], ["a-cost", "원가 세부", true]];
 const PARAMS = [
   { id: "p", g: "design", label: "필러 폭", min: 6, max: 30, step: 0.5, v: 12, u: "m" },
   { id: "h", g: "design", label: "갱도 높이", min: 4, max: 20, step: 0.5, v: 12, u: "m" },
   { id: "w", g: "design", label: "갱도 폭", min: 4, max: 25, step: 0.5, v: 13, u: "m" },
   { id: "lv", g: "design", label: "편 간격", min: 8, max: 40, step: 1, v: 20, u: "m" },
+  { id: "ucs", g: "design", label: "암석 일축압축강도", min: 30, max: 200, step: 5, v: 80, u: "MPa" },
+  { id: "sfmin", g: "design", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
+  { id: "az", g: "open", label: "갱구 굴진 방위", min: 0, max: 359, step: 1, v: 90, u: "°" },
+  { id: "dip0", g: "open", label: "진입 경사 (0 = 수평갱)", min: 0, max: 20, step: 0.5, v: 0, u: "° 하향", d: 1 },
   { id: "ia", g: "open", label: "연층 사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
   { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
   { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 300, step: 5, v: 80, u: "만t" },
@@ -463,9 +498,7 @@ const PARAMS = [
   { id: "price", g: "econ", label: "판매가", min: 5000, max: 30000, step: 500, v: 14000, u: "원/t" },
   { id: "opex", g: "econ", label: "운영비", min: 3000, max: 20000, step: 250, v: 8500, u: "원/t" },
   { id: "disc", g: "econ", label: "할인율", min: 3, max: 15, step: 0.5, v: 8, u: "%", d: 1 },
-  { id: "ucs", g: "a-sf", label: "일축압축강도", min: 30, max: 200, step: 5, v: 80, u: "MPa" },
   { id: "kf", g: "a-sf", label: "규모 효과 계수", min: 0.3, max: 0.8, step: 0.05, v: 0.5, u: "", d: 2 },
-  { id: "sfmin", g: "a-sf", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
   { id: "sill", g: "a-sf", label: "수평 필러 기준 (두께÷갱도 폭)", min: 0.2, max: 1.5, step: 0.05, v: 0.5, u: "", d: 2 },
   { id: "rho", g: "a-lim", label: "비중", min: 2.0, max: 4.5, step: 0.01, v: 2.7, u: "", d: 2 },
   { id: "minfrac", g: "a-lim", label: "최소 광체 비율", min: 50, max: 100, step: 5, v: 80, u: "%" },
@@ -485,30 +518,38 @@ const PARAMS = [
 const form = $("params"), adv = document.createElement("details"); adv.className = "adv"; adv.id = "adv"; adv.innerHTML = "<summary>고급 옵션 (기본값으로 두어도 됩니다)</summary>";
 for (const [g, title, isAdv] of GROUPS) {
   const fs = document.createElement("fieldset"); fs.innerHTML = `<legend>${title}</legend>`;
-  if (g === "open") fs.insertAdjacentHTML("beforeend", `<div class="portalbar"><button type="button" id="pick" aria-pressed="false">평면도에서 갱구 놓기</button><button type="button" id="autoportal">자동 위치</button></div><div class="derived" id="portalinfo"></div>`);
+  if (g === "open") fs.insertAdjacentHTML("beforeend", `<div class="portalbar"><button type="button" id="pick" aria-pressed="false">평면도에서 갱구 놓기</button><button type="button" id="autoportal">자동 위치</button></div>`);
   for (const p of PARAMS.filter(q => q.g === g)) {
     const row = document.createElement("div"); row.className = "sl";
     row.innerHTML = `<label for="p-${p.id}">${p.label}</label><output id="o-${p.id}" for="p-${p.id}"></output><input type="range" id="p-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}">`;
     fs.appendChild(row);
+    if (p.id === "az") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-azauto" checked>방위 자동 (가장 가까운 광체 쪽)</label>`);
+    if (p.id === "dip0") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="portalinfo"></div>`);
   }
   if (g === "design") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="derived"></div>`);
   if (g === "sched") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="capinfo"></div>`);
-  if (g === "a-sf") fs.insertAdjacentHTML("beforeend", `<div class="derived" id="sfinfo"></div><label class="opt"><input type="checkbox" id="p-sfx">기준 미달 판넬은 설계에서 제외</label>`);
-  if (g === "a-lim") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 떨어진 블록은 캐지 않음</label>`);
+  if (g === "a-sf") fs.insertAdjacentHTML("beforeend", `<label class="opt"><input type="checkbox" id="p-sfx">기준 미달 판넬은 설계에서 제외</label>`);
+  if (g === "a-lim") fs.insertAdjacentHTML("beforeend", `<label class="opt" for="p-grid">채광 격자 방향 <select id="p-grid"><option value="entry">갱구 굴진 방향</option><option value="ore">광체 긴 축</option><option value="ns">남북 고정</option></select></label><label class="opt"><input type="checkbox" id="p-econ" checked>수지 안 맞는 떨어진 블록은 캐지 않음</label>`);
   (isAdv ? adv : form).appendChild(fs);
 }
 form.appendChild(adv);
-function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; return o; }
+function readP() { const o = {}; for (const p of PARAMS) o[p.id] = +$("p-" + p.id).value; o.sfx = $("p-sfx").checked; o.econ = $("p-econ").checked; o.azauto = $("p-azauto").checked; o.grid = $("p-grid").value; return o; }
 function showOutputs() { for (const p of PARAMS) { const v = +$("p-" + p.id).value; $("o-" + p.id).textContent = (p.raw ? String(v) : fmt(v, p.d || 0)) + (p.u ? " " + p.u : ""); } }
+const bearing = deg => { const a = (deg % 360 + 360) % 360; return a <= 90 ? `N${fmt(a)}°E` : a <= 180 ? `S${fmt(180 - a)}°E` : a <= 270 ? `S${fmt(a - 180)}°W` : `N${fmt(360 - a)}°W`; };
 
-// ── 5. 광체 수직선 교차 → 판넬 ──
+// ── 5. 채광 격자(굴진 방향으로 돌린 좌표) · 광체 수직선 ──
+// 격자 좌표 (u, v): 원점 = 1편 진입점, u = 격자 방향, v = 그 왼쪽. 판넬 경계가 v = 0에 오므로 진입 굴진이 갱도 중심선을 따라 들어간다.
 let RAY = null, USERPORTAL = null;
-function buildRays(S) {
-  if (RAY && RAY.S === S && RAY.ver === DATAVER) return RAY;
-  const s = S / 3, b = ORE.bbox, gx0 = Math.floor(b.x0 / S) * S, gy0 = Math.floor(b.y0 / S) * S, nx = Math.max(1, Math.ceil((b.x1 - gx0) / S)), ny = Math.max(1, Math.ceil((b.y1 - gy0) / S)), rx = nx * 3, ry = ny * 3;
-  const cr = new Array(rx * ry), jx = 0.0137 * s, jy = 0.0071 * s, T = ORE.tris;
-  for (let t = 0; t < T.length; t += 9) {
-    const ax = T[t], ay = T[t + 1], az = T[t + 2], bx = T[t + 3], by = T[t + 4], bz = T[t + 5], cx = T[t + 6], cy = T[t + 7], cz = T[t + 8];
+const toLoc = (F, x, y) => [(x - F.ox) * F.ux + (y - F.oy) * F.uy, -(x - F.ox) * F.uy + (y - F.oy) * F.ux];
+const toW = (F, u, v) => [F.ox + u * F.ux - v * F.uy, F.oy + u * F.uy + v * F.ux];
+function buildRays(S, F) {
+  const key = [S, F.ox, F.oy, F.ux, F.uy, DATAVER].join("|"); if (RAY && RAY.key === key) return RAY;
+  const s = S / 3, T = ORE.tris, L = new Float64Array(T.length); let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let t = 0; t < T.length; t += 3) { const u = (T[t] - F.ox) * F.ux + (T[t + 1] - F.oy) * F.uy, v = -(T[t] - F.ox) * F.uy + (T[t + 1] - F.oy) * F.ux; L[t] = u; L[t + 1] = v; L[t + 2] = T[t + 2]; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+  const gx0 = Math.floor(u0 / S) * S, gy0 = Math.floor(v0 / S) * S, nx = Math.max(1, Math.ceil((u1 - gx0) / S)), ny = Math.max(1, Math.ceil((v1 - gy0) / S)), rx = nx * 3, ry = ny * 3;
+  const cr = new Array(rx * ry), jx = 0.0137 * s, jy = 0.0071 * s;
+  for (let t = 0; t < L.length; t += 9) {
+    const ax = L[t], ay = L[t + 1], az = L[t + 2], bx = L[t + 3], by = L[t + 4], bz = L[t + 5], cx = L[t + 6], cy = L[t + 7], cz = L[t + 8];
     const i0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - gx0 - jx) / s - 0.5)), i1 = Math.min(rx - 1, Math.floor((Math.max(ax, bx, cx) - gx0 - jx) / s - 0.5));
     const j0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - gy0 - jy) / s - 0.5)), j1 = Math.min(ry - 1, Math.floor((Math.max(ay, by, cy) - gy0 - jy) / s - 0.5));
     if (i0 > i1 || j0 > j1) continue; const det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(det) < 1e-12) continue;
@@ -522,56 +563,82 @@ function buildRays(S) {
     const a = cr[k]; if (!a) continue; a.sort((p, q) => p - q); hit++;
     const u = [a[0]]; for (let q = 1; q < a.length; q++) if (a[q] - u[u.length - 1] > 1e-6) u.push(a[q]);
     if (u.length % 2) { odd++; u.pop(); }
-    const px = gx0 + (k % rx + 0.5) * s + jx, py = gy0 + (Math.floor(k / rx) + 0.5) * s + jy, tz = terrainZ(px, py), o = [];
+    const w = toW(F, gx0 + (k % rx + 0.5) * s + jx, gy0 + (Math.floor(k / rx) + 0.5) * s + jy), tz = terrainZ(w[0], w[1]), o = [];
     for (let q = 0; q < u.length; q += 2) { volRaw += (u[q + 1] - u[q]) * s * s; const hi = Math.min(u[q + 1], tz); if (hi > u[q]) { o.push(u[q], hi); vol += (hi - u[q]) * s * s; if (hi > zTop) zTop = hi; } }
     if (o.length) iv[k] = o;
   }
-  return RAY = { S, s, gx0, gy0, nx, ny, rx, ry, iv, odd, hit, vol, volRaw, zTop, ver: DATAVER };
+  return RAY = { key, S, s, gx0, gy0, nx, ny, rx, ry, iv, odd, hit, vol, volRaw, zTop };
 }
 const inPoly = (x, y, pg) => { let c = false; for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) { const a = pg[i], b = pg[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
 const edgeDist = (x, y, pg) => { let m = Infinity; for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) { const a = pg[i], b = pg[j], dx = b[0] - a[0], dy = b[1] - a[1], t = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1); m = Math.min(m, Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t)); } return m; };
 const allowed = (x, y, m) => { if (!CLAIM.length) return true; for (const pg of CLAIM) if (inPoly(x, y, pg) && edgeDist(x, y, pg) >= m) return true; return false; };
-function autoPortal(R, P, H) {
-  // 광체 꼭대기에서 한 편 아래 높이의 사면 중, 그 높이대 광체에 가장 가까운 곳. 없으면 광체 근처에서 가장 낮은 지표.
-  const zt = R.zTop - H - 2, band = [];
-  for (let k = 0; k < R.iv.length; k += 5) { const o = R.iv[k]; if (!o) continue; for (let q = 0; q < o.length; q += 2) if (o[q + 1] > zt - P.lv && o[q] < zt + H) { band.push([R.gx0 + (k % R.rx + 0.5) * R.s, R.gy0 + (Math.floor(k / R.rx) + 0.5) * R.s]); break; } }
-  let best = null, bd = Infinity;
+function autoPortal(P, H) {
+  // 광체 꼭대기에서 한 편 아래 높이의 사면 중, 광체 윗부분에 가장 가까운 곳. 없으면 광체 근처에서 가장 낮은 지표.
+  const ob = ORE.bbox, zt = ob.z1 - H - 2, band = [], T = ORE.tris, st = Math.max(3, Math.floor(T.length / 3 / 600) * 3);
+  for (let t = 0; t < T.length; t += st) if (T[t + 2] > zt - P.lv) band.push([T[t], T[t + 1]]);
+  let best = null;
   for (const strict of [true, false]) {
+    const cand = [];
     for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) {
       const tz = G.z[j * G.nx + i]; if (tz < zt - P.lv || tz > zt) continue; const x = G.x0 + i * G.d, y = G.y0 + j * G.d;
       if (strict && !allowed(x, y, 0)) continue;
-      for (const b of band) { const d = Math.hypot(b[0] - x, b[1] - y); if (d < bd) { bd = d; best = { x, y }; } }
+      let bd = Infinity; for (const b of band) { const d = Math.hypot(b[0] - x, b[1] - y); if (d < bd) bd = d; } cand.push({ x, y, z: tz, bd });
     }
-    if (best) break;
+    if (!cand.length) continue;
+    // 가까운 후보 가운데 실제로 굴진해 보아 광체까지 가장 짧은 곳
+    cand.sort((a, b) => a.bd - b.bd); const near = cand.slice(0, 240), pick = []; for (let k = 0; k < near.length; k += Math.max(1, Math.floor(near.length / 40))) pick.push(near[k]);
+    let bs = Infinity; for (const c of pick) for (let a = 0; a < 360; a += 15) { const h = marchEntry(c, a, P.dip0, H, P.minfrac / 100, 6, P.cover); if (h && h.s < bs) { bs = h.s; best = c; } }
+    if (!best) best = cand[0];
+    break;
   }
-  if (!best) { let lo = Infinity; const ob = ORE.bbox, m = 300; for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) { const x = G.x0 + i * G.d, y = G.y0 + j * G.d; if (x < ob.x0 - m || x > ob.x1 + m || y < ob.y0 - m || y > ob.y1 + m) continue; const tz = G.z[j * G.nx + i]; if (tz < lo) { lo = tz; best = { x, y }; } } }
-  if (!best) best = { x: (ORE.bbox.x0 + ORE.bbox.x1) / 2, y: (ORE.bbox.y0 + ORE.bbox.y1) / 2 };
-  return best;
+  if (!best) { let lo = Infinity; const m = 300; for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) { const x = G.x0 + i * G.d, y = G.y0 + j * G.d; if (x < ob.x0 - m || x > ob.x1 + m || y < ob.y0 - m || y > ob.y1 + m) continue; const tz = G.z[j * G.nx + i]; if (tz < lo) { lo = tz; best = { x, y }; } } }
+  return best || { x: ob.x0 - 50, y: (ob.y0 + ob.y1) / 2 };
+}
+// 갱구에서 정한 방위·경사로 곧게 굴진해, 갱도 높이의 대부분이 광체 안에 들고 지표 피복·광구 조건도 맞는 첫 지점까지
+function marchEntry(P0, azDeg, dipDeg, H, minfrac, step, cover) {
+  const a = azDeg * Math.PI / 180, ux = Math.sin(a), uy = Math.cos(a), tg = Math.tan(dipDeg * Math.PI / 180), ob = ORE.bbox;
+  const far = Math.hypot(Math.max(Math.abs(P0.x - ob.x0), Math.abs(P0.x - ob.x1)), Math.max(Math.abs(P0.y - ob.y0), Math.abs(P0.y - ob.y1))) + 10;
+  for (let s = 0; s <= far; s += step) {
+    const x = P0.x + ux * s, y = P0.y + uy * s; if (x < ob.x0 || x > ob.x1 || y < ob.y0 || y > ob.y1) continue;
+    const z = P0.z - s * tg, o = oreAt(x, y); let ov = 0; for (let q = 0; q < o.length; q += 2) ov += Math.max(0, Math.min(o[q + 1], z + H) - Math.max(o[q], z));
+    if (ov >= minfrac * H && terrainZ(x, y) - (z + H) >= cover && allowed(x, y, 0)) return { s, x, y, z };
+  }
+  return null;
 }
 
-// ── 6. 설계: 갱구 · 편 · 판넬 · 연층 사갱 · 블록 ──
+// ── 6. 설계: 갱구 · 진입 굴진 · 편 · 판넬 · 연층 사갱 · 블록 ──
 function design(P) {
-  const warn = []; let H = P.h; const Pw = P.p, S = P.p + P.w;
+  const warn = []; let H = P.h; const Pw = P.p, S = P.p + P.w, mf = P.minfrac / 100;
   if (H > P.lv - 2) { H = P.lv - 2; warn.push(`갱도 높이를 ${fmt(H, 1)}m로 줄여 계산 (수평 필러 최소 2m)`); }
-  const R = buildRays(S), auto = !USERPORTAL, pp = USERPORTAL || autoPortal(R, P, H), PORTAL = { x: pp.x, y: pp.y, z: terrainZ(pp.x, pp.y) }, zP = PORTAL.z;
+  const auto = !USERPORTAL, pp = USERPORTAL || autoPortal(P, H), PORTAL = { x: pp.x, y: pp.y, z: terrainZ(pp.x, pp.y) }, zP = PORTAL.z;
+  // 진입 굴진: 방위 자동이면 5°씩 돌려 가장 짧게 광체에 닿는 방향
+  let az = P.az, hit = null; const azAsk = P.az;
+  if (P.azauto) { let bs = Infinity; for (let a = 0; a < 360; a += 5) { const h = marchEntry(PORTAL, a, P.dip0, H, mf, 4, P.cover); if (h && h.s < bs) { bs = h.s; az = a; } } }
+  hit = marchEntry(PORTAL, az, P.dip0, H, mf, 1, P.cover);
+  if (!hit) {
+    warn.push(`갱구에서 ${bearing(az)} 방향, 경사 ${fmt(P.dip0, 1)}°로는 광체에 닿지 않음 — 방위·경사나 갱구 위치를 바꾸세요`);
+    const s = Math.hypot(ORE.cx - PORTAL.x, ORE.cy - PORTAL.y); az = Math.atan2(ORE.cx - PORTAL.x, ORE.cy - PORTAL.y) * 180 / Math.PI; hit = { s, x: ORE.cx, y: ORE.cy, z: zP - s * Math.tan(P.dip0 * Math.PI / 180), miss: true };
+  }
+  const E1 = { x: hit.x, y: hit.y, z: hit.z }, z1 = E1.z, entryLen = Math.max(5, hit.s / Math.cos(P.dip0 * Math.PI / 180));
+  const gAz = P.grid === "ore" ? ORE.axisAz : P.grid === "ns" ? 0 : az * Math.PI / 180, F = { ox: E1.x, oy: E1.y, ux: Math.sin(gAz), uy: Math.cos(gAz) };
+  const R = buildRays(S, F);
   // 판넬 기둥(같은 평면 위치): 경계·지표
-  const cols = [];
+  const cols = [], h2 = S / 2;
   for (let j = 0; j < R.ny; j++) for (let i = 0; i < R.nx; i++) {
     const rays = []; for (let b = 0; b < 3; b++) for (let a = 0; a < 3; a++) { const o = R.iv[(j * 3 + b) * R.rx + i * 3 + a]; if (o) rays.push(o); }
-    if (!rays.length) continue; const x = R.gx0 + (i + 0.5) * S, y = R.gy0 + (j + 0.5) * S;
-    if (!allowed(x, y, P.bnd + S / 2)) continue;
-    const tzc = terrainZ(x, y), tzm = Math.min(tzc, terrainZ(x - S / 2, y - S / 2), terrainZ(x + S / 2, y - S / 2), terrainZ(x - S / 2, y + S / 2), terrainZ(x + S / 2, y + S / 2));
-    cols.push({ i, j, x, y, rays, tzc, tzm });
+    if (!rays.length) continue; const u = R.gx0 + (i + 0.5) * S, v = R.gy0 + (j + 0.5) * S, [x, y] = toW(F, u, v);
+    if (!allowed(x, y, P.bnd + h2)) continue;
+    let tzm = terrainZ(x, y); const tzc = tzm; for (const [du, dv] of [[-h2, -h2], [h2, -h2], [-h2, h2], [h2, h2]]) { const w = toW(F, u + du, v + dv); tzm = Math.min(tzm, terrainZ(w[0], w[1])); }
+    cols.push({ i, j, u, v, x, y, rays, tzc, tzm });
   }
-  let aboveV = 0; for (const o of R.iv) if (o) for (let q = 0; q < o.length; q += 2) aboveV += Math.max(0, o[q + 1] - Math.max(o[q], zP + H)) * R.s * R.s;
+  let aboveV = 0; for (const o of R.iv) if (o) for (let q = 0; q < o.length; q += 2) aboveV += Math.max(0, o[q + 1] - Math.max(o[q], z1 + H)) * R.s * R.s;
   const all = [], st = P.kf * P.ucs * (0.778 + 0.222 * Pw / H);
   for (let k = 0; k < 500; k++) {
-    const zf = zP - k * P.lv; if (zf + H < ORE.bbox.z0) break; const cand = [], rej = [];
-    if (zf > R.zTop) continue;
+    const zf = z1 - k * P.lv; if (zf + H < ORE.bbox.z0) break; const cand = [], rej = [];
     for (const c of cols) {
       let ov = 0; for (const o of c.rays) for (let q = 0; q < o.length; q += 2) ov += Math.max(0, Math.min(o[q + 1], zf + H) - Math.max(o[q], zf));
-      const frac = ov / (9 * H); if (frac < P.minfrac / 100) continue;
-      const depth = c.tzc - (zf + H / 2), p = { i: c.i, j: c.j, x: c.x, y: c.y, zf, frac, depth, t: (S * S - Pw * Pw) * H * P.rho };
+      const frac = ov / (9 * H); if (frac < mf) continue;
+      const depth = c.tzc - (zf + H / 2), p = { i: c.i, j: c.j, u: c.u, v: c.v, x: c.x, y: c.y, zf, frac, depth, t: (S * S - Pw * Pw) * H * P.rho };
       p.sf = depth > 0 ? st / (P.rho * 9.81 * depth / 1000 * S * S / (Pw * Pw)) : 99;
       if (c.tzm - (zf + H) < P.cover) { p.why = "cover"; rej.push(p); } else cand.push(p);
     }
@@ -579,31 +646,32 @@ function design(P) {
   }
   const used = all.filter(L => L.cand.length), iaR = P.ia * Math.PI / 180, ti = Math.tan(iaR);
   for (const L of all) { L.J = null; L.xc = 0; let w = 0; L.cx = L.cy = 0; for (const p of L.cand) { L.cx += p.x; L.cy += p.y; w++; } if (w) { L.cx /= w; L.cy /= w; } }
-  // 1편 진입: 갱구에서 가장 가까운 1편 광체까지
-  let E1 = { x: PORTAL.x, y: PORTAL.y, z: zP }, len0 = 10, dz0 = 0;
+  // 1편 진입점: 진입 굴진이 광체에 닿은 곳. 그 편에 캘 판넬이 없으면 가장 가까운 아래 편 판넬까지 사갱을 더 판다
+  let J0 = { ...E1 }, len0 = entryLen;
   if (used.length) {
-    let bd = Infinity; for (const p of used[0].cand) { const d = Math.hypot(p.x - PORTAL.x, p.y - PORTAL.y); if (d < bd) { bd = d; E1 = { x: p.x, y: p.y, z: used[0].zf }; } }
-    dz0 = zP - used[0].zf; len0 = dz0 < 1 ? Math.max(10, bd) : Math.max(Math.hypot(bd, dz0), dz0 / Math.sin(iaR));
-    if (dz0 >= 1) warn.push(`갱구 표고(EL.${fmt(zP)})에는 광체가 없어 ${fmt(dz0)}m 아래 1편까지 사갱으로 진입`);
+    let bd = Infinity, bp = null; for (const p of used[0].cand) { const d = Math.hypot(p.x - E1.x, p.y - E1.y); if (d < bd) { bd = d; bp = p; } }
+    const dz = z1 - used[0].zf;
+    if (dz >= 1 || bd > S) { J0 = { x: bp.x, y: bp.y, z: used[0].zf }; len0 += dz >= 1 ? Math.max(Math.hypot(bd, dz), dz / Math.sin(iaR)) : bd; if (!hit.miss && (dz >= 1 || bd > S * 3)) warn.push(`진입점 주변에 캘 판넬이 없어 ${fmt(bd)}m 떨어진 판넬까지 더 굴진`); }
+    else J0 = { x: E1.x, y: E1.y, z: used[0].zf };
   }
-  // 편마다 연층 사갱 한 구간: 수평 거리 = 높이차 ÷ tan(경사). 그 원 위에서 아랫편 광체에 닿고 갱구·그 편 중심에 가까운 곳으로
-  let prev = E1;
+  // 편마다 연층 사갱 한 구간: 수평 거리 = 높이차 ÷ tan(경사). 그 원 위에서 아랫편 광체 안이고 갱구·그 편 중심에 가까운 곳으로
+  let prev = J0;
   used.forEach((L, k) => {
-    if (!k) { L.J = { ...E1 }; return; }
+    if (!k) { L.J = { ...J0 }; return; }
     const r = (prev.z - L.zf) / ti; let bj = null, bs = Infinity;
     for (let q = 0; q < 72; q++) {
       const th = q * Math.PI / 36, x = prev.x + r * Math.sin(th), y = prev.y + r * Math.cos(th);
       let dOre = Infinity; for (const p of L.cand) dOre = Math.min(dOre, Math.hypot(p.x - x, p.y - y));
-      const sc = Math.max(0, dOre - S / 2) * 4 + 0.5 * Math.hypot(x - PORTAL.x, y - PORTAL.y) + 0.5 * Math.hypot(x - L.cx, y - L.cy);
+      const sc = Math.max(0, dOre - S / 2) * 8 + 0.5 * Math.hypot(x - PORTAL.x, y - PORTAL.y) + 0.5 * Math.hypot(x - L.cx, y - L.cy);
       if (sc < bs) { bs = sc; bj = { x, y, dOre }; }
     }
     L.J = { x: bj.x, y: bj.y, z: L.zf }; L.xc = Math.max(0, bj.dOre - S / 2); prev = L.J;
   });
   const segs = used.slice(1).map((L, k) => ({ a: used[k].J, b: L.J }));
-  const INC = { E1, PORTAL, zP, auto, ia: P.ia, iaR, ti, segs, len0, dz0 };
+  const INC = { E1, J0, PORTAL, zP, z1, auto, az, azShow: hit.miss && !P.azauto ? azAsk : az, dip0: P.dip0, entryLen, miss: !!hit.miss, ia: P.ia, iaR, ti, segs, len0, F, gAz };
   const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   for (const L of all) {
-    L.panels = []; L.map = new Map();
+    L.panels = []; L.map = new Map(); L.drives = [];
     for (const p of L.cand) {
       p.L = L; let inc = false;
       for (const g of segs) {                                             // 사갱 보호 광주
@@ -639,25 +707,19 @@ function design(P) {
         }
         if (!took) { for (const c of cs) for (const p of c.blk) { p.blk = c.info; p.dist = c.path.get(p); p.cost = cost(p.dist); p.why = "econ"; L.rej.push(p); } break; }
         for (const p of took.blk) { p.blk = took.info; p.dist = p.path = took.path.get(p); p.pre = took.pre.get(p); p.cost = cost(p.dist); out.push(p); conn.push(p); }
+        if (took.d > S * 0.6) L.drives.push([{ x: took.src.x, y: took.src.y }, { x: took.ent.x, y: took.ent.y }]);   // 연결 갱도(진입점·다른 블록 → 이 블록)
         rest = rest.filter(b => b !== took.blk);
       }
       L.panels = out;
     } else L.panels = [];
     L.panels.sort((a, b) => a.dist - b.dist);
-    // 편 갱도 방향 = 판넬 분포의 긴 축
-    let a0 = 0, a1 = 0, vx = 1, vy = 0;
-    if (L.J && L.panels.length > 1) {
-      let mx = 0, my = 0; for (const p of L.panels) { mx += p.x; my += p.y; } mx /= L.panels.length; my /= L.panels.length;
-      let cxx = 0, cyy = 0, cxy = 0; for (const p of L.panels) { cxx += (p.x - mx) ** 2; cyy += (p.y - my) ** 2; cxy += (p.x - mx) * (p.y - my); }
-      const th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); vx = Math.cos(th); vy = Math.sin(th);
-      for (const p of L.panels) { const a = (p.x - L.J.x) * vx + (p.y - L.J.y) * vy; a0 = Math.min(a0, a); a1 = Math.max(a1, a); }
-    }
-    L.span = [a0, a1]; L.vx = vx; L.vy = vy;
+    // 편 주 운반 갱도 = 진입점에서 가장 먼 판넬까지 판넬을 따라 이어진 경로(광체 안)
+    L.trunk = []; if (L.panels.length) { let p = L.panels[L.panels.length - 1]; const pts = []; for (let g = 0; p && g < 5000; g++) { pts.push({ x: p.x, y: p.y }); p = p.pre; } L.trunk = pts.reverse(); }
     for (const p of [...L.panels, ...L.rej]) L.map.set(p.i + "," + p.j, p);
     L.tot = L.panels.reduce((a, p) => a + p.t, 0); L.ore = L.panels.reduce((a, p) => a + p.t * p.frac, 0);
     L.minSF = L.panels.reduce((a, p) => Math.min(a, p.sf), Infinity);
   }
-  for (let t = 0.15; t <= 1 && dz0 < 1; t += 0.05) { const x = PORTAL.x + (E1.x - PORTAL.x) * t, y = PORTAL.y + (E1.y - PORTAL.y) * t; if (terrainZ(x, y) < zP) { warn.push("1편 수평갱이 지표 밖으로 드러나는 구간이 있음 (계곡 횡단)"); break; } }
+  if (P.dip0 < 0.25) for (let t = 0.15; t <= 1; t += 0.05) { const x = PORTAL.x + (E1.x - PORTAL.x) * t, y = PORTAL.y + (E1.y - PORTAL.y) * t; if (terrainZ(x, y) < zP) { warn.push("진입 수평갱이 지표 밖으로 드러나는 구간이 있음 (계곡 횡단)"); break; } }
   return { S, H, Pw, all, levels: all.filter(L => L.panels.length), INC, PORTAL, warn, R, aboveT: aboveV * P.rho };
 }
 
@@ -672,7 +734,7 @@ function schedule(D, P) {
     for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; if (p.blk) p.blk.paid = false; }
   });
   const jobs = seq.map((L, k) => k ? { kind: "incline", k, a: seq[k - 1].J, b: L.J, len: Math.hypot(Math.hypot(L.J.x - seq[k - 1].J.x, L.J.y - seq[k - 1].J.y), seq[k - 1].zf - L.zf) + L.xc, start: null }
-                                   : { kind: I.dz0 >= 1 ? "incline" : "adit", k, a: I.PORTAL, b: I.E1, len: I.len0, start: null });
+                                   : { kind: I.dip0 > 0.25 ? "incline" : "adit", k, a: I.PORTAL, b: L.J, len: I.len0 + Math.hypot(Math.hypot(L.J.x - I.J0.x, L.J.y - I.J0.y), I.J0.z - L.zf), start: null });
   const open = (k, m) => { const j = jobs[k]; j.start = m; seq[k].opened = m; seq[k].access = m + j.len / P.rate; seq[k].ready = seq[k].access + P.lead; if (k) yr(Math.floor(m / 12)).opened.push(k + 1); };
   if (seq.length) open(0, 0);
   const devTot = jobs.reduce((a, j) => a + j.len, 0), start = seq.length ? Math.ceil(seq[0].ready) : 0, r = P.disc / 100;
@@ -721,18 +783,25 @@ function schedule(D, P) {
 
 // ── 8. 계산 묶음 ──
 let M = null, T = 0, P = null, DATALABEL = "예시 자료", SKIPPED = {};
+function clearModel() {
+  M = null; for (const id of ["k-res", "k-ton", "k-rec", "k-life", "k-prod", "k-npv"]) { $(id).textContent = "—"; $(id + "-d").textContent = ""; }
+  const st = $("status"); st.innerHTML = ""; for (const m of DATAMSG) { const c = document.createElement("span"); c.className = "chip warn"; c.textContent = m; st.appendChild(c); }
+  for (const id of ["derived", "capinfo", "portalinfo", "datainfo", "now", "legend"]) $(id).innerHTML = ""; for (const id of ["lvbody", "tbody", "chart"]) $(id).innerHTML = ""; $("when").textContent = "—";
+  if (W3.ok) clearGroup(W3.dyn); drawPlan();
+}
 function recompute() {
-  if (!ORE) return;
+  if (!ORE) return clearModel();
   P = readP(); const D = design(P), Sc = schedule(D, P); M = { ...D, ...Sc };
   M.tot = M.seq.reduce((a, L) => a + L.tot, 0); M.oreT = M.seq.reduce((a, L) => a + L.ore, 0);
   M.minSF = Infinity; M.minAt = null; M.nBad = 0; for (const L of M.seq) for (const p of L.panels) { if (p.sf < M.minSF) { M.minSF = p.sf; M.minAt = L.name; } if (p.sf < P.sfmin) M.nBad++; }
   M.driveTot = 0; for (const L of M.seq) for (const b of new Set(L.panels.map(p => p.blk))) if (b) M.driveTot += b.drive;
   const ext = 1 - (D.Pw * D.Pw) / (D.S * D.S), vert = D.H / P.lv, R = D.R, I = D.INC;
-  $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>판넬 안 회수 <b>${fmt(ext * 100)}%</b> × 수직 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b>`;
+  $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>판넬 안 회수 <b>${fmt(ext * 100)}%</b> × 수직 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b><br>` +
+    (isFinite(M.minSF) ? `필러 안전율 최저 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt}) · 기준 미달 <b>${fmt(M.nBad)}</b>판넬` : "판넬 없음");
+  if (P.azauto && !I.miss) { $("p-az").value = Math.round((I.az % 360 + 360) % 360); showOutputs(); }
   const capY = P.nface * P.frate * 12 / 10;
   $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < P.ann ? `<br><span style="color:var(--bad)">목표 ${fmt(P.ann)}만t에 못 미칩니다</span>` : ""}`;
-  $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>1편 진입 ${I.dz0 >= 1 ? "사갱" : "수평갱"} <b>${fmt(I.len0)} m</b> · 사갱 ${I.segs.length}구간<br>굴진: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
-  $("sfinfo").innerHTML = isFinite(M.minSF) ? `최저 안전율 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt})<br>기준 ${fmt(P.sfmin, 1)} 미달 판넬 <b>${fmt(M.nBad)}</b>개 · 3D의 「안전율 색」으로 위치 확인` : "판넬 없음";
+  $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
   const dv = ORE.volSigned ? (R.volRaw / ORE.volSigned - 1) * 100 : 0;
   $("datainfo").innerHTML = `${DATALABEL}<br>광체 면 <b>${fmt(ORE.n)}</b>개 · 체적 <b>${fmt(ORE.volSigned)} m³</b><br>수직선 검산 ${fmt(R.volRaw)} m³ (${dv >= 0 ? "+" : ""}${fmt(dv, 1)}%)<br>지형 격자 ${G.flat ? "없음(평지)" : `${fmt(G.d)}m · EL.${fmt(G.zmin)}~${fmt(G.zmax)}`}` + (Object.keys(SKIPPED).length ? `<br>안 읽은 도형: ${Object.entries(SKIPPED).map(([k, v]) => `${k} ${fmt(v)}`).join(", ")}` : "");
   const ex = { sf: [0, 0], cover: [0, 0], incline: [0, 0], econ: [0, 0] };
@@ -742,7 +811,7 @@ function recompute() {
   for (const m of DATAMSG) chip(m, "warn");
   if (Math.abs(dv) > 3 || R.odd > R.hit * 0.02) chip(`광체 솔리드가 닫히지 않았거나 면 방향이 섞였을 수 있음 (체적 차 ${fmt(dv, 1)}%, 짝 안 맞는 수직선 ${fmt(R.odd)}개)`, "warn");
   chip(`채굴 편 ${M.seq.length}개 · 판넬 ${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}개`);
-  if (M.aboveT > 0.01 * R.vol * P.rho) chip(`갱구보다 높은 광체 ${fmt(M.aboveT / 1e4)}만t은 계획에 없음 — 갱구를 더 높은 곳에 놓으면 포함`, "warn");
+  if (M.aboveT > 0.01 * R.vol * P.rho) chip(`1편보다 높은 광체 ${fmt(M.aboveT / 1e4)}만t은 계획에 없음 — 갱구를 더 높은 곳에 놓으면 포함`, "warn");
   if (ex.cover[0]) chip(`지표 피복 부족 ${fmt(ex.cover[0])}판넬 (${fmt(ex.cover[1] / 1e4)}만t) 제외`);
   if (ex.incline[0]) chip(`사갱 보호 광주 ${fmt(ex.incline[0])}판넬 (${fmt(ex.incline[1] / 1e4)}만t) 제외`);
   if (ex.econ[0]) chip(`수지 안 맞는 블록 ${fmt(ex.econ[0])}판넬 (${fmt(ex.econ[1] / 1e4)}만t) 제외`);
@@ -799,8 +868,9 @@ function init3D() {
 function resize3D() { if (!W3.ok) return; const cv = W3.renderer.domElement, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return; W3.renderer.setSize(w, h, false); W3.camera.aspect = w / h; W3.camera.updateProjectionMatrix(); }
 function clearGroup(g) { while (g.children.length) { const o = g.children.pop(); if (o.geometry) o.geometry.dispose(); } }
 function buildStatic() {                                                    // 자료가 바뀔 때만: 지형 · 광체 · 경계선
-  if (!W3.ok) return; clearGroup(W3.stat);
-  W3.O = { x: (VB.x0 + VB.x1) / 2, y: (VB.y0 + VB.y1) / 2, z: (ORE.bbox.z0 + ORE.bbox.z1) / 2 }; W3.E = Math.max(VB.x1 - VB.x0, VB.y1 - VB.y0);
+  if (!W3.ok) return; clearGroup(W3.stat); W3.terrain = W3.ore = W3.cadG = W3.terrainMat = null; if (!VB) return;
+  if (!G) G = { x0: VB.x0, y0: VB.y0, d: Math.max(VB.x1 - VB.x0, VB.y1 - VB.y0), nx: 2, ny: 2, z: new Float32Array(4), zmin: 0, zmax: 0, flat: true };
+  W3.O = { x: (VB.x0 + VB.x1) / 2, y: (VB.y0 + VB.y1) / 2, z: ORE ? (ORE.bbox.z0 + ORE.bbox.z1) / 2 : (G.zmin + G.zmax) / 2 }; W3.E = Math.max(VB.x1 - VB.x0, VB.y1 - VB.y0);
   const st = Math.max(1, Math.ceil(Math.max(G.nx, G.ny) / 150)), ix = [], jy = []; for (let i = 0; i < G.nx; i += st) ix.push(i); for (let j = 0; j < G.ny; j += st) jy.push(j);
   const pos = [], idx = []; for (const j of jy) for (const i of ix) { const p = P3(G.x0 + i * G.d, G.y0 + j * G.d, G.z[j * G.nx + i]); pos.push(p.x, p.y, p.z); }
   for (let b = 0; b < jy.length - 1; b++) for (let a = 0; a < ix.length - 1; a++) { const k = b * ix.length + a; idx.push(k, k + 1, k + ix.length, k + 1, k + ix.length + 1, k + ix.length); }
@@ -808,11 +878,13 @@ function buildStatic() {                                                    // �
   W3.terrainMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
   W3.terrain = new THREE.Mesh(tg, W3.terrainMat); W3.terrain.renderOrder = 10;
   W3.terrainWire = new THREE.LineSegments(new THREE.WireframeGeometry(tg), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.1 })); W3.terrain.add(W3.terrainWire); W3.stat.add(W3.terrain);
-  const T3 = ORE.tris, op = new Float32Array(T3.length); for (let t = 0; t < T3.length; t += 3) { op[t] = T3[t] - W3.O.x; op[t + 1] = T3[t + 2] - W3.O.z; op[t + 2] = -(T3[t + 1] - W3.O.y); }
-  const og = new THREE.BufferGeometry(); og.setAttribute("position", new THREE.BufferAttribute(op, 3)); og.computeVertexNormals();
   W3.oreMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
-  W3.ore = new THREE.Mesh(og, W3.oreMat); W3.ore.renderOrder = 5;
-  W3.oreWire = new THREE.LineSegments(new THREE.EdgesGeometry(og, 25), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 })); W3.ore.add(W3.oreWire); W3.stat.add(W3.ore);
+  W3.oreWireMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 });
+  if (ORE) {
+    const T3 = ORE.tris, op = new Float32Array(T3.length); for (let t = 0; t < T3.length; t += 3) { op[t] = T3[t] - W3.O.x; op[t + 1] = T3[t + 2] - W3.O.z; op[t + 2] = -(T3[t + 1] - W3.O.y); }
+    const og = new THREE.BufferGeometry(); og.setAttribute("position", new THREE.BufferAttribute(op, 3)); og.computeVertexNormals();
+    W3.ore = new THREE.Mesh(og, W3.oreMat); W3.ore.renderOrder = 5; W3.ore.add(new THREE.LineSegments(new THREE.EdgesGeometry(og, 25), W3.oreWireMat)); W3.stat.add(W3.ore);
+  }
   W3.cadG = new THREE.Group(); W3.stat.add(W3.cadG);
   W3.claimMat = new THREE.LineDashedMaterial({ dashSize: W3.E / 90, gapSize: W3.E / 140 }); W3.cadMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 });
   const drape = (pts, closed, mat, dashed) => {
@@ -822,12 +894,12 @@ function buildStatic() {                                                    // �
   };
   for (const pg of CLAIM) drape(pg, true, W3.claimMat, true);
   for (const c of CAD) drape(c.pts, c.closed, W3.cadMat, false);
-  W3.terrain.visible = $("t-terrain").checked; W3.ore.visible = $("t-ore").checked; W3.cadG.visible = $("t-cad").checked;
+  W3.terrain.visible = $("t-terrain").checked; if (W3.ore) W3.ore.visible = $("t-ore").checked; W3.cadG.visible = $("t-cad").checked;
   theme3D();
 }
 function theme3D() {
   if (!W3.ok) return; W3.renderer.setClearColor(new THREE.Color(PAL.scene));
-  if (W3.terrainMat) { W3.terrainMat.color.set(PAL.pillar); W3.terrainWire.material.color.set(PAL.ink); W3.oreMat.color.set(PAL.ore); W3.oreWire.material.color.set(PAL.ore); W3.claimMat.color.set(PAL.accent); W3.cadMat.color.set(PAL.muted); }
+  if (W3.terrainMat) { W3.terrainMat.color.set(PAL.pillar); W3.terrainWire.material.color.set(PAL.ink); W3.oreMat.color.set(PAL.ore); W3.oreWireMat.color.set(PAL.ore); W3.claimMat.color.set(PAL.accent); W3.cadMat.color.set(PAL.muted); }
   if (W3.rampMat) W3.rampMat.color.set(PAL.ramp); if (W3.driveMat) W3.driveMat.color.set(PAL.ore); if (W3.portal) W3.portal.material.color.set(PAL.accent);
 }
 function build3D() {
@@ -837,12 +909,13 @@ function build3D() {
   const box = new THREE.BoxGeometry(1, 1, 1);
   W3.rooms = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial(), Math.max(1, 4 * n)); W3.pillars = new THREE.InstancedMesh(box.clone(), new THREE.MeshLambertMaterial(), Math.max(1, n));
   W3.roomM = new Float32Array(16 * 4 * n); W3.pilM = new Float32Array(16 * n);
-  const o = new THREE.Object3D(), put = (arr, k, x, y, z, sx, sy, sz) => { o.position.copy(P3(x, y, z)); o.scale.set(sx, sy, sz); o.updateMatrix(); o.matrix.toArray(arr, k * 16); };
+  const F = M.INC.F, o = new THREE.Object3D(); o.rotation.y = Math.atan2(F.uy, F.ux);            // 상자의 X축 = 격자 u 방향
+  const put = (arr, k, u, v, z, su, sy, sv) => { const w = toW(F, u, v); o.position.copy(P3(w[0], w[1], z)); o.scale.set(su, sy, sv); o.updateMatrix(); o.matrix.toArray(arr, k * 16); };
   list.forEach((p, k) => {
     const zc = p.zf + H / 2;
-    put(W3.roomM, 4 * k, p.x, p.y + off, zc, S - g, H, wR - g); put(W3.roomM, 4 * k + 1, p.x, p.y - off, zc, S - g, H, wR - g);
-    put(W3.roomM, 4 * k + 2, p.x + off, p.y, zc, wR - g, H, Pw); put(W3.roomM, 4 * k + 3, p.x - off, p.y, zc, wR - g, H, Pw);
-    put(W3.pilM, k, p.x, p.y, zc, Pw, H, Pw);
+    put(W3.roomM, 4 * k, p.u, p.v + off, zc, S - g, H, wR - g); put(W3.roomM, 4 * k + 1, p.u, p.v - off, zc, S - g, H, wR - g);
+    put(W3.roomM, 4 * k + 2, p.u + off, p.v, zc, wR - g, H, Pw); put(W3.roomM, 4 * k + 3, p.u - off, p.v, zc, wR - g, H, Pw);
+    put(W3.pilM, k, p.u, p.v, zc, Pw, H, Pw);
   });
   const c = new THREE.Color(); for (let k = 0; k < Math.max(1, 4 * n); k++) W3.rooms.setColorAt(k, c); for (let k = 0; k < Math.max(1, n); k++) W3.pillars.setColorAt(k, c);
   if (!n) { W3.rooms.count = 0; W3.pillars.count = 0; }
@@ -850,14 +923,15 @@ function build3D() {
   const rr = Math.max(1.5, W3.E / 380); W3.rampMat = new THREE.MeshLambertMaterial(); W3.driveMat = new THREE.MeshLambertMaterial(); W3.jobMeshes = []; W3.drives = [];
   for (const j of M.jobs) { const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(P3(j.a.x, j.a.y, j.a.z + 2), P3(j.b.x, j.b.y, j.b.z + 2)), 40, rr, 6, false), W3.rampMat); W3.dyn.add(m); W3.jobMeshes.push({ m, j }); }
   const I = M.INC; W3.portal = new THREE.Mesh(new THREE.SphereGeometry(rr * 2.6, 16, 12), new THREE.MeshLambertMaterial()); W3.portal.position.copy(P3(I.PORTAL.x, I.PORTAL.y, I.PORTAL.z + 2)); W3.dyn.add(W3.portal);
-  for (const L of M.seq) {
-    const J = L.J, p0 = P3(J.x + L.vx * (L.span[0] - S / 2), J.y + L.vy * (L.span[0] - S / 2), L.zf + 2), p1 = P3(J.x + L.vx * (L.span[1] + S / 2), J.y + L.vy * (L.span[1] + S / 2), L.zf + 2);
-    if (p0.distanceTo(p1) < 1) continue; const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(p0, p1), 8, rr * 0.65, 5, false), W3.driveMat); W3.dyn.add(m); W3.drives.push({ m, L });
+  for (const L of M.seq) {                                                    // 편 주 운반 갱도 · 떨어진 블록 연결 갱도
+    const lines = [[{ x: L.J.x, y: L.J.y }, ...L.trunk], ...L.drives];
+    for (const ln of lines) { if (ln.length < 2) continue; const cp = new THREE.CurvePath(); for (let q = 0; q < ln.length - 1; q++) { const a = P3(ln[q].x, ln[q].y, L.zf + 2), b = P3(ln[q + 1].x, ln[q + 1].y, L.zf + 2); if (a.distanceTo(b) > 0.01) cp.add(new THREE.LineCurve3(a, b)); } if (!cp.curves.length) continue;
+      const m = new THREE.Mesh(new THREE.TubeGeometry(cp, Math.min(400, cp.curves.length * 2), rr * 0.6, 5, false), W3.driveMat); W3.dyn.add(m); W3.drives.push({ m, L }); }
   }
   theme3D();
 }
 function time3D() {
-  if (!W3.ok || !W3.list || !M) return;
+  if (!W3.ok || !W3.list || !M || !W3.rooms.parent) return;
   const showF = $("t-future").checked, sfm = sfMode(), R = W3.rooms, Pm = W3.pillars, rm = R.instanceMatrix.array, pm = Pm.instanceMatrix.array, rc = R.instanceColor.array, pc = Pm.instanceColor.array;
   const ac = hex2rgb(PAL.accent), gh = hex2rgb(PAL.ghost), pl = hex2rgb(PAL.pillar);
   W3.list.forEach((p, k) => {
@@ -873,7 +947,7 @@ function time3D() {
 }
 const VIEWS = { "v-iso": [-0.75, 0.62, 0.55, 1.2], "v-side": [-0.5, 0.06, 0.87, 1.15], "v-top": [0.001, 1, 0.0001, 1.1] };
 function setView(id) {
-  if (!W3.ok || !ORE) return; const [x, y, z, k] = VIEWS[id], tgt = P3((ORE.bbox.x0 + ORE.bbox.x1) / 2, (ORE.bbox.y0 + ORE.bbox.y1) / 2, (ORE.bbox.z0 + ORE.bbox.z1) / 2);
+  if (!W3.ok || !VB) return; const [x, y, z, k] = VIEWS[id], tgt = ORE ? P3((ORE.bbox.x0 + ORE.bbox.x1) / 2, (ORE.bbox.y0 + ORE.bbox.y1) / 2, (ORE.bbox.z0 + ORE.bbox.z1) / 2) : new THREE.Vector3(0, 0, 0);
   W3.controls.target.copy(tgt); W3.camera.position.copy(tgt).add(new THREE.Vector3(x, y, z).normalize().multiplyScalar(W3.E * 1.15 * k)); W3.camera.near = W3.E / 500; W3.camera.far = W3.E * 40; W3.camera.updateProjectionMatrix(); W3.controls.update();
   for (const b of Object.keys(VIEWS)) $(b).setAttribute("aria-pressed", String(b === id));
 }
@@ -903,46 +977,50 @@ function contours() {
   return CONT = { segs, ci };
 }
 function drawPlan() {
-  if (!M) return; const cv = $("plan"), W = cv.parentElement.clientWidth - 24; if (W <= 0) return;
+  const cv = $("plan"), W = cv.parentElement.clientWidth - 24; if (W <= 0 || !VB) return;
   const sc = W / (VB.x1 - VB.x0), H = Math.round((VB.y1 - VB.y0) * sc), dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.style.height = H + "px"; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); cv._sc = sc;
   const X = x => (x - VB.x0) * sc, Y = y => (VB.y1 - y) * sc, fb = cssv("--f-body"), fm = cssv("--f-mono");
   const line = (p, q) => { c.beginPath(); c.moveTo(X(p.x), Y(p.y)); c.lineTo(X(q.x), Y(q.y)); c.stroke(); };
   c.fillStyle = PAL.sunk; c.fillRect(0, 0, W, H);
-  const ct = contours(); c.strokeStyle = PAL.muted;
+  const ct = G ? contours() : { segs: [], ci: 1 }; c.strokeStyle = PAL.muted;
   for (const [lv, a, b] of ct.segs) { const idx = Math.round(lv / ct.ci) % 5 === 0; c.globalAlpha = idx ? 0.45 : 0.18; c.lineWidth = idx ? 1 : 0.7; c.beginPath(); c.moveTo(X(a[0]), Y(a[1])); c.lineTo(X(b[0]), Y(b[1])); c.stroke(); }
   c.globalAlpha = 0.8; c.lineWidth = 0.9; c.strokeStyle = PAL.muted;
   for (const q of CAD) { c.beginPath(); q.pts.forEach((p, k) => k ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); if (q.closed) c.closePath(); c.stroke(); }
   c.globalAlpha = 1; c.setLineDash([6, 4]); c.strokeStyle = PAL.accent; c.lineWidth = 1.3;
   for (const pg of CLAIM) { c.beginPath(); pg.forEach((p, k) => k ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); c.closePath(); c.stroke(); }
   c.setLineDash([]);
-  const L = planLevel(), S = M.S, Pw = M.Pw, sfm = sfMode();
-  if (L) {
+  if (!M) { c.fillStyle = PAL.ink; c.font = `600 12px ${fb}`; c.fillText("광체 레이어를 지정하면 설계가 표시됩니다", 8, 18); return; }
+  const L = planLevel(), S = M.S, Pw = M.Pw, sfm = sfMode(), I = M.INC, F = I.F, px = 1 / sc;
+  if (L) {                                                                    // 판넬은 격자 좌표(u, v)로 그린다: 캔버스 변환에 격자 회전을 넣음
+    c.save(); c.setTransform(dpr * sc * F.ux, -dpr * sc * F.uy, -dpr * sc * F.uy, -dpr * sc * F.ux, dpr * X(F.ox), dpr * Y(F.oy));
     for (const p of L.rej) {
-      c.strokeStyle = p.why === "sf" ? PAL.bad : p.why === "econ" ? PAL.accent : PAL.muted; c.lineWidth = 1; c.globalAlpha = p.why === "cover" ? 0.5 : 0.8;
-      const x0 = X(p.x - S / 2) + 1, y0 = Y(p.y + S / 2) + 1, w = S * sc - 2; if (p.why === "econ") c.setLineDash([2, 2]); c.strokeRect(x0, y0, w, w); c.setLineDash([]);
-      if (p.why === "sf") { c.beginPath(); c.moveTo(x0, y0 + w); c.lineTo(x0 + w, y0); c.stroke(); }
+      c.strokeStyle = p.why === "sf" ? PAL.bad : p.why === "econ" ? PAL.accent : PAL.muted; c.lineWidth = px; c.globalAlpha = p.why === "cover" ? 0.5 : 0.8;
+      const u0 = p.u - S / 2 + px, v0 = p.v - S / 2 + px, w = S - 2 * px; if (p.why === "econ") c.setLineDash([2 * px, 2 * px]); c.strokeRect(u0, v0, w, w); c.setLineDash([]);
+      if (p.why === "sf") { c.beginPath(); c.moveTo(u0, v0 + w); c.lineTo(u0 + w, v0); c.stroke(); }
     }
     c.globalAlpha = 1;
     for (const p of L.panels) {
       const mined = p.s1 !== null && p.s1 <= T, act = p.s0 !== null && p.s0 <= T && !mined;
       c.fillStyle = sfm ? sfHex(p) : mined ? rgbCss(yearRGB(panelYearF(p))) : act ? PAL.accent : PAL.ghost;
-      c.fillRect(X(p.x - S / 2) + 0.5, Y(p.y + S / 2) + 0.5, S * sc - 1, S * sc - 1);
+      c.fillRect(p.u - S / 2 + px / 2, p.v - S / 2 + px / 2, S - px, S - px);
       c.fillStyle = sfm || mined || act ? PAL.pillar : PAL.sunk; c.globalAlpha = sfm || mined || act ? 1 : 0.7;
-      c.fillRect(X(p.x - Pw / 2), Y(p.y + Pw / 2), Pw * sc, Pw * sc); c.globalAlpha = 1;
+      c.fillRect(p.u - Pw / 2, p.v - Pw / 2, Pw, Pw); c.globalAlpha = 1;
     }
+    c.restore();
   }
-  const I = M.INC; c.strokeStyle = PAL.ramp; c.lineWidth = 1; c.setLineDash([4, 3]); c.globalAlpha = 0.5;
+  c.strokeStyle = PAL.ramp; c.lineWidth = 1; c.setLineDash([4, 3]); c.globalAlpha = 0.5;
   for (const g of I.segs) { const l = Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y) || 1, nx = -(g.b.y - g.a.y) / l, ny = (g.b.x - g.a.x) / l; for (const sg of [-1, 1]) line({ x: g.a.x + nx * sg * P.iw, y: g.a.y + ny * sg * P.iw }, { x: g.b.x + nx * sg * P.iw, y: g.b.y + ny * sg * P.iw }); }
   c.setLineDash([]); c.globalAlpha = 1;
   for (const j of M.jobs) { const f = jobProg(j, T); c.strokeStyle = PAL.ramp; c.globalAlpha = 0.35; c.lineWidth = 1.4; line(j.a, j.b); c.globalAlpha = 1; if (f > 0) { c.lineWidth = 3.2; line(j.a, { x: j.a.x + (j.b.x - j.a.x) * f, y: j.a.y + (j.b.y - j.a.y) * f }); } }
   c.font = `500 9.5px ${fm}`;
   for (const Lv of M.seq) { const J = Lv.J, on = Lv.access !== null && T >= Lv.access; c.fillStyle = on ? PAL.ink : PAL.muted; c.beginPath(); c.arc(X(J.x), Y(J.y), 2.2, 0, Math.PI * 2); c.fill(); c.fillText(String(Lv.no), X(J.x) + 5, Y(J.y) - 4); }
-  if (L && L.J && L.span && L.span[1] - L.span[0] > 1) {
-    const J = L.J, p0 = { x: J.x + L.vx * (L.span[0] - S / 2), y: J.y + L.vy * (L.span[0] - S / 2) }, p1 = { x: J.x + L.vx * (L.span[1] + S / 2), y: J.y + L.vy * (L.span[1] + S / 2) };
-    c.strokeStyle = PAL.ore; c.lineWidth = 2.4; c.globalAlpha = L.access !== null && L.access !== undefined && T >= L.access ? 1 : 0.4; line(p0, p1); c.globalAlpha = 1;
-    c.fillStyle = PAL.ore; c.beginPath(); c.arc(X(J.x), Y(J.y), 4, 0, Math.PI * 2); c.fill();
+  if (L && L.J && L.trunk) {                                                  // 편 주 운반 갱도(판넬을 따라) · 연결 갱도
+    const on = L.access !== null && L.access !== undefined && T >= L.access; c.strokeStyle = PAL.ore; c.lineWidth = 2.2; c.globalAlpha = on ? 1 : 0.4;
+    c.beginPath(); c.moveTo(X(L.J.x), Y(L.J.y)); for (const q of L.trunk) c.lineTo(X(q.x), Y(q.y)); c.stroke();
+    c.setLineDash([5, 3]); for (const d of L.drives) line(d[0], d[1]); c.setLineDash([]); c.globalAlpha = 1;
+    c.fillStyle = PAL.ore; c.beginPath(); c.arc(X(L.J.x), Y(L.J.y), 4, 0, Math.PI * 2); c.fill();
   }
   const gx = X(I.PORTAL.x), gy = Y(I.PORTAL.y); c.fillStyle = PAL.accent; c.beginPath(); c.moveTo(gx, gy - 8); c.lineTo(gx + 7, gy + 5); c.lineTo(gx - 7, gy + 5); c.closePath(); c.fill();
   c.fillStyle = PAL.ink; c.font = `600 11px ${fb}`; const lab = `갱구 EL.${fmt(I.zP)}`; c.fillText(lab, gx + 10 + c.measureText(lab).width > W ? gx - 12 - c.measureText(lab).width : gx + 10, gy + 2);
@@ -956,8 +1034,8 @@ function drawPlan() {
 }
 function planXY(e) { const cv = $("plan"), r = cv.getBoundingClientRect(), sc = cv._sc; return { x: VB.x0 + (e.clientX - r.left) / sc, y: VB.y1 - (e.clientY - r.top) / sc }; }
 function planTip(e) {
-  const cv = $("plan"), tip = $("tip"); if (!cv._sc || !M) return; const { x, y } = planXY(e), L = planLevel(), R = M.R;
-  const p = L && L.map.get(Math.floor((x - R.gx0) / M.S) + "," + Math.floor((y - R.gy0) / M.S));
+  const cv = $("plan"), tip = $("tip"); if (!cv._sc || !M || !G) return; const { x, y } = planXY(e), L = planLevel(), R = M.R;
+  const lc = toLoc(M.INC.F, x, y), p = L && L.map.get(Math.floor((lc[0] - R.gx0) / M.S) + "," + Math.floor((lc[1] - R.gy0) / M.S));
   const when = m => `${P.y0 + Math.floor(m / 12)}.${String(Math.floor(m % 12) + 1).padStart(2, "0")}`;
   let h = `E ${fmt(x)} · N ${fmt(y)} · 지표 EL.${fmt(terrainZ(x, y))}`;
   if (p && !PICK) {
@@ -1057,9 +1135,9 @@ $("t-cad").addEventListener("change", e => { if (W3.cadG) W3.cadG.visible = e.ta
 $("t-future").addEventListener("change", time3D);
 $("t-sf").addEventListener("change", applyTime);
 let pend = null;
-form.addEventListener("input", () => { showOutputs(); clearTimeout(pend); pend = setTimeout(recompute, 90); });
+form.addEventListener("input", e => { if (e.target.id === "p-az") $("p-azauto").checked = false; showOutputs(); clearTimeout(pend); pend = setTimeout(recompute, 90); });
 form.addEventListener("change", () => { clearTimeout(pend); pend = setTimeout(recompute, 30); });
-new ResizeObserver(() => { if (M) { drawPlan(); drawChart(); } }).observe(document.querySelector("main.work"));
+new ResizeObserver(() => { drawPlan(); if (M) drawChart(); }).observe(document.querySelector("main.work"));
 function onTheme() { readPal(); theme3D(); if (M) applyTime(); }
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
 new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -1074,34 +1152,37 @@ function renderLayers() {
     tb.appendChild(tr);
   });
 }
+function renderFiles() {
+  const el = $("files"), names = [...new Set(LAYERS.map(l => l.file))]; el.innerHTML = "";
+  if (ISDEMO) { el.textContent = "예시 자료를 보는 중입니다. DXF를 올리면 그 자료로 바뀝니다."; return; }
+  for (const n of names) { const s = document.createElement("span"); s.className = "chip"; s.textContent = n + " "; const b = document.createElement("button"); b.type = "button"; b.textContent = "빼기"; b.style.cssText = "padding:0 5px;font-size:11px"; b.setAttribute("aria-label", n + " 빼기"); b.addEventListener("click", () => { LAYERS = LAYERS.filter(l => l.file !== n); if (!LAYERS.length) return loadDemo(); renderLayers(); renderFiles(); refreshData(); }); s.appendChild(b); el.appendChild(s); }
+}
 function refreshData() {
-  const ok = applyData(), msg = $("filemsg");
-  if (!ok) { msg.textContent = DATAMSG.join(" "); msg.hidden = false; return; }
-  msg.hidden = true; buildStatic(); recompute.did = false; recompute(); setView("v-iso");
+  const ok = applyData(), msg = $("filemsg"); if (!ok) USERPORTAL = null; RAY = null;
+  msg.textContent = ok ? "" : DATAMSG.join(" "); msg.hidden = ok;
+  buildStatic(); recompute.did = false; recompute(); setView("v-iso");
 }
-function loadLayers(layers, label, skipped) {
-  for (const l of layers) layerStats(l);
-  layers = layers.filter(l => l.nf || l.nl || l.np); guessRoles(layers);
-  LAYERS = layers; DATALABEL = label; SKIPPED = skipped || {}; USERPORTAL = null; RAY = null;
-  $("datatag").textContent = label === "예시 자료" ? "예시 자료" : "불러온 자료"; renderLayers(); refreshData();
-}
+let ISDEMO = true;
+function loadDemo() { const r = parseDXF(demoDXF(), "예시 자료"); for (const l of r.layers) layerStats(l); guessRoles(r.layers); LAYERS = r.layers; ISDEMO = true; SKIPPED = {}; USERPORTAL = null; DATALABEL = "예시 자료"; $("datatag").textContent = "예시 자료"; renderLayers(); renderFiles(); refreshData(); }
+// 파일을 올릴 때마다 레이어를 더한다(같은 이름의 파일은 바꿔 넣음). 지형과 광체를 따로 올려도 된다.
 $("dxf").addEventListener("change", async e => {
   const files = [...e.target.files], msg = $("filemsg"); if (!files.length) return; msg.hidden = true;
   try {
-    const all = [], skipped = {};
+    let keep = ISDEMO ? [] : LAYERS; const fresh = [];
     for (const f of files) {
       const r = parseDXF(decodeBuf(await f.arrayBuffer()), f.name); if (!r.nEnt) throw new Error(`${f.name}: 읽을 수 있는 도형(3DFACE·POLYLINE·LWPOLYLINE·LINE·POINT)이 없습니다.`);
-      for (const l of r.layers) { if (files.length > 1) l.name = f.name.replace(/\.dxf$/i, "") + " / " + l.name; all.push(l); }
-      for (const [k, v] of Object.entries(r.skipped)) skipped[k] = (skipped[k] || 0) + v;
+      keep = keep.filter(l => l.file !== f.name);
+      for (const l of r.layers) { layerStats(l); if (!(l.nf || l.nl || l.np)) continue; l.name = f.name.replace(/\.dxf$/i, "") + " / " + l.name; fresh.push(l); }
+      if (ISDEMO) SKIPPED = {}; for (const [k, v] of Object.entries(r.skipped)) SKIPPED[k] = (SKIPPED[k] || 0) + v;
     }
-    loadLayers(all, files.map(f => f.name).join(", "), skipped);
+    guessRoles(fresh, keep); LAYERS = [...keep, ...fresh]; ISDEMO = false; USERPORTAL = null; DATALABEL = [...new Set(LAYERS.map(l => l.file))].join(", "); $("datatag").textContent = "불러온 자료";
+    renderLayers(); renderFiles(); refreshData();
   } catch (err) { msg.textContent = err.message || String(err); msg.hidden = false; }
   e.target.value = "";
 });
-$("demo").addEventListener("click", () => loadLayers(parseDXF(demoDXF(), "demo").layers, "예시 자료", {}));
+$("demo").addEventListener("click", loadDemo);
 
-readPal(); showOutputs(); init3D();
-loadLayers(parseDXF(demoDXF(), "demo").layers, "예시 자료", {});
+readPal(); showOutputs(); init3D(); loadDemo();
 </script>
 </body>
 </html>

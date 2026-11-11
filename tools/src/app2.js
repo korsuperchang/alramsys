@@ -13,6 +13,8 @@ const PARAMS = [
   { id: "sfmin", g: "design", label: "기준 안전율", min: 1.2, max: 3, step: 0.1, v: 2.0, u: "", d: 1 },
   { id: "az", g: "open", label: "갱구 굴진 방위", min: 0, max: 359, step: 1, v: 90, u: "°" },
   { id: "dip0", g: "open", label: "진입 경사 (0 = 수평갱)", min: 0, max: 20, step: 0.5, v: 0, u: "° 하향", d: 1 },
+  { id: "bw", g: "open", label: "운반갱도 보안광주 (한쪽, 0 = 없음)", min: 0, max: 60, step: 5, v: 30, u: "m" },
+  { id: "cc", g: "open", label: "크로스 갱도 간격", min: 40, max: 300, step: 10, v: 100, u: "m" },
   { id: "ia", g: "open", label: "연층 사갱 경사", min: 5, max: 25, step: 0.5, v: 16, u: "°", d: 1 },
   { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
   { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 1000, step: 10, v: 80, u: "만t" },
@@ -248,7 +250,28 @@ function design(P) {
     }
   };
   const stage = () => { for (const L of all) {
-    L.rej = L.rej.filter(p => p.why !== "econ"); for (const p of L.pool) delete p.why; L.panels = L.no ? L.pool.slice() : []; L.map = new Map(); L.drives = [];
+    L.rej = L.rej.filter(p => p.why !== "econ" && p.why !== "barrier"); for (const p of L.pool) { delete p.why; p.root = null; } L.panels = L.no ? L.pool.slice() : []; L.map = new Map(); L.drives = [];
+    // 운반갱도: 진입점을 지나 격자 u 방향으로 곧게. 양쪽 보안광주 폭 안의 판넬은 남기고(걸친 판넬은 걸친 만큼 줄임),
+    // 크로스 갱도를 일정 간격으로 내서 그 끝에서만 채굴 구역으로 들어간다
+    L.roots = []; L.haul = null; L.ccs = [];
+    if (L.J && L.panels.length && P.bw > 0) {
+      // 운반갱도 축: 격자 두 방향 중 이 편 판넬이 더 길게 뻗은 쪽
+      const [uJ, vJ] = toLoc(F, L.J.x, L.J.y); let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const p of L.panels) { u0 = Math.min(u0, p.u); u1 = Math.max(u1, p.u); v0 = Math.min(v0, p.v); v1 = Math.max(v1, p.v); }
+      const alongU = (u1 - u0) >= (v1 - v0), aJ = alongU ? uJ : vJ, cJ = alongU ? vJ : uJ, AW = (a, c) => alongU ? toW(F, a, c) : toW(F, c, a), keep = []; let lo = aJ, hi = aJ;
+      for (const p of L.panels) {
+        const a = alongU ? p.u : p.v, c = alongU ? p.v : p.u, f = clamp((Math.abs(c - cJ) + S / 2 - P.bw) / S, 0, 1);
+        if (f < 0.3) { p.why = "barrier"; L.rej.push(p); } else { p.t = p.tg * L.rec * f; keep.push(p); lo = Math.min(lo, a); hi = Math.max(hi, a); }
+      }
+      L.panels = keep;
+      const k0 = Math.min(0, Math.ceil((lo - aJ) / P.cc)), k1 = Math.max(0, Math.floor((hi - aJ) / P.cc));
+      for (let k = k0; k <= k1; k++) for (const sd of [1, -1]) {
+        const w = AW(aJ + k * P.cc, cJ + sd * P.bw);
+        L.roots.push({ isRoot: true, x: w[0], y: w[1], path: Math.abs(k) * P.cc + P.bw, k, m: P.bw + (sd > 0 && k ? P.cc : 0), paid: false });   // 굴진 길이: 크로스 갱도 + (한 번만) 운반갱도 한 구간
+      }
+      const A = AW(aJ + k0 * P.cc, cJ), B = AW(aJ + k1 * P.cc, cJ); L.haul = [{ x: A[0], y: A[1] }, { x: B[0], y: B[1] }];
+      for (let k = k0; k <= k1; k++) { const a = AW(aJ + k * P.cc, cJ - P.bw), b = AW(aJ + k * P.cc, cJ + P.bw); L.ccs.push([{ x: a[0], y: a[1] }, { x: b[0], y: b[1] }]); }
+    }
     // 블록(상하좌우로 붙은 판넬)을 진입점에서 가까운 것부터 잇고, 경로 거리순으로 캔다. 떨어진 블록은 가장 가까운 연결점에서 편 갱도.
     const base = P.opex + Math.max(0, (L.no || 1) - 1) * P.hinc, cost = d => base + P.hcost * d / 100;
     if (L.J) {
@@ -258,28 +281,29 @@ function design(P) {
         while (stk.length) { const p = stk.pop(); p.bid = rest.length; blk.push(p); for (const [di, dj] of NB) { const q = idx.get((p.i + di) + "," + (p.j + dj)); if (q && !seen.has(q)) { seen.add(q); stk.push(q); } } }
         rest.push(blk);
       }
-      const root = { x: L.J.x, y: L.J.y, path: 0 }, conn = [root], out = [];
+      const conn = L.roots.length ? [...L.roots] : [{ isRoot: true, x: L.J.x, y: L.J.y, path: 0, k: 0, m: 0, paid: true }], out = [];
       while (rest.length) {
         const cs = rest.map(blk => { let d = Infinity, src = null, ent = null; for (const c of conn) for (const p of blk) { const e = Math.hypot(p.x - c.x, p.y - c.y); if (e < d) { d = e; src = c; ent = p; } } return { blk, d, src, ent }; }).sort((a, b) => a.d - b.d);
         let took = null;
         for (const c of cs) {
-          const path = new Map([[c.ent, c.src.path + c.d]]), pre = new Map([[c.ent, c.src === root ? null : c.src]]), q = [c.ent];
+          const path = new Map([[c.ent, c.src.path + c.d]]), pre = new Map([[c.ent, c.src.isRoot ? null : c.src]]), q = [c.ent];
           for (let h = 0; h < q.length; h++) for (const [di, dj] of NB) { const n = idx.get((q[h].i + di) + "," + (q[h].j + dj)); if (n && n.bid === c.ent.bid && !path.has(n)) { path.set(n, path.get(q[h]) + S); pre.set(n, q[h]); q.push(n); } }
-          const drive = Math.max(0, c.d - S), att = c.src === root && c.d < S * 1.5;
+          const drive = Math.max(0, c.d - S), att = c.src.isRoot && c.d < S * 1.5;
           let val = -drive * P.dcost * 1e4, t = 0; for (const p of c.blk) { val += p.t * (p.frac * P.price - cost(path.get(p))); t += p.t; }
           c.info = { n: c.blk.length, t, drive, val, paid: false }; c.path = path; c.pre = pre;
           if (!P.econ || (att ? val > 0 : val >= P.minval * 1e8 && c.blk.length >= P.minblk)) { took = c; break; }
         }
         if (!took) { for (const c of cs) for (const p of c.blk) { p.blk = c.info; p.dist = c.path.get(p); p.cost = cost(p.dist); p.why = "econ"; L.rej.push(p); } break; }
-        for (const p of took.blk) { p.blk = took.info; p.dist = p.path = took.path.get(p); p.pre = took.pre.get(p); p.cost = cost(p.dist); out.push(p); conn.push(p); }
-        if (took.d > S * 0.6) L.drives.push([{ x: took.src.x, y: took.src.y }, { x: took.ent.x, y: took.ent.y }]);   // 연결 갱도(진입점·다른 블록 → 이 블록)
+        const rt = took.src.isRoot ? took.src : took.src.root;
+        for (const p of took.blk) { p.root = rt; p.blk = took.info; p.dist = p.path = took.path.get(p); p.pre = took.pre.get(p); p.cost = cost(p.dist); out.push(p); conn.push(p); }
+        if (took.d > S * (took.src.isRoot && L.roots.length ? 1.1 : 0.6)) L.drives.push([{ x: took.src.x, y: took.src.y }, { x: took.ent.x, y: took.ent.y }]);   // 연결 갱도(진입점·다른 블록 → 이 블록)
         rest = rest.filter(b => b !== took.blk);
       }
       L.panels = out;
     } else L.panels = [];
     L.panels.sort((a, b) => a.dist - b.dist);
     // 편 주 운반 갱도 = 진입점에서 가장 먼 판넬까지 판넬을 따라 이어진 경로(광체 안)
-    L.trunk = []; if (L.panels.length) { let p = L.panels[L.panels.length - 1]; const pts = []; for (let g = 0; p && g < 5000; g++) { pts.push({ x: p.x, y: p.y }); p = p.pre; } L.trunk = pts.reverse(); }
+    L.trunk = []; if (L.panels.length && !L.roots.length) { let p = L.panels[L.panels.length - 1]; const pts = []; for (let g = 0; p && g < 5000; g++) { pts.push({ x: p.x, y: p.y }); p = p.pre; } L.trunk = pts.reverse(); }
     for (const p of [...L.panels, ...L.rej]) L.map.set(p.i + "," + p.j, p);
     L.tot = L.panels.reduce((a, p) => a + p.t, 0); L.ore = L.panels.reduce((a, p) => a + p.t * p.frac, 0);
     L.minSF = L.panels.reduce((a, p) => Math.min(a, p.sf), Infinity);
@@ -299,6 +323,7 @@ function schedule(D, P) {
   seq.forEach((L, k) => {
     L.seq = k; L.name = `${L.no}편(EL.${Math.round(L.zf)})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity; L.first = null; L.last = null; L.opened = null;
     for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; if (p.blk) p.blk.paid = false; }
+    for (const r of L.roots) r.paid = false;
   });
   const jobs = seq.map((L, k) => k ? { kind: "incline", k, a: seq[k - 1].J, b: L.J, len: Math.hypot(Math.hypot(L.J.x - seq[k - 1].J.x, L.J.y - seq[k - 1].J.y), seq[k - 1].zf - L.zf) + L.xc, start: null }
                                    : { kind: I.dip0 > 0.25 ? "incline" : "adit", k, a: I.PORTAL, b: L.J, len: I.len0 + Math.hypot(Math.hypot(L.J.x - I.J0.x, L.J.y - I.J0.y), I.J0.z - L.zf), start: null });
@@ -325,7 +350,9 @@ function schedule(D, P) {
           const p = cur || next(m + 1 - tl); cur = null; if (!p) break; busy.add(p);
           if (p.done === 0 && p.pre && p.pre.s1 > m + 1 - tl) tl = m + 1 - p.pre.s1;
           if (tl <= 1e-4) break; const L = p.L, d = Math.min(tl * L.rate, p.t - p.done, target);
-          if (p.s0 === null) { p.s0 = m + 1 - tl; if (L.first === null) L.first = p.s0; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
+          if (p.s0 === null) { p.s0 = m + 1 - tl; if (L.first === null) L.first = p.s0; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; }
+            // 이 판넬이 쓰는 크로스 갱도까지 운반갱도·크로스 갱도를 판다(진입점에서 그쪽 방향으로 차례로)
+            if (p.root && !p.root.paid) for (const r of L.roots) if (!r.paid && r.k * p.root.k >= 0 && Math.abs(r.k) <= Math.abs(p.root.k)) { r.paid = true; cf -= r.m * P.dcost * 1e4; Y.dev += r.m; } }
           p.done += d; tl -= d / L.rate; target -= d; got += d; worked = true;
           Y.t += d; Y.ore += d * p.frac; Y.lv[L.seq] += d; L.rem -= d; left -= d; cf += d * (p.frac * P.price - p.cost);
           if (p.done >= p.t - 1e-6) { p.s1 = m + 1 - Math.max(0, tl); L.last = p.s1; } else break;

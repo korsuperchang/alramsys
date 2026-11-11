@@ -17,9 +17,9 @@ function recompute() {
   $("derived").innerHTML = `필러 간격(중심) <b>${fmt(D.S, 1)} m</b> · 수평 필러 <b>${fmt(P.lv - D.H, 1)} m</b><br>판넬 안 회수 <b>${fmt(ext * 100)}%</b> × 수직 <b>${fmt(vert * 100)}%</b> = <b>${fmt(ext * vert * 100)}%</b><br>` +
     (isFinite(M.minSF) ? `필러 안전율 최저 <b style="color:${M.minSF < P.sfmin ? "var(--bad)" : "inherit"}">${fmt(M.minSF, 2)}</b> (${M.minAt}) · 기준 미달 <b>${fmt(M.nBad)}</b>판넬` : "판넬 없음");
   if (P.azauto && !I.miss) { $("p-az").value = Math.round((I.az % 360 + 360) % 360); showOutputs(); }
-  const capY = P.nface * P.frate * 12 / 10;
+  const perBlast = P.w * D.H * P.adv * P.rho, perMonth = perBlast * P.nblast * P.rec / 100, capY = P.nface * perMonth * 12 / 1e4;
   const planMax = P.plan && P.plan.map.size ? Math.max(P.ann, ...P.plan.map.values()) : P.ann;
-  $("capinfo").innerHTML = `작업장 능력 <b>${fmt(P.nface)}곳 × ${fmt(P.frate)}천t × 12개월 = ${fmt(capY)}만t/년</b>${capY < planMax ? `<br><span style="color:var(--bad)">가장 큰 목표 ${fmt(planMax)}만t에 못 미칩니다</span>` : ""}`;
+  $("capinfo").innerHTML = `1발파 ${fmt(P.w, 1)} × ${fmt(D.H, 1)} × ${fmt(P.adv, 1)}m × ${fmt(P.rho, 2)} = <b>${fmt(perBlast)} t</b><br>작업장 한 곳 <b>${fmt(perMonth / 1e3, 1)}천t/월</b> (월 ${fmt(P.nblast)}회 × 실수율 ${fmt(P.rec)}%)<br>작업장 능력 <b>${fmt(P.nface)}곳 × 12개월 = ${fmt(capY)}만t/년</b>${capY < planMax ? `<br><span style="color:var(--bad)">가장 큰 목표 ${fmt(planMax)}만t에 못 미칩니다</span>` : ""}`;
   $("planbox").hidden = !P.plan; const pm = $("planmsg");
   if (P.plan) { const ys = [...P.plan.map.keys()]; pm.hidden = !P.plan.bad.length; pm.textContent = P.plan.bad.length ? `읽지 못한 줄: ${P.plan.bad.slice(0, 3).join(" / ")}${P.plan.bad.length > 3 ? " …" : ""}` : ""; if (ys.length && Math.max(...ys) < P.y0) { pm.hidden = false; pm.textContent += " 입력한 연도가 모두 착공 연도보다 앞입니다."; } }
   $("portalinfo").innerHTML = `갱구 <b>${I.auto ? "자동 위치" : "직접 지정"}</b> · EL.<b>${fmt(I.zP, 1)}</b><br>E ${fmt(I.PORTAL.x, 1)} · N ${fmt(I.PORTAL.y, 1)}<br>굴진 <b>${bearing(I.azShow)}</b>${P.azauto ? " (자동)" : ""} · ${P.dip0 < 0.25 ? "수평갱" : `하향 ${fmt(P.dip0, 1)}°`} <b>${fmt(I.entryLen)} m</b>${I.miss ? ' <span style="color:var(--bad)">광체에 안 닿음</span>' : ""}<br>1편 바닥 EL.<b>${fmt(I.z1, 1)}</b> · 격자 방향 ${bearing(I.gAz * 180 / Math.PI)}<br>굴진 합계: 진입·사갱 <b>${fmt(M.devTot)} m</b> + 편 갱도 <b>${fmt(M.driveTot)} m</b>`;
@@ -299,9 +299,10 @@ function drawLvTable() {
   let h = ""; const cur = planLevel();
   for (const L of M.seq) {
     const j = M.jobs[L.seq];
-    h += `<tr data-z="${L.zf.toFixed(2)}" class="${L === cur ? "cur" : ""}"><td>${L.no}편</td><td>${fmt(L.zf, 1)}</td><td>${fmt(L.panels.length)}</td><td>${fmt(L.tot / 1e4, 1)}</td><td>${fmt(L.ore / 1e4, 1)}</td><td>${fmt((1 - L.ore / L.tot) * 100, 1)}</td><td class="${L.minSF < P.sfmin ? "neg" : ""}">${fmt(Math.min(L.minSF, 99), 2)}</td><td>${fmt(j.len)}</td><td>${L.opened !== null ? ym(L.opened) : "—"}</td><td>${L.first !== null ? ym(L.first) + " ~ " + (L.rem <= 1 && L.last !== null ? ym(L.last) : "") : "—"}</td></tr>`;
+    const inp = (k, v, own, mn, mx, st, lab) => `<td><input class="lvin${own ? " own" : ""}" type="number" id="lv-${k}-${L.no}" data-no="${L.no}" data-k="${k}" min="${mn}" max="${mx}" step="${st}" value="${v}" aria-label="${L.no}편 ${lab}"></td>`;
+    h += `<tr data-z="${L.zf.toFixed(2)}" class="${L === cur ? "cur" : ""}"><td>${L.no}편</td><td>${fmt(L.zf, 1)}</td><td>${fmt(L.panels.length)}</td>${inp("rec", Math.round(L.rec * 1000) / 10, L.own.rec, 10, 100, 1, "채광 실수율 %")}${inp("adv", L.adv, L.own.adv, 0.5, 8, 0.1, "굴진장 m")}<td>${fmt(L.tot / 1e4, 1)}</td><td>${fmt(L.ore / 1e4, 1)}</td><td>${fmt((1 - L.ore / L.tot) * 100, 1)}</td><td class="${L.minSF < P.sfmin ? "neg" : ""}">${fmt(Math.min(L.minSF, 99), 2)}</td><td>${fmt(j.len)}</td><td>${L.opened !== null ? ym(L.opened) : "—"}</td><td>${L.first !== null ? ym(L.first) + " ~ " + (L.rem <= 1 && L.last !== null ? ym(L.last) : "") : "—"}</td></tr>`;
   }
-  h += `<tr><td><b>합계</b></td><td></td><td>${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}</td><td>${fmt(M.tot / 1e4, 1)}</td><td>${fmt(M.oreT / 1e4, 1)}</td><td>${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}</td><td>${isFinite(M.minSF) ? fmt(M.minSF, 2) : "—"}</td><td>${fmt(M.devTot)}</td><td></td><td></td></tr>`;
+  h += `<tr><td><b>합계</b></td><td></td><td>${fmt(M.seq.reduce((a, L) => a + L.panels.length, 0))}</td><td></td><td></td><td>${fmt(M.tot / 1e4, 1)}</td><td>${fmt(M.oreT / 1e4, 1)}</td><td>${fmt(M.tot ? (1 - M.oreT / M.tot) * 100 : 0, 1)}</td><td>${isFinite(M.minSF) ? fmt(M.minSF, 2) : "—"}</td><td>${fmt(M.devTot)}</td><td></td><td></td></tr>`;
   $("lvbody").innerHTML = h;
 }
 function drawTable() {
@@ -338,7 +339,13 @@ playBtn.addEventListener("click", () => {
   timer = setInterval(() => { T = Math.min(+slider.max, T + 1); slider.value = T; applyTime(); if (T >= +slider.max) stop(); }, 70);
 });
 $("tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr) return; T = clamp(+tr.dataset.y * 12 + 11.99, 0, +slider.max); slider.value = Math.round(T); applyTime(); });
-$("lvbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (!tr || !tr.dataset.z) return; $("lvsel").value = tr.dataset.z; drawPlan(); drawLvTable(); $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); });
+$("lvbody").addEventListener("change", e => {                                 // 편별 실수율·굴진장: 비우면 기본값으로 돌아감
+  const el = e.target; if (!el.classList.contains("lvin")) return; const no = el.dataset.no, k = el.dataset.k, v = parseFloat(el.value), o = LVSET[no] || (LVSET[no] = {});
+  if (el.value.trim() === "" || !isFinite(v)) delete o[k]; else o[k] = k === "rec" ? clamp(v, 10, 100) : clamp(v, 0.5, 8);
+  if (!Object.keys(o).length) delete LVSET[no]; recompute();
+});
+$("lvreset").addEventListener("click", () => { for (const k of Object.keys(LVSET)) delete LVSET[k]; recompute(); });
+$("lvbody").addEventListener("click", e => { if (e.target.closest("input")) return; const tr = e.target.closest("tr"); if (!tr || !tr.dataset.z) return; $("lvsel").value = tr.dataset.z; drawPlan(); drawLvTable(); $("plan").scrollIntoView({ block: "center", behavior: "smooth" }); });
 $("lvsel").addEventListener("change", () => { drawPlan(); drawLvTable(); });
 $("copycsv").addEventListener("click", () => {
   let cum = 0; const rows = [["연도", "목표_t", "생산_t", "광석_t", "작업편", "개설편", "평균작업장", "누계_t", "굴진_m", "현금흐름_원"]];

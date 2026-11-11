@@ -17,7 +17,9 @@ const PARAMS = [
   { id: "trig", g: "open", label: "다음 편 개설 (윗편 채굴률)", min: 0, max: 100, step: 5, v: 50, u: "%" },
   { id: "ann", g: "sched", label: "연간 생산 목표", min: 10, max: 1000, step: 10, v: 80, u: "만t" },
   { id: "nface", g: "sched", label: "동시 작업장 수", min: 1, max: 60, step: 1, v: 6, u: "곳" },
-  { id: "frate", g: "sched", label: "작업장당 월 생산", min: 2, max: 60, step: 1, v: 12, u: "천t" },
+  { id: "adv", g: "sched", label: "굴진장 (1발파)", min: 1, max: 6, step: 0.1, v: 3, u: "m", d: 1 },
+  { id: "nblast", g: "sched", label: "작업장당 월 발파 횟수", min: 1, max: 60, step: 1, v: 12, u: "회" },
+  { id: "rec", g: "sched", label: "채광 실수율", min: 50, max: 100, step: 1, v: 90, u: "%" },
   { id: "y0", g: "sched", label: "착공 연도", min: 2026, max: 2040, step: 1, v: 2027, u: "", raw: true },
   { id: "price", g: "econ", label: "판매가", min: 5000, max: 30000, step: 500, v: 14000, u: "원/t" },
   { id: "opex", g: "econ", label: "운영비", min: 3000, max: 20000, step: 250, v: 8500, u: "원/t" },
@@ -77,6 +79,7 @@ const bearing = deg => { const a = (deg % 360 + 360) % 360; return a <= 90 ? `N$
 // ── 5. 채광 격자(굴진 방향으로 돌린 좌표) · 광체 수직선 ──
 // 격자 좌표 (u, v): 원점 = 1편 진입점, u = 격자 방향, v = 그 왼쪽. 판넬 경계가 v = 0에 오므로 진입 굴진이 갱도 중심선을 따라 들어간다.
 let RAY = null, USERPORTAL = null;
+const LVSET = {};                                                           // 편별로 따로 넣은 값 {편 번호: {rec: %, adv: m}} — 없으면 위의 기본값
 const toLoc = (F, x, y) => [(x - F.ox) * F.ux + (y - F.oy) * F.uy, -(x - F.ox) * F.uy + (y - F.oy) * F.ux];
 const toW = (F, u, v) => [F.ox + u * F.ux - v * F.uy, F.oy + u * F.uy + v * F.ux];
 function buildRays(S, F) {
@@ -232,8 +235,22 @@ function design(P) {
       else if (P.sfx && p.sf < P.sfmin) { p.why = "sf"; L.rej.push(p); }
       else L.panels.push(p);
     }
+  }
+  // 편 번호 = 위에서부터, 캘 판넬이 남은 편 순서. 편별 실수율·굴진장: 판넬에서 실제로 나오는 양 = 굴착량 × 실수율,
+  // 작업장 한 곳의 월 생산 = 갱도 폭 × 갱도 높이 × 굴진장 × 비중 × 월 발파 횟수 × 실수율
+  for (const L of all) { L.pool = L.panels; for (const p of L.pool) p.tg = p.t; }
+  const number = lv => {
+    let n = 0; for (const L of all) L.no = null;
+    for (const L of lv) {
+      L.no = ++n; const o = LVSET[L.no] || {}; L.rec = clamp(o.rec ?? P.rec, 1, 100) / 100; L.adv = Math.max(0.1, o.adv ?? P.adv); L.own = { rec: o.rec !== undefined, adv: o.adv !== undefined };
+      L.rate = P.w * H * L.adv * P.rho * P.nblast * L.rec;
+      for (const p of L.pool) p.t = p.tg * L.rec;
+    }
+  };
+  const stage = () => { for (const L of all) {
+    L.rej = L.rej.filter(p => p.why !== "econ"); for (const p of L.pool) delete p.why; L.panels = L.no ? L.pool.slice() : []; L.map = new Map(); L.drives = [];
     // 블록(상하좌우로 붙은 판넬)을 진입점에서 가까운 것부터 잇고, 경로 거리순으로 캔다. 떨어진 블록은 가장 가까운 연결점에서 편 갱도.
-    const base = P.opex + Math.max(0, used.indexOf(L)) * P.hinc, cost = d => base + P.hcost * d / 100;
+    const base = P.opex + Math.max(0, (L.no || 1) - 1) * P.hinc, cost = d => base + P.hcost * d / 100;
     if (L.J) {
       const idx = new Map(L.panels.map(p => [p.i + "," + p.j, p])), seen = new Set(); let rest = [];
       for (const p0 of L.panels) {
@@ -266,7 +283,10 @@ function design(P) {
     for (const p of [...L.panels, ...L.rej]) L.map.set(p.i + "," + p.j, p);
     L.tot = L.panels.reduce((a, p) => a + p.t, 0); L.ore = L.panels.reduce((a, p) => a + p.t * p.frac, 0);
     L.minSF = L.panels.reduce((a, p) => Math.min(a, p.sf), Infinity);
-  }
+  } };
+  // 수지 판단으로 편 전체가 빠지면 번호가 비므로, 남은 편으로 번호를 다시 매겨 한 번 더 돌린다
+  number(all.filter(L => L.pool.length)); stage();
+  const live = all.filter(L => L.panels.length); if (live.some((L, k) => L.no !== k + 1)) { number(live); stage(); }
   if (P.dip0 < 0.25) for (let t = 0.15; t <= 1; t += 0.05) { const x = PORTAL.x + (E1.x - PORTAL.x) * t, y = PORTAL.y + (E1.y - PORTAL.y) * t; if (terrainZ(x, y) < zP) { warn.push("진입 수평갱이 지표 밖으로 드러나는 구간이 있음 (계곡 횡단)"); break; } }
   return { S, H, Pw, all, levels: all.filter(L => L.panels.length), INC, PORTAL, warn, R, aboveT: aboveV * P.rho };
 }
@@ -274,16 +294,15 @@ function design(P) {
 // ── 7. 일정: 월 단위, 작업장 배정 ──
 const jobProg = (j, t) => j.start === null ? 0 : clamp((t - j.start) * P.rate / j.len, 0, 1);
 function schedule(D, P) {
-  const seq = D.levels, I = D.INC, trig = P.trig / 100, years = [], rate = P.frate * 1e3;
+  const seq = D.levels, I = D.INC, trig = P.trig / 100, years = [];
   const yr = y => years[y] || (years[y] = { y, cal: P.y0 + y, t: 0, ore: 0, lv: new Float64Array(seq.length), dev: 0, cf: 0, target: 0, opened: [], faces: 0, months: 0 });
-  for (const L of D.all) L.no = null;
   seq.forEach((L, k) => {
-    L.seq = k; L.no = k + 1; L.name = `${k + 1}편(EL.${Math.round(L.zf)})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity; L.first = null; L.last = null; L.opened = null;
+    L.seq = k; L.name = `${L.no}편(EL.${Math.round(L.zf)})`; L.rem = L.tot; L.ptr = 0; L.access = null; L.ready = Infinity; L.first = null; L.last = null; L.opened = null;
     for (const p of L.panels) { p.s0 = null; p.s1 = null; p.done = 0; if (p.blk) p.blk.paid = false; }
   });
   const jobs = seq.map((L, k) => k ? { kind: "incline", k, a: seq[k - 1].J, b: L.J, len: Math.hypot(Math.hypot(L.J.x - seq[k - 1].J.x, L.J.y - seq[k - 1].J.y), seq[k - 1].zf - L.zf) + L.xc, start: null }
                                    : { kind: I.dip0 > 0.25 ? "incline" : "adit", k, a: I.PORTAL, b: L.J, len: I.len0 + Math.hypot(Math.hypot(L.J.x - I.J0.x, L.J.y - I.J0.y), I.J0.z - L.zf), start: null });
-  const open = (k, m) => { const j = jobs[k]; j.start = m; seq[k].opened = m; seq[k].access = m + j.len / P.rate; seq[k].ready = seq[k].access + P.lead; if (k) yr(Math.floor(m / 12)).opened.push(k + 1); };
+  const open = (k, m) => { const j = jobs[k]; j.start = m; seq[k].opened = m; seq[k].access = m + j.len / P.rate; seq[k].ready = seq[k].access + P.lead; if (k) yr(Math.floor(m / 12)).opened.push(seq[k].no); };
   if (seq.length) open(0, 0);
   const devTot = jobs.reduce((a, j) => a + j.len, 0), start = seq.length ? Math.ceil(seq[0].ready) : 0, r = P.disc / 100;
   let npv = -P.capex * 1e8, left = seq.reduce((a, L) => a + L.tot, 0), idle = 0;
@@ -301,15 +320,15 @@ function schedule(D, P) {
       const next = tn => { let late = null; for (const L of openL) for (let q = L.ptr; q < L.panels.length; q++) { const p = L.panels[q]; if (p.s1 !== null || p.done > 0 || busy.has(p) || (p.pre && p.pre.s1 === null)) continue; const ta = p.pre ? p.pre.s1 : 0; if (ta <= tn + 1e-9) return p; if (!late || ta < late.pre.s1) late = p; } return late; };
       let nf = 0;
       for (let f = 0; f < P.nface && target > 1; f++) {
-        let cap = rate, worked = false, cur = partial[f] || null;
-        while (cap > 1 && target > 1) {
-          const p = cur || next(m + (rate - cap) / rate); cur = null; if (!p) break; busy.add(p);
-          if (p.done === 0 && p.pre && p.pre.s1 > m + (rate - cap) / rate) cap = rate * (m + 1 - p.pre.s1);
-          if (cap <= 1) break; const L = p.L, d = Math.min(cap, p.t - p.done, target);
-          if (p.s0 === null) { p.s0 = m + (rate - cap) / rate; if (L.first === null) L.first = p.s0; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
-          p.done += d; cap -= d; target -= d; got += d; worked = true;
+        let tl = 1, worked = false, cur = partial[f] || null;                   // tl = 이 작업장의 이번 달 남은 시간(0~1)
+        while (tl > 1e-4 && target > 1) {
+          const p = cur || next(m + 1 - tl); cur = null; if (!p) break; busy.add(p);
+          if (p.done === 0 && p.pre && p.pre.s1 > m + 1 - tl) tl = m + 1 - p.pre.s1;
+          if (tl <= 1e-4) break; const L = p.L, d = Math.min(tl * L.rate, p.t - p.done, target);
+          if (p.s0 === null) { p.s0 = m + 1 - tl; if (L.first === null) L.first = p.s0; if (p.blk && !p.blk.paid) { p.blk.paid = true; cf -= p.blk.drive * P.dcost * 1e4; Y.dev += p.blk.drive; } }
+          p.done += d; tl -= d / L.rate; target -= d; got += d; worked = true;
           Y.t += d; Y.ore += d * p.frac; Y.lv[L.seq] += d; L.rem -= d; left -= d; cf += d * (p.frac * P.price - p.cost);
-          if (p.done >= p.t - 1e-6) { p.s1 = m + (rate - cap) / rate; L.last = p.s1; } else break;
+          if (p.done >= p.t - 1e-6) { p.s1 = m + 1 - Math.max(0, tl); L.last = p.s1; } else break;
         }
         if (worked) nf++;
       }
